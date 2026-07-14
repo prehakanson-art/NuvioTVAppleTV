@@ -23,3 +23,5 @@ NuvioTV/Secrets.swift
 # macOS
 .DS_Store
 **/.DS_Store
+nodeserver/node_modules/
+Vendor/NodeMobile.xcframework/

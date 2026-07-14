@@ -70,11 +70,15 @@ struct PlayerSettings: Codable, Equatable {
     var autoPlayTimeoutSeconds: Int = 3
     var stillWatchingEnabled: Bool = false
     var stillWatchingEpisodeThreshold: Int = 3
+    /// LEGACY (pre-upNextLeadSeconds): kept for save-file compatibility, not
+    /// shown or used anymore — the Up Next timing is now credits-chapter
+    /// first, then `upNextLeadSeconds` before the end.
     var nextEpisodeThresholdMode: NextEpisodeThresholdMode = .percentage
-    /// 97–100 in half-steps (matches the APK slider 194…200 ÷ 2).
     var nextEpisodeThresholdPercent: Double = 99
-    /// 0–3.5 minutes in half-steps.
     var nextEpisodeThresholdMinutesBeforeEnd: Double = 2
+    /// Fallback for files WITHOUT an end-credits chapter: how many seconds
+    /// before the end the Up Next card appears. Default 30.
+    var upNextLeadSeconds: Int = 30
     /// Seconds a Detail screen must sit idle before its trailer auto-plays in
     /// the backdrop. 0 = off.
     var autoPlayTrailerSeconds: Int = 0
@@ -162,6 +166,8 @@ struct PlayerSettings: Codable, Equatable {
     static let timeoutValues: [Int] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 15, 20, 25, 30, timeoutUnlimited]
     /// Selectable auto-play-trailer delays (seconds).
     static let trailerDelayValues: [Int] = [0, 1, 2, 3, 5]
+    /// Selectable Up Next lead times (seconds before end) for chapter-less files.
+    static let upNextLeadValues: [Int] = [10, 15, 20, 30, 45, 60, 90, 120, 180]
     /// Selectable per-press skip amounts (seconds).
     static let skipValues: [Int] = [5, 10, 15, 30]
     /// Selectable scrub-mode jump amounts (seconds).
@@ -191,6 +197,7 @@ struct PlayerSettings: Codable, Equatable {
         nextEpisodeThresholdMode = (try? c.decode(NextEpisodeThresholdMode.self, forKey: .nextEpisodeThresholdMode)) ?? d.nextEpisodeThresholdMode
         nextEpisodeThresholdPercent = (try? c.decode(Double.self, forKey: .nextEpisodeThresholdPercent)) ?? d.nextEpisodeThresholdPercent
         nextEpisodeThresholdMinutesBeforeEnd = (try? c.decode(Double.self, forKey: .nextEpisodeThresholdMinutesBeforeEnd)) ?? d.nextEpisodeThresholdMinutesBeforeEnd
+        upNextLeadSeconds = (try? c.decode(Int.self, forKey: .upNextLeadSeconds)) ?? d.upNextLeadSeconds
         autoPlayTrailerSeconds = (try? c.decode(Int.self, forKey: .autoPlayTrailerSeconds)) ?? d.autoPlayTrailerSeconds
         skipSeconds = (try? c.decode(Int.self, forKey: .skipSeconds)) ?? d.skipSeconds
         scrubJumpSeconds = (try? c.decode(Int.self, forKey: .scrubJumpSeconds)) ?? d.scrubJumpSeconds

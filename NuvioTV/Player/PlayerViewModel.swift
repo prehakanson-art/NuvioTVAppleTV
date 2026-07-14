@@ -2176,12 +2176,8 @@ final class PlayerViewModel: ObservableObject {
     private func crossedNextEpisodeThreshold() -> Bool {
         guard duration > 0 else { return false }
         if let credits = creditsChapter { return position >= credits.start }
-        switch settings.nextEpisodeThresholdMode {
-        case .percentage:
-            return position >= duration * (settings.nextEpisodeThresholdPercent / 100)
-        case .minutesBeforeEnd:
-            return (duration - position) <= settings.nextEpisodeThresholdMinutesBeforeEnd * 60
-        }
+        // No credits chapter → arm `upNextLeadSeconds` before the end.
+        return (duration - position) <= Double(settings.upNextLeadSeconds)
     }
 
     /// Called on each time tick. Arms the Up Next overlay once the threshold

@@ -265,6 +265,17 @@ struct PlaybackSettingsDetail: View {
             isOn: s.autoPlayNextEpisode
         )
 
+        // Shown regardless of auto-play — the Up Next card always appears.
+        NuvioDropdown(
+            title: "Show Up Next",
+            subtitle: "When credits chapters exist the card appears as they start; otherwise this many seconds before the end",
+            icon: "clock.fill",
+            selection: String(store.settings.upNextLeadSeconds),
+            options: PlayerSettings.upNextLeadValues.map {
+                NuvioDropdownOption(String($0), $0 < 60 ? "\($0) seconds before end" : "\($0 / 60) min before end")
+            }
+        ) { store.settings.upNextLeadSeconds = Int($0) ?? 30 }
+
         if store.settings.autoPlayNextEpisode {
             PlaybackToggleRow(
                 icon: "eye.fill",
@@ -288,36 +299,6 @@ struct PlaybackSettingsDetail: View {
                 selection: String(store.settings.autoPlayTimeoutSeconds),
                 options: PlayerSettings.timeoutValues.map { NuvioDropdownOption(String($0), timeoutLabel($0)) }
             ) { store.settings.autoPlayTimeoutSeconds = Int($0) ?? 3 }
-
-            NuvioDropdown(
-                title: "Trigger point",
-                icon: "slider.horizontal.3",
-                selection: store.settings.nextEpisodeThresholdMode == .percentage ? "percentage" : "minutes",
-                options: [
-                    NuvioDropdownOption("percentage", "% watched"),
-                    NuvioDropdownOption("minutes", "Minutes before end")
-                ]
-            ) { store.settings.nextEpisodeThresholdMode = $0 == "percentage" ? .percentage : .minutesBeforeEnd }
-
-            if store.settings.nextEpisodeThresholdMode == .percentage {
-                NuvioDropdown(
-                    title: "At percent watched",
-                    icon: "chart.bar.fill",
-                    selection: formatHalf(store.settings.nextEpisodeThresholdPercent),
-                    options: stride(from: 97.0, through: 100.0, by: 0.5).map {
-                        NuvioDropdownOption(formatHalf($0), "\(formatHalf($0))%")
-                    }
-                ) { store.settings.nextEpisodeThresholdPercent = Double($0) ?? 99 }
-            } else {
-                NuvioDropdown(
-                    title: "Minutes before end",
-                    icon: "clock.fill",
-                    selection: formatHalf(store.settings.nextEpisodeThresholdMinutesBeforeEnd),
-                    options: stride(from: 0.0, through: 3.5, by: 0.5).map {
-                        NuvioDropdownOption(formatHalf($0), "\(formatHalf($0)) min")
-                    }
-                ) { store.settings.nextEpisodeThresholdMinutesBeforeEnd = Double($0) ?? 2 }
-            }
 
             PlaybackToggleRow(
                 icon: "square.stack.3d.up.fill",
@@ -352,11 +333,6 @@ struct PlaybackSettingsDetail: View {
         return "\(seconds)s"
     }
 
-    private func formatHalf(_ value: Double) -> String {
-        value.truncatingRemainder(dividingBy: 1) == 0
-            ? String(Int(value))
-            : String(format: "%.1f", value)
-    }
 }
 
 // MARK: - Rows

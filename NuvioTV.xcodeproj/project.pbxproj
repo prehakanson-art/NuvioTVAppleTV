@@ -33,6 +33,7 @@
 		4E54D704783E4680F2021062 /* RequestCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD681267F7BC35D3CC1F797C /* RequestCache.swift */; };
 		548BE5350BCB2D3F680185F8 /* SettingsLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142717F90563AF0BC845136D /* SettingsLayoutView.swift */; };
 		563A626670904DF05648D760 /* SidebarNav.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A881246C6166C28BCD7C8B /* SidebarNav.swift */; };
+		5A1A603ACF792546257DA9D3 /* DiagnosticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 757A803B163112348471FFDB /* DiagnosticsService.swift */; };
 		6866CA62BAB2D88C2968222B /* NuvioTVApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B927939FBF8E9EC49EC75E7F /* NuvioTVApp.swift */; };
 		7000373F832F741F5E30C8D0 /* StreamsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D89B97FD2C452C0137A911D /* StreamsView.swift */; };
 		7E27EFF436F5ABF148CCB301 /* TrailerPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E07F3565C7E5BB417A83893E /* TrailerPlayer.swift */; };
@@ -108,6 +109,7 @@
 		57C4A723527A06C009FCB68A /* PlayerControlsOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerControlsOverlay.swift; sourceTree = "<group>"; };
 		5D89B97FD2C452C0137A911D /* StreamsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamsView.swift; sourceTree = "<group>"; };
 		6A77D0DFF73779D6393DDF7A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		757A803B163112348471FFDB /* DiagnosticsService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsService.swift; sourceTree = "<group>"; };
 		75C74274D8317A3EC634F256 /* PlayerScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerScreen.swift; sourceTree = "<group>"; };
 		760F22FDFFEF572A2AB98E3D /* VLCEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLCEngine.swift; sourceTree = "<group>"; };
 		79E6F3DF03C6701BE4587833 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
@@ -222,6 +224,7 @@
 				3A901073E967FB097E347259 /* CollectionsStore.swift */,
 				3A1B94052D73FAE9626AEBA3 /* DebridService.swift */,
 				0CEDB85725047F73A8229A81 /* DeepLinkService.swift */,
+				757A803B163112348471FFDB /* DiagnosticsService.swift */,
 				17D137BCE0827FF5B9EBCA42 /* ExternalPlayers.swift */,
 				A26744F92AC1D7E60BF3416E /* HomeCatalogSettingsStore.swift */,
 				40ED41BE6AC1AE734241A985 /* LibraryStore.swift */,
@@ -406,6 +409,7 @@
 				0DFE89CB6E0C80C4497E341F /* DebridService.swift in Sources */,
 				9B3FA2260743150105A9D5B4 /* DeepLinkService.swift in Sources */,
 				E5B79A409AAB47A1AC1155D8 /* DetailView.swift in Sources */,
+				5A1A603ACF792546257DA9D3 /* DiagnosticsService.swift in Sources */,
 				8D638E0114249DD36A1B140E /* DiscoverView.swift in Sources */,
 				3DC8FC0723F87B82CBF59ECA /* ExternalPlayers.swift in Sources */,
 				0BD9A09196C09FA6CD23461E /* HomeCatalogSettingsStore.swift in Sources */,

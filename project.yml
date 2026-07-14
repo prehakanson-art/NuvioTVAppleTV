@@ -42,6 +42,12 @@ targets:
           - vlc-x-callback
           - nplayer-http
           - open-vidhub
+        # Deep links: nuvio:// (open a title) + stremio:// (install an addon).
+        CFBundleURLTypes:
+          - CFBundleURLName: tv.nuvio.deeplink
+            CFBundleURLSchemes:
+              - nuvio
+              - stremio
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
     settings:

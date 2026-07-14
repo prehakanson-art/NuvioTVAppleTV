@@ -1035,6 +1035,8 @@ private struct TrashCircle: View {
 private struct AboutDetail: View {
     @EnvironmentObject private var theme: ThemeManager
     @State private var info: AboutInfo?
+    @State private var cacheLabel = DiagnosticsService.cacheSizeLabel()
+    @State private var clearing = false
 
     private var version: String {
         let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
@@ -1072,6 +1074,24 @@ private struct AboutDetail: View {
                 }.buttonStyle(PlainCardButtonStyle())
                 Button { info = .licenses } label: {
                     SettingsValueCard(title: "Licenses & Attributions", subtitle: "Open-source components used in this app", value: "")
+                }.buttonStyle(PlainCardButtonStyle())
+            }
+
+            SettingsGroupCard(title: "Diagnostics", subtitle: "Build information and storage") {
+                SettingsValueCard(title: "Version", subtitle: "App build", value: DiagnosticsService.appVersion)
+                SettingsValueCard(title: "System", subtitle: DiagnosticsService.deviceModel, value: DiagnosticsService.systemVersion)
+                Button {
+                    guard !clearing else { return }
+                    clearing = true
+                    DiagnosticsService.clearCaches()
+                    cacheLabel = DiagnosticsService.cacheSizeLabel()
+                    clearing = false
+                } label: {
+                    SettingsValueCard(
+                        title: "Clear cache",
+                        subtitle: "Remove cached source lists, metadata and images",
+                        value: clearing ? "…" : cacheLabel
+                    )
                 }.buttonStyle(PlainCardButtonStyle())
             }
         }

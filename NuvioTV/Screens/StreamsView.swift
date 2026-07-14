@@ -121,7 +121,7 @@ final class StreamsViewModel: ObservableObject {
         let re = trimmed.isEmpty ? nil
             : try? NSRegularExpression(pattern: trimmed, options: [.caseInsensitive])
         return allEntries.first { entry in
-            if cachedOnly && !entry.isInstant { return false }
+            if cachedOnly && !entry.stream.isCached { return false }
             if let re {
                 let hay = "\(entry.addonName) \(entry.displayName) \(entry.displayDetail)"
                 let range = NSRange(hay.startIndex..., in: hay)

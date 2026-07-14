@@ -80,7 +80,9 @@ enum SourceSelection {
             if options.excludeAV1, entry.stream.isAV1 { return false }
             if options.dolbyVisionOnly, !entry.stream.isDolbyVision { return false }
             if options.hdrOnly, !entry.stream.isHDR { return false }
-            if options.cachedOnly, !entry.isInstant { return false }
+            // Strict `isCached` (not `isInstant`): a bare playable URL isn't
+            // proof of caching for debrid addons that download on access.
+            if options.cachedOnly, !entry.stream.isCached { return false }
             return true
         }
     }

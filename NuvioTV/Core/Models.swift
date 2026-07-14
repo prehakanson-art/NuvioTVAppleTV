@@ -455,6 +455,39 @@ struct Stream: Codable, Hashable {
         return regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)) != nil
     }
 
+    /// Mentions of a debrid provider — a stream that names one is a debrid
+    /// result, whose bare playable URL does NOT imply "cached".
+    private static let debridMentionRegex = try? NSRegularExpression(
+        pattern: #"real[\s\-]?debrid|premium(ize)?|all[\s\-]?debrid|torbox|debrid|\[(rd|ad|pm|tb|dl|oc|pk|ed)\b"#,
+        options: [.caseInsensitive]
+    )
+    private func mentionsDebrid(_ lower: String) -> Bool {
+        guard let regex = Self.debridMentionRegex else { return false }
+        return regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)) != nil
+    }
+
+    /// STRICT cached test for the "cached only" filter. Unlike `isInstant`, a
+    /// bare playable URL does NOT count — debrid addons (Comet, MediaFusion,
+    /// StremThru…) return a playable URL for UNCACHED results too (they
+    /// download on access), which is why "cached only" was letting non-cached
+    /// links through. Requires a positive cached signal, or a plain direct
+    /// link with no debrid involvement at all.
+    var isCached: Bool {
+        let raw = "\(name ?? "") \(title ?? "") \(description ?? "")"
+        let lower = raw.lowercased()
+        if isUncachedMarked(lower) { return false }
+        // Positive cached markers used across the common addons.
+        if raw.contains("⚡") || raw.contains("✅") { return true }
+        if lower.contains("cached") || lower.contains("instant") { return true }
+        if let regex = Self.cachedMarkerRegex,   // "[RD+]" / "[PM+]" style tags
+           regex.firstMatch(in: raw, range: NSRange(raw.startIndex..., in: raw)) != nil { return true }
+        // An unmarked torrent is never instant; a debrid URL without a cached
+        // marker is a download-on-access link (NOT cached). Only a genuine
+        // direct link with no debrid context counts as instant.
+        if isTorrent { return false }
+        return isPlayable && !mentionsDebrid(lower)
+    }
+
     private var searchHaystack: String { "\(name ?? "") \(title ?? "") \(description ?? "")".lowercased() }
 
     /// AV1-encoded (no hardware decode on the Apple TV A10X).

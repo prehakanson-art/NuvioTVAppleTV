@@ -119,6 +119,60 @@ struct PlaybackSettingsDetail: View {
                 )
             }
 
+            SettingsGroupCard(title: "Auto-play source", subtitle: "Skip the Sources page and start playing on its own") {
+                PlaybackToggleRow(
+                    icon: "play.circle.fill",
+                    title: "Auto-play best source",
+                    subtitle: "When you open a title, start the top-ranked link automatically instead of showing the source list",
+                    isOn: s.autoPlaySourceEnabled
+                )
+
+                if store.settings.autoPlaySourceEnabled {
+                    PlaybackToggleRow(
+                        icon: "bolt.fill",
+                        title: "Cached sources only",
+                        subtitle: "Only auto-play a debrid-cached / instant link — never wait on a torrent that has to resolve first",
+                        isOn: s.autoPlaySourceCachedOnly
+                    )
+
+                    HStack(spacing: NuvioSpacing.md) {
+                        Image(systemName: "text.magnifyingglass")
+                            .font(.system(size: 26))
+                            .foregroundStyle(theme.palette.textSecondary)
+                            .frame(width: 34)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Match (optional)")
+                                .font(.system(size: 24, weight: .semibold))
+                                .foregroundStyle(theme.palette.textPrimary)
+                            TextField("e.g. 2160p|remux", text: s.autoPlaySourceRegex)
+                                .font(.system(size: 22))
+                            Text("Case-insensitive; the auto-played link's name must match. Blank = first in the list.")
+                                .font(.system(size: 18))
+                                .foregroundStyle(theme.palette.textTertiary)
+                        }
+                    }
+                }
+
+                PlaybackToggleRow(
+                    icon: "arrow.clockwise.circle.fill",
+                    title: "Reuse last link",
+                    subtitle: "Replay the last source you played for a title without searching addons again, within the window below",
+                    isOn: s.reuseLastLinkEnabled
+                )
+
+                if store.settings.reuseLastLinkEnabled {
+                    NuvioDropdown(
+                        title: "Reuse window",
+                        subtitle: "How long a remembered link stays valid before Nuvio searches again",
+                        icon: "clock.fill",
+                        selection: String(store.settings.reuseLastLinkCacheHours),
+                        options: PlayerSettings.reuseLastLinkHoursValues.map {
+                            NuvioDropdownOption(String($0), $0 < 24 ? "\($0) hours" : "\($0 / 24) day\($0 >= 48 ? "s" : "")")
+                        }
+                    ) { store.settings.reuseLastLinkCacheHours = Int($0) ?? 24 }
+                }
+            }
+
             SettingsGroupCard(title: "Badges", subtitle: "Badge packs from Badger (nintle.github.io/Badger) shown on source rows") {
                 badgeControls
             }

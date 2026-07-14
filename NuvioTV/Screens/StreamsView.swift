@@ -79,6 +79,44 @@ final class StreamsViewModel: ObservableObject {
     static let sourceCache = DiskCache<[CachedStreamSource]>(name: "sources")
     static let sourceCacheTTL: TimeInterval = 15 * 60
 
+    /// Remembers the last successfully-played source per title so "Reuse last
+    /// link" can replay it without another addon sweep. Freshness is enforced
+    /// per-read against the user's chosen cache window.
+    static let lastLinkCache = DiskCache<CachedStreamSource>(name: "lastlink")
+
+    /// The last played source for this title if still within `hours`, else nil.
+    func freshLastLink(hours: Int) async -> StreamEntry? {
+        let id = await effectiveStreamID()
+        guard let cached = await Self.lastLinkCache.value(
+            for: id, ttl: TimeInterval(max(1, hours)) * 3600
+        ) else { return nil }
+        return StreamEntry(addonName: cached.addonName, stream: cached.stream)
+    }
+
+    /// Record a resolved, directly-playable source as this title's last link.
+    func recordLastLink(_ entry: StreamEntry) {
+        guard entry.stream.isPlayable, let id = resolvedID else { return }
+        let cached = CachedStreamSource(addonName: entry.addonName, stream: entry.stream)
+        Task { await Self.lastLinkCache.store(cached, for: id) }
+    }
+
+    /// First source to auto-play (entries are already sorted best-first),
+    /// honoring cached-only and an optional case-insensitive title regex.
+    func autoPlayPick(cachedOnly: Bool, regex: String) -> StreamEntry? {
+        let trimmed = regex.trimmingCharacters(in: .whitespaces)
+        let re = trimmed.isEmpty ? nil
+            : try? NSRegularExpression(pattern: trimmed, options: [.caseInsensitive])
+        return allEntries.first { entry in
+            if cachedOnly && !entry.isInstant { return false }
+            if let re {
+                let hay = "\(entry.addonName) \(entry.displayName) \(entry.displayDetail)"
+                let range = NSRange(hay.startIndex..., in: hay)
+                if re.firstMatch(in: hay, range: range) == nil { return false }
+            }
+            return true
+        }
+    }
+
     /// Reset and fetch again (the empty state's Try Again) — bypasses the cache
     /// so the user gets a genuinely fresh sweep.
     func reload(addonManager: AddonManager, debridEnabled: Bool, perTier: Int, filtersEnabled: Bool = true) async {
@@ -189,6 +227,9 @@ struct StreamsView: View {
     @FocusState private var focusedEntry: UUID?
     /// Guards the one-time auto-focus so filter changes don't steal focus.
     @State private var didInitialFocus = false
+    /// Guards the one-shot auto-play / reuse-last-link so backing out of the
+    /// player lands on the manual list instead of re-triggering.
+    @State private var didAutoAct = false
 
     let onSelect: (StreamEntry, [StreamEntry]) -> Void
 
@@ -233,13 +274,38 @@ struct StreamsView: View {
             }
         }
         .task {
-            viewModel.streamFilters = playerSettings.settings.streamFilterOptions
-            await viewModel.load(
-                addonManager: addonManager,
-                debridEnabled: debrid.hasAnyConfigured,
-                perTier: playerSettings.settings.sourcesPerSizeTier,
-                filtersEnabled: playerSettings.settings.sourceFiltersEnabled
-            )
+            let s = playerSettings.settings
+            viewModel.streamFilters = s.streamFilterOptions
+
+            // Reuse last link: if we still have a fresh remembered source, play
+            // it immediately, but keep loading so backing out shows the full
+            // list (and the player's failover has alternates).
+            let loadTask = Task {
+                await viewModel.load(
+                    addonManager: addonManager,
+                    debridEnabled: debrid.hasAnyConfigured,
+                    perTier: s.sourcesPerSizeTier,
+                    filtersEnabled: s.sourceFiltersEnabled
+                )
+            }
+            if !didAutoAct, s.reuseLastLinkEnabled,
+               let last = await viewModel.freshLastLink(hours: s.reuseLastLinkCacheHours) {
+                didAutoAct = true
+                await loadTask.value
+                onSelect(last, viewModel.allEntries)
+                return
+            }
+            await loadTask.value
+
+            // Auto-play best source: once the sweep is done, start the best
+            // matching link without waiting for a manual pick.
+            if !didAutoAct, s.autoPlaySourceEnabled,
+               let best = viewModel.autoPlayPick(
+                   cachedOnly: s.autoPlaySourceCachedOnly, regex: s.autoPlaySourceRegex
+               ) {
+                didAutoAct = true
+                handleSelection(best, viewModel.allEntries)
+            }
         }
         .alert("Couldn't resolve stream", isPresented: Binding(
             get: { resolveError != nil }, set: { if !$0 { resolveError = nil } }
@@ -319,6 +385,7 @@ struct StreamsView: View {
     /// playback; direct streams pass straight through.
     private func handleSelection(_ entry: StreamEntry, _ all: [StreamEntry]) {
         guard entry.stream.isTorrent else {
+            viewModel.recordLastLink(entry)
             onSelect(entry, all)
             return
         }
@@ -346,7 +413,9 @@ struct StreamsView: View {
                     infoHash: nil,
                     behaviorHints: entry.stream.behaviorHints
                 )
-                onSelect(StreamEntry(addonName: "\(provider.shortName) · \(entry.addonName)", stream: resolved), all)
+                let resolvedEntry = StreamEntry(addonName: "\(provider.shortName) · \(entry.addonName)", stream: resolved)
+                viewModel.recordLastLink(resolvedEntry)
+                onSelect(resolvedEntry, all)
             case .missingKey:
                 resolveError = "\(provider.displayName) API key is missing."
             case .notCached:

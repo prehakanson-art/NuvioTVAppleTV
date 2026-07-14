@@ -161,6 +161,21 @@ struct PlayerSettings: Codable, Equatable {
     var streamDolbyVisionOnly: Bool = false
     /// Only show links the debrid service already has cached (instant play).
     var streamCachedOnly: Bool = false
+    // --- Auto-play source (skip the picker) ---
+    /// Skip the Sources page and start the best matching link automatically.
+    var autoPlaySourceEnabled: Bool = false
+    /// Only auto-play a debrid-cached / instant source (never wait on a
+    /// torrent that has to be resolved first).
+    var autoPlaySourceCachedOnly: Bool = false
+    /// Optional case-insensitive regex the auto-played source's name/detail
+    /// must match (e.g. "2160p|remux"). "" = first source in the sorted list.
+    var autoPlaySourceRegex: String = ""
+    // --- Reuse last link ---
+    /// Replay the last successfully-played source for a title without
+    /// re-scraping, as long as it's within the cache window.
+    var reuseLastLinkEnabled: Bool = false
+    /// How long a remembered last link stays valid (hours).
+    var reuseLastLinkCacheHours: Int = 24
     /// OPT-IN HDR/frame-rate display-mode switching. Off (default) = the
     /// Apple TV stays in its home-screen format and tone-maps content into it
     /// (like the Android APK/Stremio). On = ask the TV to switch into the
@@ -207,6 +222,8 @@ struct PlayerSettings: Codable, Equatable {
     /// Selectable subtitle vertical offsets (points; + raises).
     static let subtitleOffsetValues: [Int] = [-40, -20, 0, 20, 40, 80, 120, 160]
     static let subtitleBackgroundOpacityValues: [Int] = [0, 15, 30, 45, 60, 80, 100]
+    /// Selectable reuse-last-link cache windows (hours).
+    static let reuseLastLinkHoursValues: [Int] = [1, 3, 6, 12, 24, 48, 72]
     /// Selectable per-press skip amounts (seconds).
     static let skipValues: [Int] = [5, 10, 15, 30]
     /// Selectable scrub-mode jump amounts (seconds).
@@ -283,6 +300,11 @@ struct PlayerSettings: Codable, Equatable {
         streamHDROnly = (try? c.decode(Bool.self, forKey: .streamHDROnly)) ?? d.streamHDROnly
         streamDolbyVisionOnly = (try? c.decode(Bool.self, forKey: .streamDolbyVisionOnly)) ?? d.streamDolbyVisionOnly
         streamCachedOnly = (try? c.decode(Bool.self, forKey: .streamCachedOnly)) ?? d.streamCachedOnly
+        autoPlaySourceEnabled = (try? c.decode(Bool.self, forKey: .autoPlaySourceEnabled)) ?? d.autoPlaySourceEnabled
+        autoPlaySourceCachedOnly = (try? c.decode(Bool.self, forKey: .autoPlaySourceCachedOnly)) ?? d.autoPlaySourceCachedOnly
+        autoPlaySourceRegex = (try? c.decode(String.self, forKey: .autoPlaySourceRegex)) ?? d.autoPlaySourceRegex
+        reuseLastLinkEnabled = (try? c.decode(Bool.self, forKey: .reuseLastLinkEnabled)) ?? d.reuseLastLinkEnabled
+        reuseLastLinkCacheHours = (try? c.decode(Int.self, forKey: .reuseLastLinkCacheHours)) ?? d.reuseLastLinkCacheHours
         matchContentDisplayMode = (try? c.decode(Bool.self, forKey: .matchContentDisplayMode)) ?? d.matchContentDisplayMode
         nativeDolbyVision = (try? c.decode(Bool.self, forKey: .nativeDolbyVision)) ?? d.nativeDolbyVision
     }

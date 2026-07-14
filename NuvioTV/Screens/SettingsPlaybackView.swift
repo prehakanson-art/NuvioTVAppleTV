@@ -207,10 +207,19 @@ struct PlaybackSettingsDetail: View {
                         .lineLimit(1)
                 }
                 Spacer()
+                Button("Sync from Account") {
+                    Task { await streamBadges.syncFromAccount() }
+                }
+                .font(.system(size: 22, weight: .semibold))
                 Button("Remove") { streamBadges.removeConfig() }
                     .font(.system(size: 22, weight: .semibold))
             }
             .padding(.vertical, 4)
+            if let status = streamBadges.lastStatus {
+                Text(status)
+                    .font(.system(size: 19))
+                    .foregroundStyle(theme.palette.textSecondary)
+            }
         } else {
             HStack(spacing: NuvioSpacing.md) {
                 TextField("Badge config URL (https://…/badges.json)", text: $badgeURLInput)
@@ -232,12 +241,16 @@ struct PlaybackSettingsDetail: View {
                     }
                 }
             }
+            Button("Sync from Account") {
+                Task { await streamBadges.syncFromAccount() }
+            }
+            .font(.system(size: 22, weight: .semibold))
             if let status = streamBadges.lastStatus {
                 Text(status)
                     .font(.system(size: 19))
                     .foregroundStyle(theme.palette.textSecondary)
             }
-            Text("Build or pick a badge pack at nintle.github.io/Badger, host the JSON (the editor gives you a link), and paste its URL here.")
+            Text("Build or pick a badge pack at nintle.github.io/Badger, host the JSON (the editor gives you a link), and paste its URL here — or pull the pack already set up in another Nuvio app with Sync from Account.")
                 .font(.system(size: 18))
                 .foregroundStyle(theme.palette.textTertiary)
         }

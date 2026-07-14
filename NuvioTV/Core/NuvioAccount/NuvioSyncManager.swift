@@ -132,6 +132,9 @@ final class NuvioSyncManager: ObservableObject {
         }
         homeCatalogSettings.onLocalChange = { [weak self] in self?.scheduleHomeCatalogPush() }
         streamBadges?.onLocalChange = { [weak self] in self?.scheduleBadgeSettingsPush() }
+        streamBadges?.remoteSync = { [weak self] in
+            await self?.pullBadgeSettings() ?? "Account sync isn't ready yet"
+        }
 
         // Authed operations the profile UI needs (require the access token).
         profileStore.avatarCatalogLoader = { [weak self] in
@@ -768,24 +771,69 @@ final class NuvioSyncManager: ObservableObject {
 
     // MARK: - Badge settings (profile settings blob, Android-compatible)
 
-    /// Pull the profile settings blob and apply the `stream_badge_settings`
-    /// feature — the Badger/Fusion badge pack configured on other devices.
-    /// Blob shape (see Android ProfileSettingsSyncService): rows of
-    /// {settings_json: {version, features: {feature: {key: {type,value}}}}}.
-    private func pullBadgeSettings() async {
-        guard let streamBadges else { return }
-        guard let data = try? await authedPost(
-            RPC.url(RPC.pullProfileSettingsBlob),
-            body: ["p_profile_id": pid, "p_platform": Self.settingsBlobPlatform]
-        ) else { return }
-        guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-              let blob = rows.first?["settings_json"] as? [String: Any],
-              let features = blob["features"] as? [String: Any],
-              let badgeFeature = features["stream_badge_settings"] as? [String: Any],
-              let rulesEntry = badgeFeature["stream_badge_rules"] as? [String: Any],
-              let rulesJSON = rulesEntry["value"] as? String
-        else { return }
-        streamBadges.applyRemoteRules(rulesJSON)
+    /// Platform tags other Nuvio apps may have pushed their settings blob
+    /// under. Badges configured in the MOBILE app (Fusion) live in that
+    /// platform's blob, not the TV one — check them all, TV first.
+    private static let settingsBlobPlatforms = ["tv", "mobile", "fusion", "ios", "desktop", "web"]
+
+    /// Pull the profile settings blob(s) and apply the
+    /// `stream_badge_settings` feature — the Badger/Fusion badge pack
+    /// configured on any device. Returns a human-readable status for the
+    /// Settings card's manual sync button.
+    @discardableResult
+    private func pullBadgeSettings() async -> String {
+        guard let streamBadges else { return "Badge store unavailable" }
+        guard account.accessToken != nil else { return "Sign in to your Nuvio account first" }
+        var sawAnyBlob = false
+        for platform in Self.settingsBlobPlatforms {
+            guard let data = try? await authedPost(
+                RPC.url(RPC.pullProfileSettingsBlob),
+                body: ["p_profile_id": pid, "p_platform": platform]
+            ) else { continue }
+            guard let blob = Self.settingsBlob(from: data) else { continue }
+            sawAnyBlob = true
+            guard let features = blob["features"] as? [String: Any],
+                  let badgeFeature = features["stream_badge_settings"] as? [String: Any],
+                  let rulesJSON = Self.preferenceString(badgeFeature["stream_badge_rules"])
+            else { continue }
+            NSLog("[NuvioBadges] found badge rules in '%@' settings blob", platform)
+            streamBadges.applyRemoteRules(rulesJSON)
+            if streamBadges.isConfigured {
+                return "Synced \(streamBadges.filterCount) badge filters (\(platform) settings)"
+            }
+        }
+        NSLog("[NuvioBadges] no badge rules in any settings blob (sawAnyBlob=%d)", sawAnyBlob ? 1 : 0)
+        return sawAnyBlob
+            ? "Your account has settings, but no badge config — import one in any Nuvio app first"
+            : "No synced settings found on this account"
+    }
+
+    /// Rows may arrive as an array or a bare object; settings_json may be an
+    /// object or a double-encoded JSON string. Accept all of it.
+    private static func settingsBlob(from data: Data) -> [String: Any]? {
+        guard let parsed = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        let row: [String: Any]?
+        if let rows = parsed as? [[String: Any]] {
+            row = rows.first
+        } else {
+            row = parsed as? [String: Any]
+        }
+        guard let row else { return nil }
+        if let blob = row["settings_json"] as? [String: Any] { return blob }
+        if let text = row["settings_json"] as? String,
+           let data = text.data(using: .utf8),
+           let blob = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return blob
+        }
+        // Row IS the blob (RPC returned the jsonb directly).
+        if row["features"] != nil { return row }
+        return nil
+    }
+
+    /// A blob preference is usually {type,value}; tolerate a bare string too.
+    private static func preferenceString(_ entry: Any?) -> String? {
+        if let dict = entry as? [String: Any], let value = dict["value"] as? String { return value }
+        return entry as? String
     }
 
     private func scheduleBadgeSettingsPush() {

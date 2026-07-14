@@ -49,6 +49,19 @@ final class StreamBadgeStore: ObservableObject {
     var onLocalChange: (() -> Void)?
     private var suppressChange = false
 
+    /// Wired by NuvioSyncManager: pull the account's badge config on demand
+    /// (the Settings card's "Sync from Account" button). Returns a status line.
+    var remoteSync: (() async -> String)?
+
+    /// Manual account sync, surfacing the result in `lastStatus`.
+    func syncFromAccount() async {
+        guard let remoteSync else {
+            lastStatus = "Account sync isn't ready yet"
+            return
+        }
+        lastStatus = await remoteSync()
+    }
+
     init() {
         sourceURL = UserDefaults.standard.string(forKey: Self.urlKey) ?? ""
         if let payload = UserDefaults.standard.data(forKey: Self.payloadKey) {

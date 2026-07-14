@@ -185,7 +185,7 @@ struct PlaybackSettingsDetail: View {
         PlaybackToggleRow(
             icon: "forward.end.fill",
             title: "Auto-play next episode",
-            subtitle: "Automatically play the next episode when one finishes",
+            subtitle: "Run a countdown on the Up Next card and start the next episode automatically. Off = the card still appears, but waits for you to press Play",
             isOn: s.autoPlayNextEpisode
         )
 

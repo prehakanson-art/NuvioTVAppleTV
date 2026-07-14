@@ -2165,10 +2165,14 @@ final class PlayerViewModel: ObservableObject {
         }
     }
 
-    /// Called on each time tick. Arms the Up Next overlay once the threshold is
-    /// crossed and a next episode exists (only when auto-play-next is enabled).
+    /// Called on each time tick. Arms the Up Next overlay once the threshold
+    /// is crossed and a next episode exists. The card ALWAYS appears
+    /// (Netflix-style); `autoPlayNextEpisode` only decides whether its
+    /// countdown runs and auto-advances — previously the whole card was
+    /// gated on that setting, which shipped off, so the Play Next Episode
+    /// button never showed up at all.
     private func maybeArmAutoNext() {
-        guard settings.autoPlayNextEpisode, !autoAdvanceArmed,
+        guard !autoAdvanceArmed,
               let next = nextEpisode, crossedNextEpisodeThreshold() else { return }
         autoAdvanceArmed = true
         armUpNext(episode: next, atEnd: false)
@@ -2185,8 +2189,10 @@ final class PlayerViewModel: ObservableObject {
         if !atEnd && interactive.contains(overlay) { return }
         overlay = .upNext
 
+        // Countdown (and the auto-advance it drives) only with auto-play on;
+        // otherwise the card just offers Play Next / Cancel and waits.
         let timeout = settings.autoPlayTimeoutSeconds
-        guard timeout != PlayerSettings.timeoutUnlimited else {
+        guard settings.autoPlayNextEpisode, timeout != PlayerSettings.timeoutUnlimited else {
             upNextCountdown = nil   // wait for the user to confirm
             return
         }
@@ -2278,11 +2284,12 @@ final class PlayerViewModel: ObservableObject {
         playerLayer?.play()
     }
 
-    /// End-of-content handling: queue the next episode (auto-play), or show the
-    /// post-play overlay for movies / last episodes.
+    /// End-of-content handling: queue the next episode (the Up Next card
+    /// always appears when one exists; auto-play only controls its
+    /// countdown), or show the post-play overlay for movies / last episodes.
     private func handlePlayedToEnd() {
         saveProgress()
-        if settings.autoPlayNextEpisode, let next = nextEpisode {
+        if let next = nextEpisode {
             autoAdvanceArmed = true
             armUpNext(episode: next, atEnd: true)
         } else {

@@ -60,7 +60,9 @@ enum AudioOutputMode: String, Codable, CaseIterable {
 /// (same field names + defaults) so behavior matches the APK. Persisted
 /// locally; there's no server row for these in the sync schema.
 struct PlayerSettings: Codable, Equatable {
-    var autoPlayNextEpisode: Bool = false
+    /// The Up Next card always appears near an episode's end; this only
+    /// controls whether its countdown runs and auto-starts the next episode.
+    var autoPlayNextEpisode: Bool = true
     var preferBingeGroupForNextEpisode: Bool = true
     var reuseBingeGroup: Bool = true
     /// Countdown before auto-advancing. 0 = instant; `timeoutUnlimited` = wait

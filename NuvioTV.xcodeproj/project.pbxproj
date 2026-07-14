@@ -64,6 +64,7 @@
 		D31767F9B2A2591C6DF38322 /* NuvioAccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88E24392958CAE9EB4727EE /* NuvioAccountManager.swift */; };
 		D5A546FAEA5DBF7EF868DBE3 /* NuvioSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 969D7289F1E624FC42108D86 /* NuvioSyncManager.swift */; };
 		D80260DF602808C85646CA6F /* ParentalGuideService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E6B87A80D6B01D3A58DD6B /* ParentalGuideService.swift */; };
+		D93146472B6B7BF5F92096A7 /* AnimeSkipService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33630A3CF4A4B769A36A3404 /* AnimeSkipService.swift */; };
 		DE74561D221C4C25B60C7E41 /* CloudLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB57AA419192D7276E5E56DC /* CloudLibraryService.swift */; };
 		E5B79A409AAB47A1AC1155D8 /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243ACB41C793BA410B49B210 /* DetailView.swift */; };
 		E70E13C52AD92FE35CBC2E4C /* CatalogSeeAllView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */; };
@@ -86,6 +87,7 @@
 		260D75DAB36C83E9C3ABC4C6 /* CastDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CastDetailView.swift; sourceTree = "<group>"; };
 		27E6B87A80D6B01D3A58DD6B /* ParentalGuideService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParentalGuideService.swift; sourceTree = "<group>"; };
 		2C9C87FFBAD0E1EECA829F5A /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
+		33630A3CF4A4B769A36A3404 /* AnimeSkipService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimeSkipService.swift; sourceTree = "<group>"; };
 		33E98DE3FF2BD0DC102D80F4 /* RemoteInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInput.swift; sourceTree = "<group>"; };
 		3A1B94052D73FAE9626AEBA3 /* DebridService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebridService.swift; sourceTree = "<group>"; };
 		3A901073E967FB097E347259 /* CollectionsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionsStore.swift; sourceTree = "<group>"; };
@@ -213,6 +215,7 @@
 			isa = PBXGroup;
 			children = (
 				EDBD5D6D83637232496C5D02 /* AddonManager.swift */,
+				33630A3CF4A4B769A36A3404 /* AnimeSkipService.swift */,
 				CB57AA419192D7276E5E56DC /* CloudLibraryService.swift */,
 				3A901073E967FB097E347259 /* CollectionsStore.swift */,
 				3A1B94052D73FAE9626AEBA3 /* DebridService.swift */,
@@ -388,6 +391,7 @@
 			files = (
 				BAFA27E5E9E52210E0D89DA5 /* AccountView.swift in Sources */,
 				14C76B28C6CFAB66591F7FEB /* AddonManager.swift in Sources */,
+				D93146472B6B7BF5F92096A7 /* AnimeSkipService.swift in Sources */,
 				8C3C2D551DB191D562E74637 /* CastDetailView.swift in Sources */,
 				E70E13C52AD92FE35CBC2E4C /* CatalogSeeAllView.swift in Sources */,
 				DE74561D221C4C25B60C7E41 /* CloudLibraryService.swift in Sources */,

@@ -88,6 +88,10 @@ struct PlayerSettings: Codable, Equatable {
     var skipIntroEnabled: Bool = true
     /// Automatically jump past intro/recap chapters without a button press.
     var autoSkipSegments: Bool = false
+    /// Use AniSkip (arm.haglund.dev + api.aniskip.com) to get anime intro/outro
+    /// skip times for files that carry no chapters. Off by default (adds a
+    /// lookup per anime episode; only useful for anime).
+    var animeSkipEnabled: Bool = false
     /// Seconds a single left/right press seeks in the player. Rapid presses
     /// accumulate (2 presses = 2×), holding accelerates.
     var skipSeconds: Int = 10
@@ -290,6 +294,7 @@ struct PlayerSettings: Codable, Equatable {
         autoPlayTrailerSeconds = (try? c.decode(Int.self, forKey: .autoPlayTrailerSeconds)) ?? d.autoPlayTrailerSeconds
         skipIntroEnabled = (try? c.decode(Bool.self, forKey: .skipIntroEnabled)) ?? d.skipIntroEnabled
         autoSkipSegments = (try? c.decode(Bool.self, forKey: .autoSkipSegments)) ?? d.autoSkipSegments
+        animeSkipEnabled = (try? c.decode(Bool.self, forKey: .animeSkipEnabled)) ?? d.animeSkipEnabled
         skipSeconds = (try? c.decode(Int.self, forKey: .skipSeconds)) ?? d.skipSeconds
         scrubJumpSeconds = (try? c.decode(Int.self, forKey: .scrubJumpSeconds)) ?? d.scrubJumpSeconds
         showInputDebug = (try? c.decode(Bool.self, forKey: .showInputDebug)) ?? d.showInputDebug

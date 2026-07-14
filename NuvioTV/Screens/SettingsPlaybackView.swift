@@ -54,6 +54,13 @@ struct PlaybackSettingsDetail: View {
                 )
 
                 PlaybackToggleRow(
+                    icon: "sparkles.tv",
+                    title: "AniSkip for anime",
+                    subtitle: "Fetch anime intro/outro skip times (AniSkip) for episodes that carry no chapter markers, so Skip Intro and Up Next work on anime web releases.",
+                    isOn: s.animeSkipEnabled
+                )
+
+                PlaybackToggleRow(
                     icon: "ladybug.fill",
                     title: "Show input debug",
                     subtitle: "Overlay the last trackpad/remote event in the player (for tuning gestures on a real Apple TV)",

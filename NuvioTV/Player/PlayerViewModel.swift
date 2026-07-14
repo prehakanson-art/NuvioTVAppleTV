@@ -938,6 +938,8 @@ final class PlayerViewModel: ObservableObject {
         addonSubtitlesFetched = false
         subtitleAutoApplied = false
         chapters = []
+        animeSkipIntervals = []
+        animeSkipFetched = false
         skipIntroActive = false
         autoSkippedChapters = []
         if !hasStartedPlayback {
@@ -1003,6 +1005,8 @@ final class PlayerViewModel: ObservableObject {
         addonSubtitlesFetched = false
         subtitleAutoApplied = false
         chapters = []
+        animeSkipIntervals = []
+        animeSkipFetched = false
         skipIntroActive = false
         autoSkippedChapters = []
         engineName = "VLC"
@@ -1874,6 +1878,14 @@ final class PlayerViewModel: ObservableObject {
 
     /// Container chapters (FFmpeg engine; MKVs usually carry them).
     @Published private(set) var chapters: [Chapter] = []
+    /// AnimeSkip op/ed intervals for the current episode (time-based skip data
+    /// for anime that ships no named chapters). Feeds intro/credits fallback.
+    @Published private(set) var animeSkipIntervals: [AnimeSkipInterval] = []
+    private var animeSkipFetched = false
+
+    /// A resolved intro/credits segment — from a file chapter or AnimeSkip.
+    /// (KSPlayer's Chapter init is internal, so we can't build one directly.)
+    struct SkipSegment { let start: Double; let end: Double; let title: String }
     /// True while playback sits inside an intro-like chapter — the player
     /// shows a "Skip Intro" pill and Play/Pause skips it.
     @Published private(set) var skipIntroActive = false
@@ -1882,29 +1894,40 @@ final class PlayerViewModel: ObservableObject {
     /// TV/anime conventions ("Opening", "OP", "NCOP", "Cold Open", "Avant",
     /// "Teaser", "Recap"). Needs the FILE to carry named chapters — most
     /// movie/web-dl remuxes don't, which is why the pill often won't appear.
-    private var introChapter: Chapter? {
-        chapters.first { chapter in
+    private var introChapter: SkipSegment? {
+        if let chapter = chapters.first(where: { chapter in
             let t = chapter.title.lowercased().trimmingCharacters(in: .whitespaces)
             if t == "op" || t == "ncop" || t == "opening" || t == "intro" { return true }
             return t.contains("intro") || t.contains("opening")
                 || t.contains("recap") || t.contains("prologue")
                 || t.contains("cold open") || t.contains("avant") || t.contains("teaser")
+        }) { return SkipSegment(start: chapter.start, end: chapter.end, title: chapter.title) }
+        // Anime-skip fallback: time-based op interval when the file has no
+        // named chapters (most anime web releases).
+        if let op = animeSkipIntervals.first(where: { $0.kind == .intro }) {
+            return SkipSegment(start: op.start, end: op.end, title: "Intro")
         }
+        return nil
     }
 
     /// A chapter that reads like the end credits, and sits in the back half of
     /// the runtime (so a mid-film "credits sequence" or an oddly-named early
     /// chapter can't false-trigger). This is the "credits roll" moment the
     /// Up Next card keys off when present.
-    private var creditsChapter: Chapter? {
+    private var creditsChapter: SkipSegment? {
         guard duration > 0 else { return nil }
-        return chapters.first { chapter in
+        if let chapter = chapters.first(where: { chapter in
             guard chapter.start > duration * 0.6 else { return false }
             let title = chapter.title.lowercased()
             return title.contains("credit") || title.contains("outro")
                 || title.contains("closing") || title.contains("ending")
                 || title == "end" || title == "ed"
+        }) { return SkipSegment(start: chapter.start, end: chapter.end, title: chapter.title) }
+        // Anime-skip fallback: the ed interval, when it sits in the back half.
+        if let ed = animeSkipIntervals.first(where: { $0.kind == .outro }), ed.start > duration * 0.5 {
+            return SkipSegment(start: ed.start, end: ed.end, title: "Credits")
         }
+        return nil
     }
 
     /// Chapter starts as 0…1 fractions for timeline tick marks.
@@ -1917,7 +1940,26 @@ final class PlayerViewModel: ObservableObject {
     /// one at most once (the viewer can seek back into it without re-skipping).
     private var autoSkippedChapters: Set<Double> = []
 
+    /// Fetch AnimeSkip op/ed intervals for the current episode once, after the
+    /// duration is known (sharpens AniSkip matching). Series episodes only.
+    private func loadAnimeSkipIfNeeded() {
+        guard !animeSkipFetched, settings.animeSkipEnabled else { return }
+        guard let video = currentVideo, let season = video.season, let episode = video.episode,
+              meta.id.hasPrefix("tt"), duration > 0 else { return }
+        animeSkipFetched = true
+        let imdbID = meta.id
+        let length = Int(duration)
+        Task { [weak self] in
+            let intervals = await AnimeSkipService.intervals(
+                imdbID: imdbID, season: season, episode: episode, episodeLength: length
+            )
+            guard !intervals.isEmpty else { return }
+            await MainActor.run { self?.animeSkipIntervals = intervals }
+        }
+    }
+
     private func updateSkipIntro() {
+        loadAnimeSkipIfNeeded()
         guard let intro = introChapter else {
             if skipIntroActive { skipIntroActive = false }
             return

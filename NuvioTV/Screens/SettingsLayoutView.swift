@@ -43,21 +43,7 @@ struct LayoutSettingsDetail: View {
                 HStack(spacing: NuvioSpacing.md) {
                     ForEach(PosterSize.allCases) { size in
                         Button { settings.posterSize = size } label: {
-                            Text(size.displayName)
-                                .font(.system(size: 22, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, NuvioSpacing.md)
-                                .background(
-                                    RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
-                                        .fill(settings.posterSize == size
-                                              ? theme.palette.secondary.opacity(0.25)
-                                              : theme.palette.backgroundCard.opacity(0.85))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
-                                        .strokeBorder(settings.posterSize == size ? theme.palette.secondary : .clear, lineWidth: 2)
-                                )
-                                .foregroundStyle(settings.posterSize == size ? theme.palette.secondary : theme.palette.textSecondary)
+                            PosterSizeChip(title: size.displayName, selected: settings.posterSize == size)
                         }
                         .buttonStyle(PlainCardButtonStyle())
                     }
@@ -84,6 +70,46 @@ struct LayoutSettingsDetail: View {
 
             CatalogOrderSection()
         }
+    }
+}
+
+/// Poster-size selector chip. Reads `\.isFocused` (only resolves inside the
+/// focusable Button's subtree) so it lights up on focus, and keeps readable
+/// contrast in every state: focused = filled accent + onSecondary text,
+/// selected = accent-tinted + white text, idle = card + secondary text.
+private struct PosterSizeChip: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.isFocused) private var isFocused
+    let title: String
+    let selected: Bool
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundStyle(foreground)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, NuvioSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous).fill(background)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                    .strokeBorder(isFocused ? theme.palette.focusRing : (selected ? theme.palette.secondary : .clear),
+                                  lineWidth: isFocused ? 4 : 2)
+            )
+            .scaleEffect(isFocused ? 1.05 : 1)
+            .animation(.spring(response: 0.28, dampingFraction: 0.85), value: isFocused)
+    }
+
+    private var foreground: Color {
+        if isFocused { return theme.palette.onSecondary }
+        if selected { return .white }
+        return theme.palette.textSecondary
+    }
+    private var background: Color {
+        if isFocused { return theme.palette.secondary }
+        if selected { return theme.palette.secondary.opacity(0.28) }
+        return theme.palette.backgroundCard.opacity(0.85)
     }
 }
 

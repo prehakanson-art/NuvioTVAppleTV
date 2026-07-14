@@ -152,7 +152,10 @@ struct PlayerScreen: View {
                     .transition(.opacity)
             }
 
+            // The big 640pt panel gets its own gentle spring (smoother than the
+            // shared 0.18s overlay fade) so sliding in/out feels less abrupt.
             sidePanels
+                .animation(.spring(response: 0.45, dampingFraction: 0.9), value: viewModel.overlay)
 
             if viewModel.overlay == .info {
                 VStack(spacing: 0) {

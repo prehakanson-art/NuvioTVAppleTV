@@ -22,6 +22,7 @@
 		23316C23B3E4386774491DB7 /* VLCEngine.swift in Sources */ = {isa = PBXBuildFile; fileRef = 760F22FDFFEF572A2AB98E3D /* VLCEngine.swift */; };
 		23B73C354F5DF4CFFADB36BD /* QRCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB84CD5358005AFCBA81FA25 /* QRCode.swift */; };
 		26142DF8D7225D3AC3BEA184 /* MDBListService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 414898F11CD091C483A70A67 /* MDBListService.swift */; };
+		274B3436429C0A39118709A3 /* PerformanceProfile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BC906D3D943CBF695266313 /* PerformanceProfile.swift */; };
 		276BD4FAF524DAD3A6C360DE /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C9C87FFBAD0E1EECA829F5A /* Secrets.swift */; };
 		2B0385C407CF63C38D4453C5 /* PluginStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9033005E03573788ECC97D1 /* PluginStore.swift */; };
 		2DCA83982721109BBFD27A97 /* StreamBadges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5780AD496BA8A2CFBBCD07CB /* StreamBadges.swift */; };
@@ -87,6 +88,7 @@
 		0427A6C91DE30C948C8A38BF /* CloudLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudLibraryView.swift; sourceTree = "<group>"; };
 		09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogSeeAllView.swift; sourceTree = "<group>"; };
 		0AABBCDB9DAA6E74AB201B6E /* SidePanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidePanels.swift; sourceTree = "<group>"; };
+		0BC906D3D943CBF695266313 /* PerformanceProfile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerformanceProfile.swift; sourceTree = "<group>"; };
 		0CEDB85725047F73A8229A81 /* DeepLinkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkService.swift; sourceTree = "<group>"; };
 		102BA7D7815453677A6A8EB5 /* PluginModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginModels.swift; sourceTree = "<group>"; };
 		11754AD2FDC70C869EC871BC /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
@@ -254,6 +256,7 @@
 				414898F11CD091C483A70A67 /* MDBListService.swift */,
 				79E6F3DF03C6701BE4587833 /* Models.swift */,
 				27E6B87A80D6B01D3A58DD6B /* ParentalGuideService.swift */,
+				0BC906D3D943CBF695266313 /* PerformanceProfile.swift */,
 				C26E3B4C279900B78470C667 /* PlayerSettingsStore.swift */,
 				11754AD2FDC70C869EC871BC /* ProfileStore.swift */,
 				BBDCBEA43CE00C6DD740B204 /* ProgressStore.swift */,
@@ -454,6 +457,7 @@
 				F285DC442C9BCF03E79A73EA /* NuvioTheme.swift in Sources */,
 				D80260DF602808C85646CA6F /* ParentalGuideService.swift in Sources */,
 				A0E0B1CA9C96B4892749E9AB /* PauseOverlayView.swift in Sources */,
+				274B3436429C0A39118709A3 /* PerformanceProfile.swift in Sources */,
 				C4A89B31BA169E57A828C8A5 /* PlayerControlsOverlay.swift in Sources */,
 				9AD59B3BF5A0C489ADD1AA58 /* PlayerScreen.swift in Sources */,
 				3980DE34DE34E597267BC6A3 /* PlayerSettingsStore.swift in Sources */,

@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import CryptoKit
+import ImageIO
 
 // MARK: - Image cache
 
@@ -24,12 +25,49 @@ final class ImageCache: @unchecked Sendable {
     private let diskBudget = 512 * 1024 * 1024   // ~512 MB of encoded images
 
     private init() {
-        memory.countLimit = 400
-        memory.totalCostLimit = 256 * 1024 * 1024   // ~256 MB of decoded pixels
+        // Sized to the hardware: the Apple TV HD has 2 GB total — a 256 MB
+        // decoded-pixel cache there gets the app jetsammed.
+        memory.countLimit = PerformanceProfile.imageCacheCount
+        memory.totalCostLimit = PerformanceProfile.imageCacheBytes
         let caches = fm.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         diskURL = caches.appendingPathComponent("nuvio-images", isDirectory: true)
         try? fm.createDirectory(at: diskURL, withIntermediateDirectories: true)
         ioQueue.async { [weak self] in self?.trimDisk() }
+    }
+
+    /// Decode `data` off the render path. On the 1080p Apple TV HD it's
+    /// downsampled (via ImageIO) to the panel's own resolution — pixel-identical
+    /// on that display but a fraction of the memory of a full 4K-ish TMDB
+    /// "original". On 4K devices `maxImagePixelSize` is nil, so this is a plain
+    /// full-resolution decode — unchanged from before.
+    static func decodeDownsampled(_ data: Data) -> UIImage? {
+        // Full-res path (nil budget) or fallback: force the decode now so it
+        // doesn't happen lazily on the render path while a row scrolls.
+        guard let maxDim = PerformanceProfile.maxImagePixelSize,
+              let src = CGImageSourceCreateWithData(data as CFData,
+                        [kCGImageSourceShouldCache: false] as CFDictionary) else {
+            let decoded = UIImage(data: data)
+            return decoded?.preparingForDisplay() ?? decoded
+        }
+        // Source already within the display's budget — plain decode.
+        if let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any],
+           let w = props[kCGImagePropertyPixelWidth] as? CGFloat,
+           let h = props[kCGImagePropertyPixelHeight] as? CGFloat,
+           max(w, h) <= maxDim {
+            let decoded = UIImage(data: data)
+            return decoded?.preparingForDisplay() ?? decoded
+        }
+        let thumbOpts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceShouldCacheImmediately: true,   // decode now, off-main
+            kCGImageSourceThumbnailMaxPixelSize: maxDim
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, thumbOpts as CFDictionary) else {
+            let decoded = UIImage(data: data)
+            return decoded?.preparingForDisplay() ?? decoded
+        }
+        return UIImage(cgImage: cg)
     }
 
     /// Synchronous memory-only lookup.
@@ -43,14 +81,13 @@ final class ImageCache: @unchecked Sendable {
             ioQueue.async { [weak self] in
                 guard let self,
                       let data = try? Data(contentsOf: fileURL),
-                      let image = UIImage(data: data) else {
+                      // Decode HERE (background, downsampled) — otherwise UIKit
+                      // decodes lazily on first draw, i.e. on the render path
+                      // while a row is scrolling.
+                      let prepared = Self.decodeDownsampled(data) else {
                     continuation.resume(returning: nil)
                     return
                 }
-                // Force the JPEG decode HERE (background) — otherwise UIKit
-                // decodes lazily on first draw, i.e. on the render path while
-                // a row is scrolling.
-                let prepared = image.preparingForDisplay() ?? image
                 self.insertMemory(prepared, for: key)
                 try? self.fm.setAttributes([.modificationDate: Date()], ofItemAtPath: fileURL.path)
                 continuation.resume(returning: prepared)
@@ -89,9 +126,8 @@ final class ImageCache: @unchecked Sendable {
                 if self.image(for: urlString) != nil { continue }
                 if FileManager.default.fileExists(atPath: self.fileURL(for: urlString).path) { continue }
                 guard let (data, _) = try? await URLSession.shared.data(from: url),
-                      let decoded = UIImage(data: data) else { continue }
-                // Pre-decode so the first display is free.
-                let prepared = decoded.preparingForDisplay() ?? decoded
+                      // Pre-decode (downsampled) so the first display is free.
+                      let prepared = ImageCache.decodeDownsampled(data) else { continue }
                 self.insert(prepared, for: urlString, data: data)
             }
         }
@@ -168,13 +204,13 @@ struct RemoteImage: View {
         }
         // Keep the current image visible while the replacement downloads.
         guard let (data, _) = try? await URLSession.shared.data(from: parsed),
-              !Task.isCancelled,
-              let decoded = UIImage(data: data) else { return }
+              !Task.isCancelled else { return }
         // Decode off the render path (UIKit otherwise decodes lazily on first
-        // draw — a scroll hitch per newly visible poster).
-        let prepared = await Task.detached(priority: .userInitiated) {
-            decoded.preparingForDisplay() ?? decoded
-        }.value
+        // draw — a scroll hitch per newly visible poster), downsampled to the
+        // device's pixel budget (a full 3840px backdrop decode wrecks the HD).
+        guard let prepared = await Task.detached(priority: .userInitiated, operation: {
+            ImageCache.decodeDownsampled(data)
+        }).value else { return }
         if Task.isCancelled { return }
         ImageCache.shared.insert(prepared, for: value, data: data)
         withAnimation(.easeInOut(duration: 0.35)) { image = prepared; shownKey = value }

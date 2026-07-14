@@ -310,8 +310,8 @@ struct PlaybackSettingsDetail: View {
             if store.settings.preferBingeGroupForNextEpisode {
                 PlaybackToggleRow(
                     icon: "arrow.triangle.2.circlepath",
-                    title: "Reuse the same stream",
-                    subtitle: "Skip re-fetching sources when the group matches",
+                    title: "Reuse the same source",
+                    subtitle: "Keep the next episode on the same addon as well as the same group, so it's as close to the current source as possible",
                     isOn: s.reuseBingeGroup
                 )
             }

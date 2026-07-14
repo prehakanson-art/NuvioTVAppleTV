@@ -66,6 +66,7 @@ struct RootView: View {
     @EnvironmentObject private var trakt: TraktStore
     @EnvironmentObject private var playerSettings: PlayerSettingsStore
     @EnvironmentObject private var streamBadges: StreamBadgeStore
+    @EnvironmentObject private var tmdbSettings: TMDBSettingsStore
 
     // One navigation stack per tab (tvOS expects TabView at the top level with
     // an independent NavigationStack inside each tab; a shared stack under one
@@ -115,6 +116,9 @@ struct RootView: View {
                         homeCatalogSettings: homeCatalogSettings,
                         streamBadges: streamBadges
                     )
+                    sync?.enrichContinueWatchingEnabled = { [tmdbSettings] in
+                        tmdbSettings.settings.enrichContinueWatching
+                    }
                     // "Who's watching?" gate on cold launch when 2+ profiles.
                     // Skipped in the demo modes so the screen isn't covered.
                     let args = ProcessInfo.processInfo.arguments

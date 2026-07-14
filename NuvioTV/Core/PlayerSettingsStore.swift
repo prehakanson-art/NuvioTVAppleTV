@@ -79,9 +79,10 @@ struct PlayerSettings: Codable, Equatable {
     /// Fallback for files WITHOUT an end-credits chapter: how many seconds
     /// before the end the Up Next card appears. Default 30.
     var upNextLeadSeconds: Int = 30
-    /// Seconds a Detail screen must sit idle before its trailer auto-plays in
-    /// the backdrop. 0 = off.
-    var autoPlayTrailerSeconds: Int = 0
+    /// Seconds a Detail screen must sit idle before its trailer auto-plays
+    /// (muted) in the backdrop. 0 = off. On by default so hero previews work
+    /// out of the box.
+    var autoPlayTrailerSeconds: Int = 3
     /// Seconds a single left/right press seeks in the player. Rapid presses
     /// accumulate (2 presses = 2×), holding accelerates.
     var skipSeconds: Int = 10

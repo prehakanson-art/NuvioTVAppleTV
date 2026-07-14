@@ -205,7 +205,19 @@ struct DetailView: View {
         guard let url = await TrailerResolver.streamURL(youtubeKey: trailer.youtubeKey) else { return }
         guard !Task.isCancelled else { return }
         let player = AVPlayer(url: url)
-        player.actionAtItemEnd = .pause
+        // Silent hero preview (Netflix-style). Muting also means we don't need
+        // an active audio session, which on tvOS can otherwise stall a raw
+        // AVPlayer's playback entirely.
+        player.isMuted = true
+        // Loop so the preview keeps running while browsing the page.
+        player.actionAtItemEnd = .none
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: player.currentItem, queue: .main
+        ) { [weak player] _ in
+            player?.seek(to: .zero)
+            player?.play()
+        }
         backdropPlayer = player
         player.play()
         withAnimation(.easeInOut(duration: 0.6)) { showBackdropTrailer = true }

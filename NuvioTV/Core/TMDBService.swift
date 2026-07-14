@@ -16,6 +16,7 @@ final class TMDBSettingsStore: ObservableObject {
         didSet {
             guard settings != oldValue else { return }
             save()
+            TMDBService.preferredLanguage = settings.language
         }
     }
 
@@ -28,6 +29,8 @@ final class TMDBSettingsStore: ObservableObject {
         } else {
             settings = .default
         }
+        // Localize every TMDB request from launch (get() reads this global).
+        TMDBService.preferredLanguage = settings.language
     }
 
     var isEnabled: Bool { settings.enabled }
@@ -92,9 +95,19 @@ enum TMDBService {
         }
     }
 
+    /// Preferred content language (ISO-639-1), kept in sync with the TMDB
+    /// language setting so EVERY request is localized — not just the calls
+    /// that happened to thread a `language:` argument. Set once at launch and
+    /// on change by TMDBSettingsStore.
+    nonisolated(unsafe) static var preferredLanguage = "en"
+
     private static func get<T: Decodable>(_ path: String, query: [String: String] = [:]) async throws -> T {
         var comps = URLComponents(string: base + path)!
         var items = [URLQueryItem(name: "api_key", value: apiKey)]
+        // Localize any request that didn't specify a language explicitly.
+        if query["language"] == nil, preferredLanguage != "en" {
+            items.append(URLQueryItem(name: "language", value: preferredLanguage))
+        }
         items += query.map { URLQueryItem(name: $0.key, value: $0.value) }
         comps.queryItems = items
         var request = URLRequest(url: comps.url!)
@@ -402,7 +415,7 @@ enum TMDBService {
     /// Pull cast (with headshots), recommendations/similar, and collection for
     /// a title in a single append_to_response call. Best-effort: returns nil on
     /// any failure so callers keep their Cinemeta fallbacks.
-    static func detail(imdbID: String, type: String, language: String = "en") async -> Detail? {
+    static func detail(imdbID: String, type: String, language: String = preferredLanguage) async -> Detail? {
         guard let (tmdbID, isMovie) = await resolveTMDBID(from: imdbID, type: type) else { return nil }
         struct DetailResponse: Decodable {
             struct Credits: Decodable { let cast: [CastDTO]?; let crew: [CrewDTO]? }
@@ -526,14 +539,14 @@ enum TMDBService {
     }
 
     /// The parts of a TMDB collection as MetaItems (for the "belongs to" row).
-    static func collectionItems(id: Int, language: String = "en") async -> [MetaItem] {
+    static func collectionItems(id: Int, language: String = preferredLanguage) async -> [MetaItem] {
         guard let raw = try? await resolveCollection(id: id, language: language) else { return [] }
         return await mapToMetaItems(raw)
     }
 
     /// Browse a production company's catalog (movies + TV), most-popular first.
     /// Backs the TMDB entity-browse screen reached from a company logo.
-    static func browseCompany(id: Int, language: String = "en") async -> [MetaItem] {
+    static func browseCompany(id: Int, language: String = preferredLanguage) async -> [MetaItem] {
         async let movies = discover(path: "/discover/movie", with: ["with_companies": String(id)], isMovie: true, language: language)
         async let tv = discover(path: "/discover/tv", with: ["with_companies": String(id)], isMovie: false, language: language)
         let raw = (await movies) + (await tv)
@@ -567,7 +580,7 @@ enum TMDBService {
 
     /// A person's full filmography (cast credits, movies + TV), most-acclaimed
     /// first. Used by the Cast Detail screen.
-    static func personFilmography(personID: Int, language: String = "en") async -> [MetaItem] {
+    static func personFilmography(personID: Int, language: String = preferredLanguage) async -> [MetaItem] {
         struct CreditsResponse: Decodable { let cast: [Credit]? }
         struct Credit: Decodable {
             let id: Int; let title: String?; let name: String?; let media_type: String?

@@ -24,6 +24,9 @@ final class NuvioSyncManager: ObservableObject {
     private let collectionsStore: CollectionsStore
     private let homeCatalogSettings: HomeCatalogSettingsStore
     private let streamBadges: StreamBadgeStore?
+    /// Reads the "Enrich Continue Watching" TMDB setting (the store lives
+    /// outside this manager). nil → enrich (default).
+    var enrichContinueWatchingEnabled: (() -> Bool)?
 
     private var cancellables = Set<AnyCancellable>()
     private var pushAddonsTask: Task<Void, Never>?
@@ -350,6 +353,10 @@ final class NuvioSyncManager: ObservableObject {
     /// Watching rows arrive bare. Fill them in from a meta addon (Cinemeta) so
     /// the cards render, best-effort and capped.
     private func enrichMetadata(_ entries: [WatchProgress]) async -> [WatchProgress] {
+        // Gated by the "Enrich Continue Watching" setting: when off, synced
+        // rows keep whatever title/art they arrived with (leaner, no extra
+        // meta-addon calls). Locally-watched rows already carry name + art.
+        guard enrichContinueWatchingEnabled?() ?? true else { return entries }
         // Match ProgressStore.continueWatching: any started, unfinished item is
         // visible (no lower bound), so all of them need title/artwork.
         let visible = entries.filter { $0.fraction < 0.95 }

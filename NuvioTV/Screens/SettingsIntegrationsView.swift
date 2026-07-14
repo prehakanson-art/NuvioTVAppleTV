@@ -112,7 +112,7 @@ struct IntegrationsDetail: View {
             if tmdb.settings.enabled {
                 SettingsToggleCard(
                     title: "Enrich Continue Watching",
-                    subtitle: "Use TMDB artwork and titles for synced progress rows",
+                    subtitle: "Fetch missing titles and artwork for Continue Watching rows synced from other devices. Off skips those lookups.",
                     isOn: Binding(get: { tmdb.settings.enrichContinueWatching }, set: { tmdb.settings.enrichContinueWatching = $0 })
                 )
 

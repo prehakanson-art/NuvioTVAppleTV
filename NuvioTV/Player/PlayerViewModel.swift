@@ -2358,13 +2358,25 @@ final class PlayerViewModel: ObservableObject {
             let panelEntries = curated.isEmpty ? entries : curated
 
             // Auto-pick must be directly playable (load() can't resolve a
-            // torrent). Prefer the same addon/binge group as the current one.
+            // torrent). Source selection honors the binge-group settings:
+            //  • Prefer same source group ON  → same binge group first;
+            //    with Reuse the same stream ON, restrict to the same ADDON's
+            //    group (closest to "the same source"), else same addon.
+            //  • Prefer same source group OFF → just take the best-ranked
+            //    playable link (curation already put it first).
             let playable = panelEntries.filter(\.stream.isPlayable)
-            let preferred = playable.first {
-                $0.addonName == currentEntry.addonName &&
-                $0.stream.behaviorHints?.bingeGroup != nil &&
-                $0.stream.behaviorHints?.bingeGroup == currentEntry.stream.behaviorHints?.bingeGroup
-            } ?? playable.first { $0.addonName == currentEntry.addonName } ?? playable.first
+            let curGroup = currentEntry.stream.behaviorHints?.bingeGroup
+            let preferred: StreamEntry?
+            if settings.preferBingeGroupForNextEpisode {
+                let sameGroup = playable.first { entry in
+                    guard let g = entry.stream.behaviorHints?.bingeGroup, g == curGroup else { return false }
+                    return !settings.reuseBingeGroup || entry.addonName == currentEntry.addonName
+                }
+                let sameAddon = playable.first { $0.addonName == currentEntry.addonName }
+                preferred = sameGroup ?? sameAddon ?? playable.first
+            } else {
+                preferred = playable.first
+            }
 
             currentVideo = episode
             allEntries = panelEntries

@@ -48,7 +48,7 @@ struct PlaybackSettingsDetail: View {
                 PlaybackToggleRow(
                     icon: "line.3.horizontal.decrease.circle.fill",
                     title: "Link filters",
-                    subtitle: "Smart-rank links: Top Picks (best link per resolution across all addons) up top, then each addon by resolution — scored by cached status, release quality (REMUX > Blu-ray > WEB-DL), codec, HDR/DV, audio, seeders and bitrate. Off = show links exactly as each addon returns them (cached still first), up to \(PlayerSettings.unfilteredPerAddonCap) per addon",
+                    subtitle: "Smart-rank links: each addon grouped by resolution — scored by cached status, release quality (REMUX > Blu-ray > WEB-DL), codec, HDR/DV, audio, seeders and bitrate. Off = show links exactly as each addon returns them (cached still first), up to \(PlayerSettings.unfilteredPerAddonCap) per addon",
                     isOn: s.sourceFiltersEnabled
                 )
 

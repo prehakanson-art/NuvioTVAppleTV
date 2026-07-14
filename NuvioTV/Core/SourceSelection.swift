@@ -29,8 +29,8 @@ enum ResolutionTier: Int, CaseIterable {
     }
 }
 
-/// One block on the Sources page: a heading (an addon, or the synthetic
-/// "★ Top Picks") with resolution sections under it.
+/// One block on the Sources page: an addon heading with resolution sections
+/// under it.
 struct AddonSourceGroup: Identifiable {
     var id: String { addonName }
     let addonName: String
@@ -52,8 +52,6 @@ struct SourceSection: Identifiable {
 /// and a per-resolution size sweet spot. The addon's own ordering survives as
 /// the tiebreak (sorts are stable).
 enum SourceSelection {
-    static let topPicksName = "★ Top Picks"
-
     /// First-seen order of the addons that returned links.
     private static func addonOrder(_ entries: [StreamEntry]) -> [String] {
         var order: [String] = []
@@ -81,21 +79,6 @@ enum SourceSelection {
         entries.filter(\.isInstant) + entries.filter { !$0.isInstant }
     }
 
-    /// The single best link per resolution across EVERY addon — the row you
-    /// click 95% of the time, surfaced instead of buried per-addon.
-    static func topPicks(_ entries: [StreamEntry]) -> AddonSourceGroup? {
-        let eligible = entries.filter { !isJunk($0) }
-        guard !eligible.isEmpty else { return nil }
-        var sections: [SourceSection] = []
-        for tier in ResolutionTier.allCases {
-            let inTier = eligible.filter { ResolutionTier.from(resolutionLabel: $0.resolutionLabel) == tier }
-            guard let best = scored(inTier).first else { continue }
-            sections.append(SourceSection(id: "picks.\(tier.rawValue)", title: tier.title, entries: [best]))
-        }
-        guard !sections.isEmpty else { return nil }
-        return AddonSourceGroup(addonName: topPicksName, sections: sections)
-    }
-
     /// Per-addon blocks: resolution sections, best-scored first, capped at
     /// `perTier` links per resolution. Junk dropped, empty sections omitted.
     static func byAddon(_ entries: [StreamEntry], perTier: Int) -> [AddonSourceGroup] {
@@ -112,13 +95,6 @@ enum SourceSelection {
         }
     }
 
-    /// The full curated page: Top Picks on top, then each addon's blocks.
-    static func curated(_ entries: [StreamEntry], perTier: Int) -> [AddonSourceGroup] {
-        let perAddon = byAddon(entries, perTier: perTier)
-        guard let picks = topPicks(entries), perAddon.count > 0 else { return perAddon }
-        return [picks] + perAddon
-    }
-
     /// Filters OFF: each addon's links as returned (cached floated up),
     /// capped per addon, no tiers.
     static func byAddonUnfiltered(_ entries: [StreamEntry], cap: Int) -> [AddonSourceGroup] {
@@ -133,12 +109,11 @@ enum SourceSelection {
         }
     }
 
-    /// Flat list for the in-player Sources panel and failover ordering: Top
-    /// Picks first (so failover tries the best links first), then addon
-    /// blocks — de-duplicated by URL/hash so a pick and its addon-row twin
-    /// don't cost two failover attempts.
+    /// Flat list for the in-player Sources panel and failover ordering:
+    /// addon blocks in order, best-scored first within each resolution,
+    /// de-duplicated by URL/hash.
     static func select(_ entries: [StreamEntry], perTier: Int) -> [StreamEntry] {
-        dedupe(curated(entries, perTier: perTier).flatMap(\.entries))
+        dedupe(byAddon(entries, perTier: perTier).flatMap(\.entries))
     }
 
     static func selectUnfiltered(_ entries: [StreamEntry], cap: Int) -> [StreamEntry] {

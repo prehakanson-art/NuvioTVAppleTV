@@ -97,6 +97,7 @@ struct RootView: View {
 
     var body: some View {
         content
+            .onOpenURL { handleDeepLink($0) }
             .onAppear {
                 NSLog("[NuvioPlayer] RootView content onAppear")
                 startPlayerDemoIfRequested()
@@ -598,6 +599,21 @@ struct RootView: View {
             }
         }
         return firstAny
+    }
+
+    /// Route an incoming `nuvio://` / `stremio://` deep link.
+    private func handleDeepLink(_ url: URL) {
+        guard let link = DeepLinkService.parse(url) else { return }
+        switch link {
+        case .meta(let type, let id):
+            // Open the title on the Home tab. DetailView fetches full meta +
+            // canonicalizes tmdb→tt from this id.
+            let meta = MetaItem(id: id, type: type, name: "")
+            selectedTab = 0
+            homePath.append(Route.detail(meta))
+        case .addonInstall(let manifestURL):
+            Task { try? await addonManager.install(manifestURL: manifestURL) }
+        }
     }
 
     private func resume(_ progress: WatchProgress, fromBeginning: Bool = false) {

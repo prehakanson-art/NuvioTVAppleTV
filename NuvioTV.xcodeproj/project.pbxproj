@@ -50,6 +50,7 @@
 		95D56F234169C4D3C66B6EC7 /* ProfilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B7D256E3B5029E76D7C03D /* ProfilesView.swift */; };
 		96D2CB47BCA0FE3E4D612153 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADBB2C0716736EF000BE1068 /* HomeView.swift */; };
 		9AD59B3BF5A0C489ADD1AA58 /* PlayerScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75C74274D8317A3EC634F256 /* PlayerScreen.swift */; };
+		9B3FA2260743150105A9D5B4 /* DeepLinkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CEDB85725047F73A8229A81 /* DeepLinkService.swift */; };
 		9B9E605EC0039FC1C05A6A1C /* VLCKitSPM in Frameworks */ = {isa = PBXBuildFile; productRef = 02A6139CD1D7A76A7D0AC3DC /* VLCKitSPM */; };
 		9E84617B508432C86A202A4E /* SourceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4C53D8C6A8B8FC9F1C1216 /* SourceSelection.swift */; };
 		A0E0B1CA9C96B4892749E9AB /* PauseOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B5622602D0586649B04485 /* PauseOverlayView.swift */; };
@@ -79,6 +80,7 @@
 		0427A6C91DE30C948C8A38BF /* CloudLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudLibraryView.swift; sourceTree = "<group>"; };
 		09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogSeeAllView.swift; sourceTree = "<group>"; };
 		0AABBCDB9DAA6E74AB201B6E /* SidePanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidePanels.swift; sourceTree = "<group>"; };
+		0CEDB85725047F73A8229A81 /* DeepLinkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkService.swift; sourceTree = "<group>"; };
 		11754AD2FDC70C869EC871BC /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
 		142717F90563AF0BC845136D /* SettingsLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsLayoutView.swift; sourceTree = "<group>"; };
 		17D137BCE0827FF5B9EBCA42 /* ExternalPlayers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPlayers.swift; sourceTree = "<group>"; };
@@ -219,6 +221,7 @@
 				CB57AA419192D7276E5E56DC /* CloudLibraryService.swift */,
 				3A901073E967FB097E347259 /* CollectionsStore.swift */,
 				3A1B94052D73FAE9626AEBA3 /* DebridService.swift */,
+				0CEDB85725047F73A8229A81 /* DeepLinkService.swift */,
 				17D137BCE0827FF5B9EBCA42 /* ExternalPlayers.swift */,
 				A26744F92AC1D7E60BF3416E /* HomeCatalogSettingsStore.swift */,
 				40ED41BE6AC1AE734241A985 /* LibraryStore.swift */,
@@ -401,6 +404,7 @@
 				BF6961891F5345E7DBE28277 /* Components.swift in Sources */,
 				C7A329FA86460E8FE3DFCA59 /* DVRemuxer.swift in Sources */,
 				0DFE89CB6E0C80C4497E341F /* DebridService.swift in Sources */,
+				9B3FA2260743150105A9D5B4 /* DeepLinkService.swift in Sources */,
 				E5B79A409AAB47A1AC1155D8 /* DetailView.swift in Sources */,
 				8D638E0114249DD36A1B140E /* DiscoverView.swift in Sources */,
 				3DC8FC0723F87B82CBF59ECA /* ExternalPlayers.swift in Sources */,

@@ -152,15 +152,9 @@ struct PlayerScreen: View {
                     .transition(.opacity)
             }
 
-            // A side panel = two clean, separate motions on ONE curve: the rest
-            // of the screen just DIMS (this scrim's opacity fades in — always
-            // mounted so there's no competing insert transition), and the 640pt
-            // panel just SLIDES in from the right (move-only transition, see
-            // SidePanel). Both ride the ZStack's single overlay animation below.
-            Color.black
-                .opacity(sidePanelActive ? 0.5 : 0)
-                .ignoresSafeArea()
-                .allowsHitTesting(false)
+            // Side panel: just a clean slide in from the right (move-only
+            // transition, see SidePanel). No separate dim layer — that was
+            // snapping in as a block before the panel slid into it.
             sidePanels
 
             if viewModel.overlay == .info {
@@ -466,14 +460,6 @@ struct PlayerScreen: View {
                 wheelEngaged: viewModel.wheelEngaged
             )
             .transition(.opacity)
-        }
-    }
-
-    /// The overlay states that show a right-hand side panel (drive the dim scrim).
-    private var sidePanelActive: Bool {
-        switch viewModel.overlay {
-        case .episodes, .sources, .audio, .subtitles, .speed, .engine: return true
-        default: return false
         }
     }
 

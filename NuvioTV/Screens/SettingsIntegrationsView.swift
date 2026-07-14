@@ -21,7 +21,9 @@ struct IntegrationsDetail: View {
                 integrationRow(title: "TMDB", subtitle: "Metadata enrichment controls") { sheet = .tmdb }
                 integrationRow(title: "MDBList", subtitle: "External ratings providers") { sheet = .mdblist }
                 integrationRow(title: "Debrid", subtitle: "Cached torrent sources as direct streams") { sheet = .debrid }
-                integrationRow(title: "P2P (TorrServer)", subtitle: "Stream torrents peer-to-peer via a TorrServer") { sheet = .p2p }
+                // P2P (TorrServer) hidden for now — the .p2p sheet + engine stay
+                // wired; re-add this row to surface it again.
+                // integrationRow(title: "P2P (TorrServer)", subtitle: "Stream torrents peer-to-peer via a TorrServer") { sheet = .p2p }
             }
         }
         .fullScreenCover(item: $sheet) { s in

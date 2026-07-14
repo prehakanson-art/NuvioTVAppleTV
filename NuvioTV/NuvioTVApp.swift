@@ -21,6 +21,7 @@ struct NuvioTVApp: App {
     var body: some Scene {
         WindowGroup {
             RootView()
+                .fontDesign(theme.font.design)   // app-wide font family
                 .environmentObject(theme)
                 .environmentObject(addonManager)
                 .environmentObject(progressStore)

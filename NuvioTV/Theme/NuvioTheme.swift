@@ -153,6 +153,28 @@ enum NuvioThemes {
     }
 }
 
+/// App-wide font family (applied at the root via `.fontDesign`).
+enum AppFont: String, CaseIterable, Identifiable, Codable {
+    case system, rounded, serif, monospaced
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .system: return "System"
+        case .rounded: return "Rounded"
+        case .serif: return "Serif"
+        case .monospaced: return "Monospaced"
+        }
+    }
+    var design: Font.Design {
+        switch self {
+        case .system: return .default
+        case .rounded: return .rounded
+        case .serif: return .serif
+        case .monospaced: return .monospaced
+        }
+    }
+}
+
 @MainActor
 final class ThemeManager: ObservableObject {
     @Published private var basePalette: ThemePalette {
@@ -162,9 +184,14 @@ final class ThemeManager: ObservableObject {
     @Published var amoled: Bool {
         didSet { UserDefaults.standard.set(amoled, forKey: Self.amoledKey) }
     }
+    /// App-wide font family (applied at the root with `.fontDesign`).
+    @Published var font: AppFont {
+        didSet { UserDefaults.standard.set(font.rawValue, forKey: Self.fontKey) }
+    }
 
     private static let key = "nuvio.theme"
     private static let amoledKey = "nuvio.theme.amoled"
+    private static let fontKey = "nuvio.theme.font"
 
     init() {
         // Default to violet to match the Nuvio brand mark (cyan→purple play
@@ -172,6 +199,7 @@ final class ThemeManager: ObservableObject {
         let saved = UserDefaults.standard.string(forKey: Self.key) ?? "violet"
         basePalette = NuvioThemes.palette(id: saved)
         amoled = UserDefaults.standard.bool(forKey: Self.amoledKey)
+        font = AppFont(rawValue: UserDefaults.standard.string(forKey: Self.fontKey) ?? "") ?? .system
     }
 
     /// The palette used across the app, with the AMOLED override applied.

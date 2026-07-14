@@ -391,7 +391,48 @@ private struct AppearanceDetail: View {
                     isOn: Binding(get: { theme.amoled }, set: { theme.amoled = $0 })
                 )
             }
+
+            SettingsGroupCard(title: "Font", subtitle: "Typeface used across the app") {
+                HStack(spacing: NuvioSpacing.md) {
+                    ForEach(AppFont.allCases) { font in
+                        Button { theme.font = font } label: {
+                            SelectableChip(title: font.displayName, selected: theme.font == font)
+                                .fontDesign(font.design)
+                        }
+                        .buttonStyle(PlainCardButtonStyle())
+                    }
+                }
+            }
         }
+    }
+}
+
+/// Reusable focus-aware selection chip (accent fill on focus, readable in
+/// every state) — used by the theme font picker and other inline selectors.
+struct SelectableChip: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.isFocused) private var isFocused
+    let title: String
+    let selected: Bool
+
+    var body: some View {
+        Text(title)
+            .font(.system(size: 22, weight: .semibold))
+            .foregroundStyle(isFocused ? theme.palette.onSecondary : (selected ? .white : theme.palette.textSecondary))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, NuvioSpacing.md)
+            .background(
+                RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                    .fill(isFocused ? theme.palette.secondary
+                          : (selected ? theme.palette.secondary.opacity(0.28) : theme.palette.backgroundCard.opacity(0.85)))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                    .strokeBorder(isFocused ? theme.palette.focusRing : (selected ? theme.palette.secondary : .clear),
+                                  lineWidth: isFocused ? 4 : 2)
+            )
+            .scaleEffect(isFocused ? 1.05 : 1)
+            .animation(.spring(response: 0.28, dampingFraction: 0.85), value: isFocused)
     }
 }
 

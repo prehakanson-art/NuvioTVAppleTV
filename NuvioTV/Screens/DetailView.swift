@@ -26,7 +26,7 @@ final class DetailViewModel: ObservableObject {
         meta = item
     }
 
-    func load(addonManager: AddonManager, mdbSettings: MDBListSettings = .default) async {
+    func load(addonManager: AddonManager, mdbSettings: MDBListSettings = .default, tmdb: TMDBSettings = .default) async {
         defer { isLoading = false }
         // Canonicalize the identity FIRST: TMDB-sourced items arrive as
         // `tmdb:<n>`, but progress / watched / library are keyed by id — the
@@ -58,16 +58,19 @@ final class DetailViewModel: ObservableObject {
         if let season = selectedSeason { await loadSeason(season) }
 
         if let detail = await enrichTask.value {
-            cast = detail.cast
-            crew = detail.crew
-            director = detail.director
+            // Granular TMDB toggles gate which enriched sections appear.
+            if tmdb.useCredits {
+                cast = detail.cast
+                crew = detail.crew
+                director = detail.director
+            }
             country = detail.country
             language = detail.language
             releaseDate = detail.releaseDate
-            moreLikeThis = detail.moreLikeThis
+            if tmdb.useMoreLikeThis { moreLikeThis = detail.moreLikeThis }
             collection = detail.collection
             companies = detail.companies
-            trailers = detail.trailers
+            if tmdb.useTrailers { trailers = detail.trailers }
             if let collection {
                 collectionParts = await TMDBService.collectionItems(id: collection.id)
                     .filter { $0.id != meta.id }
@@ -107,6 +110,7 @@ struct DetailView: View {
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var watched: WatchedStore
     @EnvironmentObject private var mdblist: MDBListSettingsStore
+    @EnvironmentObject private var tmdbSettings: TMDBSettingsStore
     @EnvironmentObject private var playerSettings: PlayerSettingsStore
     @StateObject private var viewModel: DetailViewModel
 
@@ -156,7 +160,7 @@ struct DetailView: View {
             }
             .scrollClipDisabled()
         }
-        .task { await viewModel.load(addonManager: addonManager, mdbSettings: mdblist.settings) }
+        .task { await viewModel.load(addonManager: addonManager, mdbSettings: mdblist.settings, tmdb: tmdbSettings.settings) }
         // Auto-play the trailer in the backdrop after the configured idle
         // delay. Re-runs once trailers finish loading. Resolves silently — no
         // loading UI — and only swaps in when the video is actually ready.

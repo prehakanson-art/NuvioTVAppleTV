@@ -122,6 +122,22 @@ struct IntegrationsDetail: View {
                     selection: tmdb.settings.language,
                     options: TMDBLanguages.options.map { NuvioDropdownOption($0, TMDBLanguages.displayName($0)) }
                 ) { tmdb.settings.language = $0 }
+
+                SettingsToggleCard(
+                    title: "Cast & Crew",
+                    subtitle: "Show TMDB cast, crew, and director on the details page.",
+                    isOn: Binding(get: { tmdb.settings.useCredits }, set: { tmdb.settings.useCredits = $0 })
+                )
+                SettingsToggleCard(
+                    title: "Trailers",
+                    subtitle: "Show TMDB trailers and the auto-playing hero trailer on details.",
+                    isOn: Binding(get: { tmdb.settings.useTrailers }, set: { tmdb.settings.useTrailers = $0 })
+                )
+                SettingsToggleCard(
+                    title: "More Like This",
+                    subtitle: "Show the TMDB recommendations row on the details page.",
+                    isOn: Binding(get: { tmdb.settings.useMoreLikeThis }, set: { tmdb.settings.useMoreLikeThis = $0 })
+                )
             }
 
             Text("Uses a shared, app-embedded TMDB API key — no sign-in required.")

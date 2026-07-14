@@ -6,6 +6,10 @@ struct TMDBSettings: Codable, Equatable {
     var enabled: Bool = false
     var enrichContinueWatching: Bool = true
     var language: String = "en"
+    // Granular enrichment toggles (mirror Android's per-section TMDB switches).
+    var useCredits: Bool = true
+    var useTrailers: Bool = true
+    var useMoreLikeThis: Bool = true
 
     static let `default` = TMDBSettings()
 }

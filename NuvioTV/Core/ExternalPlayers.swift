@@ -8,16 +8,17 @@ struct ExternalPlayer: Identifiable, Equatable {
     let name: String
     /// Scheme probed with canOpenURL (must be in LSApplicationQueriesSchemes).
     let probeScheme: String
-    /// Builds the handoff URL for a direct stream link.
-    let makeURL: (String) -> URL?
+    /// Builds the handoff URL for a direct stream link, with an optional
+    /// external subtitle URL for players whose scheme supports one.
+    let makeURL: (_ stream: String, _ subtitleURL: String?) -> URL?
 
     var isInstalled: Bool {
         guard let url = URL(string: "\(probeScheme)://") else { return false }
         return UIApplication.shared.canOpenURL(url)
     }
 
-    func open(streamURL: String) {
-        guard let url = makeURL(streamURL) else { return }
+    func open(streamURL: String, subtitleURL: String? = nil) {
+        guard let url = makeURL(streamURL, subtitleURL) else { return }
         UIApplication.shared.open(url)
     }
 
@@ -31,28 +32,34 @@ enum ExternalPlayers {
     static let catalog: [ExternalPlayer] = [
         ExternalPlayer(
             id: "infuse", name: "Infuse", probeScheme: "infuse",
-            makeURL: { stream in
-                URL(string: "infuse://x-callback-url/play?url=\(encode(stream))")
+            makeURL: { stream, sub in
+                var s = "infuse://x-callback-url/play?url=\(encode(stream))"
+                if let sub { s += "&sub=\(encode(sub))" }
+                return URL(string: s)
             }
         ),
         ExternalPlayer(
             id: "vlc", name: "VLC", probeScheme: "vlc-x-callback",
-            makeURL: { stream in
-                URL(string: "vlc-x-callback://x-callback-url/stream?url=\(encode(stream))")
+            makeURL: { stream, sub in
+                var s = "vlc-x-callback://x-callback-url/stream?url=\(encode(stream))"
+                if let sub { s += "&sub=\(encode(sub))" }
+                return URL(string: s)
             }
         ),
         ExternalPlayer(
             id: "nplayer", name: "nPlayer", probeScheme: "nplayer-http",
-            makeURL: { stream in
+            makeURL: { stream, _ in
                 // nPlayer's documented form: prefix the URL's scheme with
-                // "nplayer-" (http → nplayer-http).
+                // "nplayer-" (http → nplayer-http). No subtitle param.
                 URL(string: "nplayer-\(stream)")
             }
         ),
         ExternalPlayer(
             id: "vidhub", name: "VidHub", probeScheme: "open-vidhub",
-            makeURL: { stream in
-                URL(string: "open-vidhub://x-callback-url/open?url=\(encode(stream))")
+            makeURL: { stream, sub in
+                var s = "open-vidhub://x-callback-url/open?url=\(encode(stream))"
+                if let sub { s += "&sub=\(encode(sub))" }
+                return URL(string: s)
             }
         ),
     ]

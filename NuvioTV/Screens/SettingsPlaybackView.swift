@@ -200,6 +200,13 @@ struct PlaybackSettingsDetail: View {
                             selection: store.settings.externalPlayerID,
                             options: installed.map { NuvioDropdownOption($0.id, $0.name) }
                         ) { store.settings.externalPlayerID = $0 }
+
+                        PlaybackToggleRow(
+                            icon: "captions.bubble.fill",
+                            title: "Forward subtitles",
+                            subtitle: "Fetch a subtitle in your preferred language from your subtitle addons and pass it to the external player (Infuse / VLC / VidHub)",
+                            isOn: s.externalPlayerForwardSubtitles
+                        )
                     }
                 }
 

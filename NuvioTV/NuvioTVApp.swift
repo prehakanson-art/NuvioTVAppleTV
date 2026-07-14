@@ -552,11 +552,39 @@ struct RootView: View {
             let chosen = ExternalPlayers.player(id: playerSettings.settings.externalPlayerID)
             let target = (chosen?.isInstalled == true ? chosen : nil) ?? ExternalPlayers.installed.first
             if let target {
-                target.open(streamURL: urlString)
+                if playerSettings.settings.externalPlayerForwardSubtitles {
+                    // Fetch a preferred-language subtitle, then hand off (async).
+                    Task {
+                        let sub = await externalSubtitleURL(for: request)
+                        target.open(streamURL: urlString, subtitleURL: sub)
+                    }
+                } else {
+                    target.open(streamURL: urlString)
+                }
                 return
             }
         }
         playback = request
+    }
+
+    /// Best subtitle URL from the installed subtitle addons for this playback,
+    /// preferring the user's subtitle language. nil when none is found.
+    private func externalSubtitleURL(for request: PlaybackRequest) async -> String? {
+        let providers = addonManager.subtitleAddons
+        guard !providers.isEmpty else { return nil }
+        let id = request.video?.id ?? request.meta.id
+        let type = request.meta.type
+        let preferred = playerSettings.settings.preferredSubtitleLanguage.lowercased()
+        var firstAny: String?
+        for addon in providers {
+            let subs = (try? await StremioAPI.subtitles(addon: addon, type: type, id: id)) ?? []
+            if firstAny == nil { firstAny = subs.first?.url }
+            if !preferred.isEmpty,
+               let match = subs.first(where: { ($0.lang ?? "").lowercased().hasPrefix(preferred) }) {
+                return match.url
+            }
+        }
+        return firstAny
     }
 
     private func resume(_ progress: WatchProgress, fromBeginning: Bool = false) {

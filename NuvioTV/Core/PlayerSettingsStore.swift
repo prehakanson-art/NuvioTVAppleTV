@@ -131,6 +131,9 @@ struct PlayerSettings: Codable, Equatable {
     /// Which external player app receives streams when playerEngine is
     /// .external (id from ExternalPlayers.catalog).
     var externalPlayerID: String = "infuse"
+    /// Fetch a preferred-language subtitle from your subtitle addons and hand
+    /// it to the external player (Infuse/VLC/VidHub `sub=` parameter).
+    var externalPlayerForwardSubtitles: Bool = false
     /// LEGACY (pre-audioOutputMode): the old force-renderer toggle. Kept only
     /// so existing saves migrate — read once in the decoder, never in the UI.
     var audioRendererEnabled: Bool = false
@@ -303,6 +306,7 @@ struct PlayerSettings: Codable, Equatable {
         preferredAudioLanguage = (try? c.decode(String.self, forKey: .preferredAudioLanguage)) ?? d.preferredAudioLanguage
         playerEngine = (try? c.decode(PlayerEngine.self, forKey: .playerEngine)) ?? d.playerEngine
         externalPlayerID = (try? c.decode(String.self, forKey: .externalPlayerID)) ?? d.externalPlayerID
+        externalPlayerForwardSubtitles = (try? c.decode(Bool.self, forKey: .externalPlayerForwardSubtitles)) ?? d.externalPlayerForwardSubtitles
         audioRendererEnabled = (try? c.decode(Bool.self, forKey: .audioRendererEnabled)) ?? d.audioRendererEnabled
         // Migration: saves from before audioOutputMode existed carry only the
         // old force-renderer bool — honor it as an explicit "renderer".

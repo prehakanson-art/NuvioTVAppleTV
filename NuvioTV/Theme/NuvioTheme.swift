@@ -175,11 +175,33 @@ enum AppFont: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-/// The synced slice of the theme (accent palette + AMOLED + font).
+/// How much of the settings surface to expose (mirrors Android's
+/// ExperienceMode). Essential hides the most technical options.
+enum ExperienceMode: String, CaseIterable, Identifiable, Codable {
+    case essential, advanced
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .essential: return "Essential"
+        case .advanced: return "Advanced"
+        }
+    }
+    var summary: String {
+        switch self {
+        case .essential: return "A simpler settings screen with just the everyday options"
+        case .advanced: return "Every option, including engine, OSD and tuning controls"
+        }
+    }
+    var isAdvanced: Bool { self == .advanced }
+}
+
+/// The synced slice of the theme (accent palette + AMOLED + font + experience).
 struct ThemeSnapshot: Codable, Equatable {
     var paletteID: String
     var amoled: Bool
     var font: AppFont
+    /// Default advanced so existing users keep the full settings surface.
+    var experienceMode: ExperienceMode = .advanced
 }
 
 @MainActor
@@ -204,6 +226,13 @@ final class ThemeManager: ObservableObject {
             if !applyingRemote { onLocalChange?() }
         }
     }
+    /// Settings-surface complexity (Essential hides advanced options).
+    @Published var experienceMode: ExperienceMode {
+        didSet {
+            UserDefaults.standard.set(experienceMode.rawValue, forKey: Self.experienceKey)
+            if !applyingRemote { onLocalChange?() }
+        }
+    }
 
     /// Fired on a local (user-driven) theme change so the sync manager pushes it.
     var onLocalChange: (() -> Void)?
@@ -212,6 +241,7 @@ final class ThemeManager: ObservableObject {
     private static let key = "nuvio.theme"
     private static let amoledKey = "nuvio.theme.amoled"
     private static let fontKey = "nuvio.theme.font"
+    private static let experienceKey = "nuvio.theme.experience"
 
     init() {
         // Default to violet to match the Nuvio brand mark (cyan→purple play
@@ -220,11 +250,12 @@ final class ThemeManager: ObservableObject {
         basePalette = NuvioThemes.palette(id: saved)
         amoled = UserDefaults.standard.bool(forKey: Self.amoledKey)
         font = AppFont(rawValue: UserDefaults.standard.string(forKey: Self.fontKey) ?? "") ?? .system
+        experienceMode = ExperienceMode(rawValue: UserDefaults.standard.string(forKey: Self.experienceKey) ?? "") ?? .advanced
     }
 
     /// Current theme as a syncable snapshot.
     var snapshot: ThemeSnapshot {
-        ThemeSnapshot(paletteID: basePalette.id, amoled: amoled, font: font)
+        ThemeSnapshot(paletteID: basePalette.id, amoled: amoled, font: font, experienceMode: experienceMode)
     }
 
     /// Apply a snapshot pulled from the account without echoing it back up.
@@ -234,6 +265,7 @@ final class ThemeManager: ObservableObject {
         basePalette = NuvioThemes.palette(id: s.paletteID)
         amoled = s.amoled
         font = s.font
+        experienceMode = s.experienceMode
         applyingRemote = false
     }
 

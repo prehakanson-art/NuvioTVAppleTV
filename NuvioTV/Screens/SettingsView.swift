@@ -364,6 +364,8 @@ struct DetailScaffold<Content: View>: View {
 
 private struct AppearanceDetail: View {
     @EnvironmentObject private var theme: ThemeManager
+    /// Confirmation before switching INTO Essential (it hides options).
+    @State private var pendingEssential = false
 
     var body: some View {
         DetailScaffold(title: SettingsCategory.appearance.title, subtitle: SettingsCategory.appearance.subtitle) {
@@ -403,6 +405,29 @@ private struct AppearanceDetail: View {
                     }
                 }
             }
+
+            SettingsGroupCard(title: "Experience Mode", subtitle: theme.experienceMode.summary) {
+                HStack(spacing: NuvioSpacing.md) {
+                    ForEach(ExperienceMode.allCases) { mode in
+                        Button {
+                            if mode == .essential, theme.experienceMode != .essential {
+                                pendingEssential = true   // confirm hiding options
+                            } else {
+                                theme.experienceMode = mode
+                            }
+                        } label: {
+                            SelectableChip(title: mode.displayName, selected: theme.experienceMode == mode)
+                        }
+                        .buttonStyle(PlainCardButtonStyle())
+                    }
+                }
+            }
+        }
+        .alert("Switch to Essential?", isPresented: $pendingEssential) {
+            Button("Cancel", role: .cancel) {}
+            Button("Switch") { theme.experienceMode = .essential }
+        } message: {
+            Text("Essential mode hides the more advanced Playback options (engine, on-screen display, auto-play source, audio and display tuning). You can switch back to Advanced any time.")
         }
     }
 }

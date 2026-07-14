@@ -174,6 +174,7 @@ struct StreamsView: View {
     @EnvironmentObject private var addonManager: AddonManager
     @EnvironmentObject private var debrid: DebridStore
     @EnvironmentObject private var playerSettings: PlayerSettingsStore
+    @EnvironmentObject private var streamBadges: StreamBadgeStore
     @StateObject private var viewModel: StreamsViewModel
 
     @State private var resolving = false
@@ -433,7 +434,11 @@ struct StreamsView: View {
         Button {
             handleSelection(entry, viewModel.allEntries)
         } label: {
-            StreamRowView(entry: entry, debridShortName: entry.stream.isTorrent ? debrid.resolverProvider?.shortName : nil)
+            StreamRowView(
+                entry: entry,
+                debridShortName: entry.stream.isTorrent ? debrid.resolverProvider?.shortName : nil,
+                badges: streamBadges.badges(for: entry)
+            )
         }
         .buttonStyle(PlainCardButtonStyle())
         .focused($focusedEntry, equals: entry.id)
@@ -458,6 +463,8 @@ struct StreamRowView: View {
 
     let entry: StreamEntry
     var debridShortName: String?
+    /// Badger badge chips matched for this link (see StreamBadgeStore).
+    var badges: [StreamBadge] = []
 
     var body: some View {
         HStack(spacing: NuvioSpacing.lg) {
@@ -475,6 +482,10 @@ struct StreamRowView: View {
                         .font(.system(size: 20))
                         .foregroundStyle(theme.palette.textSecondary)
                         .lineLimit(2)
+                }
+                if !badges.isEmpty {
+                    StreamBadgeChips(badges: badges)
+                        .padding(.top, 2)
                 }
             }
 

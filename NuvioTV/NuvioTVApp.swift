@@ -16,6 +16,7 @@ struct NuvioTVApp: App {
     @StateObject private var debrid = DebridStore()
     @StateObject private var trakt = TraktStore()
     @StateObject private var playerSettings = PlayerSettingsStore()
+    @StateObject private var streamBadges = StreamBadgeStore()
 
     var body: some Scene {
         WindowGroup {
@@ -34,6 +35,7 @@ struct NuvioTVApp: App {
                 .environmentObject(debrid)
                 .environmentObject(trakt)
                 .environmentObject(playerSettings)
+                .environmentObject(streamBadges)
                 .preferredColorScheme(.dark)
         }
     }

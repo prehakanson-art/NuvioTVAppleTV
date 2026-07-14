@@ -22,6 +22,7 @@
 		23B73C354F5DF4CFFADB36BD /* QRCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB84CD5358005AFCBA81FA25 /* QRCode.swift */; };
 		26142DF8D7225D3AC3BEA184 /* MDBListService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 414898F11CD091C483A70A67 /* MDBListService.swift */; };
 		276BD4FAF524DAD3A6C360DE /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C9C87FFBAD0E1EECA829F5A /* Secrets.swift */; };
+		2DCA83982721109BBFD27A97 /* StreamBadges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5780AD496BA8A2CFBBCD07CB /* StreamBadges.swift */; };
 		2F285C593B479C27A9A8069E /* RemoteInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33E98DE3FF2BD0DC102D80F4 /* RemoteInput.swift */; };
 		3980DE34DE34E597267BC6A3 /* PlayerSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C26E3B4C279900B78470C667 /* PlayerSettingsStore.swift */; };
 		3DC8FC0723F87B82CBF59ECA /* ExternalPlayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D137BCE0827FF5B9EBCA42 /* ExternalPlayers.swift */; };
@@ -94,6 +95,7 @@
 		4D4C53D8C6A8B8FC9F1C1216 /* SourceSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SourceSelection.swift; sourceTree = "<group>"; };
 		4E68E4D03BAF629A2694A011 /* NuvioSyncModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NuvioSyncModels.swift; sourceTree = "<group>"; };
 		553617D03EC21CCE1DC07E6F /* SettingsPlaybackView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPlaybackView.swift; sourceTree = "<group>"; };
+		5780AD496BA8A2CFBBCD07CB /* StreamBadges.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamBadges.swift; sourceTree = "<group>"; };
 		57C4A723527A06C009FCB68A /* PlayerControlsOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerControlsOverlay.swift; sourceTree = "<group>"; };
 		5D89B97FD2C452C0137A911D /* StreamsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StreamsView.swift; sourceTree = "<group>"; };
 		6A77D0DFF73779D6393DDF7A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -117,7 +119,7 @@
 		D5A881246C6166C28BCD7C8B /* SidebarNav.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarNav.swift; sourceTree = "<group>"; };
 		DF61804404FEAD1E3E5E4FD6 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		E07F3565C7E5BB417A83893E /* TrailerPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrailerPlayer.swift; sourceTree = "<group>"; };
-		E082ACA18B306E4D2DFC76F4 /* NuvioTV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NuvioTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E082ACA18B306E4D2DFC76F4 /* NuvioTV.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NuvioTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E1B7D256E3B5029E76D7C03D /* ProfilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilesView.swift; sourceTree = "<group>"; };
 		E2B5622602D0586649B04485 /* PauseOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PauseOverlayView.swift; sourceTree = "<group>"; };
 		E3BA0288809B5DD6BEFC91DE /* TMDBService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TMDBService.swift; sourceTree = "<group>"; };
@@ -216,6 +218,7 @@
 				BBDCBEA43CE00C6DD740B204 /* ProgressStore.swift */,
 				AD681267F7BC35D3CC1F797C /* RequestCache.swift */,
 				4D4C53D8C6A8B8FC9F1C1216 /* SourceSelection.swift */,
+				5780AD496BA8A2CFBBCD07CB /* StreamBadges.swift */,
 				8E7D954FA6B8F52309A05490 /* StremioAPI.swift */,
 				E3BA0288809B5DD6BEFC91DE /* TMDBService.swift */,
 				A4EA353DABA76B77A9FCA728 /* TraktService.swift */,
@@ -309,6 +312,8 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = 3C2ADD7ADAB90D8E239624CD /* Build configuration list for PBXProject "NuvioTV" */;
 			developmentRegion = en;
@@ -421,6 +426,7 @@
 				87BE6E3BECE882078235D494 /* SidePanels.swift in Sources */,
 				563A626670904DF05648D760 /* SidebarNav.swift in Sources */,
 				9E84617B508432C86A202A4E /* SourceSelection.swift in Sources */,
+				2DCA83982721109BBFD27A97 /* StreamBadges.swift in Sources */,
 				7000373F832F741F5E30C8D0 /* StreamsView.swift in Sources */,
 				8BEFD722640C2C3DCF9F0E71 /* StremioAPI.swift in Sources */,
 				3E75BF4F2B2008787D63DDDD /* TMDBBrowseView.swift in Sources */,
@@ -441,7 +447,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = CYCSPZ5MTR;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = Config/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -581,7 +586,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = CYCSPZ5MTR;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				INFOPLIST_FILE = Config/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (

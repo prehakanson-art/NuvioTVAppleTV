@@ -8,6 +8,10 @@ final class AddonManager: ObservableObject {
     /// Called after a user-initiated change so account sync can push. Not
     /// fired while applying remote data (guarded by `suppressChange`).
     var onLocalChange: (() -> Void)?
+    /// Called when the user taps "Refresh Add-ons" — the sync manager wires this
+    /// to pull the account's addons (so ones added on other devices appear) and
+    /// push the merged set back. `nil` (signed out) is a no-op.
+    var onSyncRequested: (() async -> Void)?
     private var suppressChange = false
 
     private static let storageKey = "nuvio.addons.v1"
@@ -154,9 +158,12 @@ final class AddonManager: ObservableObject {
         notifyLocalChange()
     }
 
-    /// Re-fetch every installed addon's manifest (the APK's "Refresh Add-ons").
+    /// Re-fetch every installed addon's manifest (the APK's "Refresh Add-ons")
+    /// AND sync with the account: pull addons added on other devices, then push
+    /// the merged list back.
     func refresh() async {
         await refreshManifests()
+        await onSyncRequested?()
     }
 
     private func refreshManifests() async {

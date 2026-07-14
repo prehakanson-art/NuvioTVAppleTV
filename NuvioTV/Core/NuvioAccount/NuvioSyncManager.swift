@@ -142,6 +142,13 @@ final class NuvioSyncManager: ObservableObject {
 
         // Push local changes upward (debounced for addons/library/watched/profiles, immediate for progress).
         addonManager.onLocalChange = { [weak self] in self?.scheduleAddonPush() }
+        // "Refresh Add-ons" → pull the account's addons (bring in ones added on
+        // other devices), then push the merged list so both sides converge.
+        addonManager.onSyncRequested = { [weak self] in
+            guard let self, account.accessToken != nil else { return }
+            try? await pullAddons()
+            try? await pushAddons()
+        }
         progressStore.onLocalUpdate = { [weak self] in self?.pushWatchProgress() }
         progressStore.onRemove = { [weak self] keys in self?.deleteWatchProgress(keys: keys) }
         libraryStore.onLocalChange = { [weak self] in self?.scheduleLibraryPush() }

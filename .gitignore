@@ -25,3 +25,5 @@ NuvioTV/Secrets.swift
 **/.DS_Store
 nodeserver/node_modules/
 Vendor/NodeMobile.xcframework/
+build-sim/
+build/

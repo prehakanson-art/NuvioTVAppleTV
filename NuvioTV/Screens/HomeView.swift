@@ -833,12 +833,17 @@ private struct HeroBackdropView: View {
                 // Netflix scrim: art reads on the top-right; the left third is
                 // darkened for the title/synopsis; the lower half dissolves into
                 // the background so the rows sit on near-solid black.
+                // Smooth continuous ramp (many stops, fade starts immediately)
+                // so there's no flat near-solid block that reads as a second
+                // "tone" next to the sidebar — it just dissolves into the art.
                 LinearGradient(
                     stops: [
                         .init(color: theme.palette.background, location: 0),
-                        .init(color: theme.palette.background.opacity(0.82), location: 0.30),
-                        .init(color: theme.palette.background.opacity(0.30), location: 0.56),
-                        .init(color: .clear, location: 0.74)
+                        .init(color: theme.palette.background.opacity(0.92), location: 0.14),
+                        .init(color: theme.palette.background.opacity(0.72), location: 0.30),
+                        .init(color: theme.palette.background.opacity(0.45), location: 0.46),
+                        .init(color: theme.palette.background.opacity(0.20), location: 0.62),
+                        .init(color: .clear, location: 0.80)
                     ],
                     startPoint: .leading, endPoint: .trailing
                 )

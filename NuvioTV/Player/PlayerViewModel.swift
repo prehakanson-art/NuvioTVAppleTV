@@ -31,7 +31,7 @@ enum PlayerOverlay: Equatable {
     case error(String)
 }
 
-enum AspectMode: CaseIterable {
+enum AspectMode: String, CaseIterable {
     case fit, zoom, stretch
 
     var label: String {
@@ -275,6 +275,9 @@ final class PlayerViewModel: ObservableObject {
     @Published var selectedAudioID: String?
     @Published var selectedSubtitleID: String?
     @Published var aspectMode: AspectMode = .fit
+    /// Live subtitle timing offset in seconds (+ later, − earlier). Mirrors
+    /// `subtitleModel.subtitleDelay` for the UI; nudged during playback.
+    @Published var subtitleDelay: Double = 0
     @Published var playbackSpeed: Float = 1.0
 
     // Content
@@ -611,6 +614,10 @@ final class PlayerViewModel: ObservableObject {
         // Subtitle presentation follows the user's Playback settings.
         SubtitleModel.textFontSize = CGFloat(settings.subtitleSize)
         SubtitleModel.textBold = settings.subtitleBold
+        // Default video scaling + subtitle timing offset from settings.
+        aspectMode = AspectMode(rawValue: settings.aspectModeRaw) ?? .fit
+        subtitleDelay = settings.subtitleDelaySeconds
+        subtitleModel.subtitleDelay = settings.subtitleDelaySeconds
         // Audio output for the FFmpeg engine, per-session (KSMEPlayer snapshots
         // the type at creation). AudioRendererPlayer =
         // AVSampleBufferAudioRenderer: Dolby Atmos/spatial rendering and
@@ -1836,6 +1843,28 @@ final class PlayerViewModel: ObservableObject {
         } else {
             showToast(next.label)
         }
+    }
+
+    /// Live subtitle-timing adjustment during playback (+ later, − earlier).
+    /// Clamped to ±30 s and applied straight to the subtitle renderer.
+    func nudgeSubtitleDelay(by delta: Double) {
+        let value = min(30, max(-30, subtitleDelay + delta))
+        // Kill −0.0 so the label reads a clean "0.0 s".
+        subtitleDelay = value == 0 ? 0 : (value * 10).rounded() / 10
+        subtitleModel.subtitleDelay = subtitleDelay
+        showToast("Subtitle delay \(Self.formatDelay(subtitleDelay))")
+    }
+
+    func resetSubtitleDelay() {
+        subtitleDelay = 0
+        subtitleModel.subtitleDelay = 0
+        showToast("Subtitle delay 0.0 s")
+    }
+
+    /// "+1.5 s" / "0.0 s" / "−2.0 s" for the delay HUD.
+    static func formatDelay(_ seconds: Double) -> String {
+        let sign = seconds > 0 ? "+" : (seconds < 0 ? "−" : "")
+        return "\(sign)\(String(format: "%.1f", abs(seconds))) s"
     }
 
     /// Decoded video dimensions, published for the aspect-mode transform.

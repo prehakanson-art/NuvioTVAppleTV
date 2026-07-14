@@ -330,6 +330,53 @@ struct TrackPanelContent: View {
     }
 }
 
+/// Live subtitle-timing offset control at the top of the Subtitles panel:
+/// −0.5 s / value / +0.5 s, plus a Reset when non-zero. Positive = subtitles
+/// appear later (drag them right on the timeline).
+struct SubtitleDelayControl: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject var viewModel: PlayerViewModel
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.xs) {
+            Text("SUBTITLE DELAY")
+                .font(.system(size: 18, weight: .heavy))
+                .foregroundStyle(theme.palette.textTertiary)
+                .padding(.leading, 4)
+            HStack(spacing: NuvioSpacing.sm) {
+                delayButton("−0.5 s", systemImage: "minus") {
+                    viewModel.nudgeSubtitleDelay(by: -0.5)
+                }
+                Text(PlayerViewModel.formatDelay(viewModel.subtitleDelay))
+                    .font(.system(size: 24, weight: .semibold).monospacedDigit())
+                    .foregroundStyle(theme.palette.textPrimary)
+                    .frame(minWidth: 96)
+                delayButton("+0.5 s", systemImage: "plus") {
+                    viewModel.nudgeSubtitleDelay(by: 0.5)
+                }
+                if viewModel.subtitleDelay != 0 {
+                    delayButton("Reset", systemImage: "arrow.counterclockwise") {
+                        viewModel.resetSubtitleDelay()
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 4)
+        .padding(.bottom, NuvioSpacing.xs)
+    }
+
+    private func delayButton(_ title: String, systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Label(title, systemImage: systemImage)
+                .labelStyle(.titleAndIcon)
+                .font(.system(size: 20, weight: .semibold))
+                .padding(.horizontal, NuvioSpacing.md)
+                .padding(.vertical, NuvioSpacing.sm)
+        }
+        .buttonStyle(PlainCardButtonStyle())
+    }
+}
+
 /// In-player engine picker — reload the current stream through a different
 /// playback engine (the "this file is choppy, try VLC" escape hatch), keeping
 /// the playback position.

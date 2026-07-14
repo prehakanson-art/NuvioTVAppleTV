@@ -216,6 +216,14 @@ struct PlaybackSettingsDetail: View {
                     subtitle: "Switch the TV into the video's HDR mode for native Dolby Vision/HDR. Uses the gentlest switch possible (dynamic range only, no refresh-rate change) to reduce grey-screen risk — but some TVs still mis-handshake and stick on grey until power-cycled, so leave off if that happens. Off = tone-map into the home screen's format (like Stremio).",
                     isOn: s.matchContentDisplayMode
                 )
+
+                NuvioDropdown(
+                    title: "Video scaling",
+                    subtitle: "Default zoom for the video. Cycle it live in the player with the aspect button.",
+                    icon: "aspectratio.fill",
+                    selection: store.settings.aspectModeRaw,
+                    options: AspectMode.allCases.map { NuvioDropdownOption($0.rawValue, $0.label) }
+                ) { store.settings.aspectModeRaw = $0 }
             }
 
             SettingsGroupCard(title: "Audio", subtitle: "Track selection and output") {
@@ -277,6 +285,16 @@ struct PlaybackSettingsDetail: View {
                         NuvioDropdownOption(String($0), sizeLabel($0))
                     }
                 ) { store.settings.subtitleSize = Int($0) ?? 36 }
+
+                NuvioDropdown(
+                    title: "Timing offset",
+                    subtitle: "Shift captions earlier (−) or later (+). Adjustable live from the Subtitles panel during playback.",
+                    icon: "timer",
+                    selection: String(store.settings.subtitleDelaySeconds),
+                    options: PlayerSettings.subtitleDelayValues.map {
+                        NuvioDropdownOption(String($0), PlayerViewModel.formatDelay($0))
+                    }
+                ) { store.settings.subtitleDelaySeconds = Double($0) ?? 0 }
 
                 NuvioDropdown(
                     title: "Text color",

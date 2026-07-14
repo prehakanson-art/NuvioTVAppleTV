@@ -137,6 +137,12 @@ struct PlayerSettings: Codable, Equatable {
     /// FFmpeg-engine audio output (see AudioOutputMode). Auto = the enhanced
     /// renderer only when the route is spatial/Atmos-capable.
     var audioOutputMode: AudioOutputMode = .auto
+    /// Default video scaling (Fit / Zoom / Stretch). The in-player button
+    /// cycles it live for the session; this is the saved + synced default.
+    var aspectModeRaw: String = "fit"
+    /// Default subtitle timing offset in seconds (+ = later, − = earlier).
+    /// Applied when a stream loads; the in-player nudge adjusts it live.
+    var subtitleDelaySeconds: Double = 0
 
     /// Master switch for the curated link filters. On = each addon's links
     /// are grouped into size tiers (250 MB–4 GB … 30 GB+), debrid-cached
@@ -224,6 +230,8 @@ struct PlayerSettings: Codable, Equatable {
     static let subtitleBackgroundOpacityValues: [Int] = [0, 15, 30, 45, 60, 80, 100]
     /// Selectable reuse-last-link cache windows (hours).
     static let reuseLastLinkHoursValues: [Int] = [1, 3, 6, 12, 24, 48, 72]
+    /// Selectable default subtitle timing offsets (seconds).
+    static let subtitleDelayValues: [Double] = [-5, -3, -2, -1, -0.5, 0, 0.5, 1, 2, 3, 5]
     /// Selectable per-press skip amounts (seconds).
     static let skipValues: [Int] = [5, 10, 15, 30]
     /// Selectable scrub-mode jump amounts (seconds).
@@ -291,6 +299,8 @@ struct PlayerSettings: Codable, Equatable {
         // old force-renderer bool — honor it as an explicit "renderer".
         audioOutputMode = (try? c.decode(AudioOutputMode.self, forKey: .audioOutputMode))
             ?? (audioRendererEnabled ? .renderer : d.audioOutputMode)
+        aspectModeRaw = (try? c.decode(String.self, forKey: .aspectModeRaw)) ?? d.aspectModeRaw
+        subtitleDelaySeconds = (try? c.decode(Double.self, forKey: .subtitleDelaySeconds)) ?? d.subtitleDelaySeconds
         sourceFiltersEnabled = (try? c.decode(Bool.self, forKey: .sourceFiltersEnabled)) ?? d.sourceFiltersEnabled
         sourcesHighGBPerTier = (try? c.decode(Int.self, forKey: .sourcesHighGBPerTier)) ?? d.sourcesHighGBPerTier
         sourcesLowGBPerTier = (try? c.decode(Int.self, forKey: .sourcesLowGBPerTier)) ?? d.sourcesLowGBPerTier

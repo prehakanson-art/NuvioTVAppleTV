@@ -468,10 +468,13 @@ struct PlayerScreen: View {
             }
         case .subtitles:
             SidePanel(title: "Subtitles", onExitCommand: sidePanelExit) {
-                TrackPanelContent(
-                    options: viewModel.subtitleOptions,
-                    selectedID: viewModel.selectedSubtitleID
-                ) { viewModel.selectSubtitle($0); viewModel.overlay = .controls }
+                VStack(spacing: NuvioSpacing.sm) {
+                    SubtitleDelayControl(viewModel: viewModel)
+                    TrackPanelContent(
+                        options: viewModel.subtitleOptions,
+                        selectedID: viewModel.selectedSubtitleID
+                    ) { viewModel.selectSubtitle($0); viewModel.overlay = .controls }
+                }
             }
         case .speed:
             SidePanel(title: "Playback Speed", onExitCommand: sidePanelExit) {

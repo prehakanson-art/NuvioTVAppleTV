@@ -23,6 +23,7 @@ final class NuvioSyncManager: ObservableObject {
     private let profileStore: ProfileStore
     private let collectionsStore: CollectionsStore
     private let homeCatalogSettings: HomeCatalogSettingsStore
+    private let streamBadges: StreamBadgeStore?
 
     private var cancellables = Set<AnyCancellable>()
     private var pushAddonsTask: Task<Void, Never>?
@@ -31,6 +32,7 @@ final class NuvioSyncManager: ObservableObject {
     private var pushProfilesTask: Task<Void, Never>?
     private var pushCollectionsTask: Task<Void, Never>?
     private var pushHomeCatalogTask: Task<Void, Never>?
+    private var pushBadgeSettingsTask: Task<Void, Never>?
     private var avatarCatalogCache: [AvatarCatalogItem] = []
     private var wasSignedIn = false
 
@@ -73,7 +75,14 @@ final class NuvioSyncManager: ObservableObject {
         static let pullCollections = "sync_pull_collections"
         static let pushHomeCatalogSettings = "sync_push_home_catalog_settings"
         static let pullHomeCatalogSettings = "sync_pull_home_catalog_settings"
+        static let pushProfileSettingsBlob = "sync_push_profile_settings_blob"
+        static let pullProfileSettingsBlob = "sync_pull_profile_settings_blob"
     }
+
+    /// Platform tag the Android TV app uses for the profile-settings blob —
+    /// badge configs (Badger/Fusion) live inside that blob, so we read/write
+    /// the same rows.
+    private static let settingsBlobPlatform = "tv"
 
     /// Platform tags for home catalog settings rows (mirrors Android).
     private enum HomeCatalogPlatform {
@@ -89,7 +98,8 @@ final class NuvioSyncManager: ObservableObject {
         watchedStore: WatchedStore,
         profileStore: ProfileStore,
         collectionsStore: CollectionsStore,
-        homeCatalogSettings: HomeCatalogSettingsStore
+        homeCatalogSettings: HomeCatalogSettingsStore,
+        streamBadges: StreamBadgeStore? = nil
     ) {
         self.account = account
         self.addonManager = addonManager
@@ -99,6 +109,7 @@ final class NuvioSyncManager: ObservableObject {
         self.profileStore = profileStore
         self.collectionsStore = collectionsStore
         self.homeCatalogSettings = homeCatalogSettings
+        self.streamBadges = streamBadges
 
         // Sync whenever we transition into a signed-in state.
         account.$authState
@@ -120,6 +131,7 @@ final class NuvioSyncManager: ObservableObject {
             self?.scheduleHomeCatalogPush()
         }
         homeCatalogSettings.onLocalChange = { [weak self] in self?.scheduleHomeCatalogPush() }
+        streamBadges?.onLocalChange = { [weak self] in self?.scheduleBadgeSettingsPush() }
 
         // Authed operations the profile UI needs (require the access token).
         profileStore.avatarCatalogLoader = { [weak self] in
@@ -175,6 +187,7 @@ final class NuvioSyncManager: ObservableObject {
             try await pullWatchedItems()
             try await pullCollections()
             try await pullHomeCatalogSettings()
+            await pullBadgeSettings()   // best-effort; badge chips are cosmetic
             try await pushProfiles()
             try await pushAddons()
             try await pushWatchProgressAll()
@@ -584,6 +597,7 @@ final class NuvioSyncManager: ObservableObject {
                 try await pullWatchedItems()
                 try await pullCollections()
                 try await pullHomeCatalogSettings()
+                await pullBadgeSettings()
             } catch {
                 lastSyncError = describe(error)
             }
@@ -751,6 +765,69 @@ final class NuvioSyncManager: ObservableObject {
     }
 
     // MARK: - Networking
+
+    // MARK: - Badge settings (profile settings blob, Android-compatible)
+
+    /// Pull the profile settings blob and apply the `stream_badge_settings`
+    /// feature — the Badger/Fusion badge pack configured on other devices.
+    /// Blob shape (see Android ProfileSettingsSyncService): rows of
+    /// {settings_json: {version, features: {feature: {key: {type,value}}}}}.
+    private func pullBadgeSettings() async {
+        guard let streamBadges else { return }
+        guard let data = try? await authedPost(
+            RPC.url(RPC.pullProfileSettingsBlob),
+            body: ["p_profile_id": pid, "p_platform": Self.settingsBlobPlatform]
+        ) else { return }
+        guard let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+              let blob = rows.first?["settings_json"] as? [String: Any],
+              let features = blob["features"] as? [String: Any],
+              let badgeFeature = features["stream_badge_settings"] as? [String: Any],
+              let rulesEntry = badgeFeature["stream_badge_rules"] as? [String: Any],
+              let rulesJSON = rulesEntry["value"] as? String
+        else { return }
+        streamBadges.applyRemoteRules(rulesJSON)
+    }
+
+    private func scheduleBadgeSettingsPush() {
+        pushBadgeSettingsTask?.cancel()
+        pushBadgeSettingsTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.pushBadgeSettings()
+        }
+    }
+
+    /// Push our badge config into the account. READ-MERGE-WRITE: fetch the
+    /// current blob, replace only the stream_badge_settings feature, push the
+    /// whole thing back — never clobbers the other features Android put there.
+    private func pushBadgeSettings() async {
+        guard let streamBadges, account.accessToken != nil,
+              let rulesJSON = streamBadges.syncRulesJSON() else { return }
+
+        var blob: [String: Any] = ["version": 1, "features": [String: Any]()]
+        if let data = try? await authedPost(
+            RPC.url(RPC.pullProfileSettingsBlob),
+            body: ["p_profile_id": pid, "p_platform": Self.settingsBlobPlatform]
+        ),
+            let rows = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+            let existing = rows.first?["settings_json"] as? [String: Any] {
+            blob = existing
+        }
+        var features = blob["features"] as? [String: Any] ?? [:]
+        var badgeFeature = features["stream_badge_settings"] as? [String: Any] ?? [:]
+        badgeFeature["stream_badge_rules"] = ["type": "string", "value": rulesJSON]
+        features["stream_badge_settings"] = badgeFeature
+        blob["features"] = features
+        if blob["version"] == nil { blob["version"] = 1 }
+
+        let body: [String: Any] = [
+            "p_profile_id": pid,
+            "p_settings_json": blob,
+            "p_platform": Self.settingsBlobPlatform,
+            "p_origin_client_id": clientID,
+        ]
+        _ = try? await authedPost(RPC.url(RPC.pushProfileSettingsBlob), body: body)
+    }
 
     private func authedPost(_ endpoint: String, body: [String: Any]) async throws -> Data {
         let payload = try JSONSerialization.data(withJSONObject: body)

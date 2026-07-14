@@ -65,6 +65,7 @@ struct RootView: View {
     @EnvironmentObject private var homeCatalogSettings: HomeCatalogSettingsStore
     @EnvironmentObject private var trakt: TraktStore
     @EnvironmentObject private var playerSettings: PlayerSettingsStore
+    @EnvironmentObject private var streamBadges: StreamBadgeStore
 
     // One navigation stack per tab (tvOS expects TabView at the top level with
     // an independent NavigationStack inside each tab; a shared stack under one
@@ -111,7 +112,8 @@ struct RootView: View {
                         watchedStore: watched,
                         profileStore: profiles,
                         collectionsStore: collections,
-                        homeCatalogSettings: homeCatalogSettings
+                        homeCatalogSettings: homeCatalogSettings,
+                        streamBadges: streamBadges
                     )
                     // "Who's watching?" gate on cold launch when 2+ profiles.
                     // Skipped in the demo modes so the screen isn't covered.

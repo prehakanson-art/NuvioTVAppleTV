@@ -44,6 +44,11 @@ final class StreamBadgeStore: ObservableObject {
     private static let urlKey = "nuvio.badges.url.v1"
     private static let payloadKey = "nuvio.badges.payload.v1"
 
+    /// Fired after a LOCAL config change (import/remove) so account sync can
+    /// push. Suppressed while applying remote data.
+    var onLocalChange: (() -> Void)?
+    private var suppressChange = false
+
     init() {
         sourceURL = UserDefaults.standard.string(forKey: Self.urlKey) ?? ""
         if let payload = UserDefaults.standard.data(forKey: Self.payloadKey) {
@@ -76,6 +81,7 @@ final class StreamBadgeStore: ObservableObject {
             sourceURL = trimmed
             compileFilters(from: data)
             lastStatus = "Imported \(filterCount) badge filters"
+            if !suppressChange { onLocalChange?() }
             return nil
         } catch {
             lastStatus = "Import failed: \(error.localizedDescription)"
@@ -91,6 +97,65 @@ final class StreamBadgeStore: ObservableObject {
         cache = [:]
         filterCount = 0
         lastStatus = nil
+        if !suppressChange { onLocalChange?() }
+    }
+
+    // MARK: - Nuvio account sync (mirrors Android's stream_badge_settings)
+
+    /// Apply the account's badge rules — the Android/Fusion `StreamBadgeRules`
+    /// JSON: `{"imports":[{"sourceUrl","filters":[…],"groups":[…],"isActive"}]}`.
+    /// The active import's EMBEDDED filters are used directly (no re-fetch),
+    /// so a pack imported on another device lights up here immediately.
+    func applyRemoteRules(_ rulesJSON: String) {
+        guard let data = rulesJSON.data(using: .utf8),
+              let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let imports = root["imports"] as? [[String: Any]], !imports.isEmpty
+        else {
+            // Empty/removed remotely → clear locally too (only if we had one).
+            if isConfigured {
+                suppressChange = true
+                removeConfig()
+                suppressChange = false
+            }
+            return
+        }
+        let active = imports.first { ($0["isActive"] as? Bool ?? $0["active"] as? Bool) == true } ?? imports[0]
+        let remoteURL = (active["sourceUrl"] as? String ?? "").trimmingCharacters(in: .whitespaces)
+        guard let filters = active["filters"] as? [[String: Any]], !filters.isEmpty else { return }
+        // Same source already active → nothing to do.
+        if isConfigured, !remoteURL.isEmpty, remoteURL.caseInsensitiveCompare(sourceURL) == .orderedSame { return }
+
+        guard let payload = try? JSONSerialization.data(withJSONObject: ["filters": filters]) else { return }
+        suppressChange = true
+        UserDefaults.standard.set(remoteURL, forKey: Self.urlKey)
+        UserDefaults.standard.set(payload, forKey: Self.payloadKey)
+        sourceURL = remoteURL
+        compileFilters(from: payload)
+        lastStatus = "Synced \(filterCount) badge filters from your Nuvio account"
+        suppressChange = false
+    }
+
+    /// Our config in the Android `StreamBadgeRules` shape, for pushing to the
+    /// account. nil when nothing is configured (encoded as empty imports so
+    /// other devices clear too).
+    func syncRulesJSON() -> String? {
+        guard isConfigured,
+              let payload = UserDefaults.standard.data(forKey: Self.payloadKey),
+              let root = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+              let filters = root["filters"] as? [[String: Any]]
+        else {
+            return #"{"imports":[]}"#
+        }
+        let rules: [String: Any] = [
+            "imports": [[
+                "sourceUrl": sourceURL,
+                "filters": filters,
+                "groups": (root["groups"] as? [[String: Any]]) ?? [],
+                "isActive": true,
+            ]],
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: rules) else { return nil }
+        return String(decoding: data, as: UTF8.self)
     }
 
     // MARK: - Matching

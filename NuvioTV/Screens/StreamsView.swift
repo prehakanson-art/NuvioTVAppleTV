@@ -100,6 +100,20 @@ final class StreamsViewModel: ObservableObject {
         Task { await Self.lastLinkCache.store(cached, for: id) }
     }
 
+    /// Merge streams produced by plugin scrapers into the pool (they arrive
+    /// after the addon sweep, so re-curate). Deduped by URL.
+    func addPluginStreams(_ entries: [StreamEntry]) {
+        guard !entries.isEmpty else { return }
+        let existing = Set(pool.compactMap { $0.stream.url })
+        let fresh = entries.filter { entry in
+            guard let url = entry.stream.url else { return false }
+            return !existing.contains(url)
+        }
+        guard !fresh.isEmpty else { return }
+        pool.append(contentsOf: fresh)
+        rebuildGroups()
+    }
+
     /// First source to auto-play (entries are already sorted best-first),
     /// honoring cached-only and an optional case-insensitive title regex.
     func autoPlayPick(cachedOnly: Bool, regex: String) -> StreamEntry? {
@@ -217,6 +231,7 @@ struct StreamsView: View {
     @EnvironmentObject private var debrid: DebridStore
     @EnvironmentObject private var playerSettings: PlayerSettingsStore
     @EnvironmentObject private var streamBadges: StreamBadgeStore
+    @EnvironmentObject private var plugins: PluginStore
     @StateObject private var viewModel: StreamsViewModel
 
     @State private var resolving = false
@@ -287,6 +302,19 @@ struct StreamsView: View {
                     perTier: s.sourcesPerSizeTier,
                     filtersEnabled: s.sourceFiltersEnabled
                 )
+            }
+            // Plugin scrapers run alongside the addon sweep (they want a TMDB id).
+            if !plugins.enabledScrapers.isEmpty {
+                Task {
+                    guard let (tmdbID, isMovie) = await TMDBService.resolveTMDBID(
+                        from: viewModel.meta.id, type: viewModel.meta.type
+                    ) else { return }
+                    let entries = await plugins.streams(
+                        tmdbID: String(tmdbID), mediaType: isMovie ? "movie" : "tv",
+                        season: viewModel.video?.season, episode: viewModel.video?.episode
+                    )
+                    viewModel.addPluginStreams(entries)
+                }
             }
             if !didAutoAct, s.reuseLastLinkEnabled,
                let last = await viewModel.freshLastLink(hours: s.reuseLastLinkCacheHours) {

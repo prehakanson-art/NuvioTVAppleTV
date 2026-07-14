@@ -30,6 +30,7 @@ final class NuvioSyncManager: ObservableObject {
     private let tmdbSettings: TMDBSettingsStore?
     private let themeManager: ThemeManager?
     private let debridStore: DebridStore?
+    private let pluginStore: PluginStore?
     /// Reads the "Enrich Continue Watching" TMDB setting (the store lives
     /// outside this manager). nil → enrich (default).
     var enrichContinueWatchingEnabled: (() -> Bool)?
@@ -113,7 +114,8 @@ final class NuvioSyncManager: ObservableObject {
         playerSettings: PlayerSettingsStore? = nil,
         tmdbSettings: TMDBSettingsStore? = nil,
         themeManager: ThemeManager? = nil,
-        debridStore: DebridStore? = nil
+        debridStore: DebridStore? = nil,
+        pluginStore: PluginStore? = nil
     ) {
         self.account = account
         self.addonManager = addonManager
@@ -128,6 +130,7 @@ final class NuvioSyncManager: ObservableObject {
         self.tmdbSettings = tmdbSettings
         self.themeManager = themeManager
         self.debridStore = debridStore
+        self.pluginStore = pluginStore
 
         // Sync whenever we transition into a signed-in state.
         account.$authState
@@ -158,6 +161,7 @@ final class NuvioSyncManager: ObservableObject {
         tmdbSettings?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
         themeManager?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
         debridStore?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
+        pluginStore?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
         homeCatalogSettings.onPresentationChange = { [weak self] in self?.scheduleAppPreferencesPush() }
 
         // Authed operations the profile UI needs (require the access token).
@@ -925,6 +929,8 @@ final class NuvioSyncManager: ObservableObject {
         var home: HomePresentationSnapshot?
         /// Debrid provider keys + preferred. Optional for backward-compat.
         var debrid: DebridStore.DebridSnapshot?
+        /// Installed plugin repository URLs. Optional for backward-compat.
+        var plugins: PluginStore.PluginSyncSnapshot?
     }
 
     private func scheduleAppPreferencesPush() {
@@ -958,6 +964,9 @@ final class NuvioSyncManager: ObservableObject {
         themeManager.applyRemote(snapshot.theme)
         if let home = snapshot.home { homeCatalogSettings.applyRemotePresentation(home) }
         if let debrid = snapshot.debrid { debridStore?.applyRemote(debrid) }
+        if let plugins = snapshot.plugins, let pluginStore {
+            Task { await pluginStore.applyRemote(plugins) }
+        }
     }
 
     /// READ-MERGE-WRITE: fetch the blob, replace only our own feature key, push
@@ -970,7 +979,8 @@ final class NuvioSyncManager: ObservableObject {
             tmdb: tmdbSettings.settings,
             theme: themeManager.snapshot,
             home: homeCatalogSettings.presentationSnapshot,
-            debrid: debridStore?.snapshot
+            debrid: debridStore?.snapshot,
+            plugins: pluginStore?.snapshot
         )
         guard let data = try? JSONEncoder().encode(snapshot),
               let json = String(data: data, encoding: .utf8) else { return }

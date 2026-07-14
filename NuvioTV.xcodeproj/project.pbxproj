@@ -11,6 +11,7 @@
 		08B2451CF86AC0C6434C5221 /* YouTubeKit in Frameworks */ = {isa = PBXBuildFile; productRef = 31C49A9E4C9B1F404DCCB36B /* YouTubeKit */; };
 		0BD9A09196C09FA6CD23461E /* HomeCatalogSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = A26744F92AC1D7E60BF3416E /* HomeCatalogSettingsStore.swift */; };
 		0DFE89CB6E0C80C4497E341F /* DebridService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A1B94052D73FAE9626AEBA3 /* DebridService.swift */; };
+		0E2802C1B431A3AC70B72BB9 /* PluginRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30F27F22F4533CD299587859 /* PluginRuntime.swift */; };
 		0F24DF0540C57C77690AA0B1 /* SettingsPlaybackView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 553617D03EC21CCE1DC07E6F /* SettingsPlaybackView.swift */; };
 		117B56AA7E177A2635031B9D /* PlayerVideoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88808D61D06962DC1E8D8598 /* PlayerVideoView.swift */; };
 		13920A373FF2E5D7BB06F939 /* NuvioSyncModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E68E4D03BAF629A2694A011 /* NuvioSyncModels.swift */; };
@@ -22,6 +23,7 @@
 		23B73C354F5DF4CFFADB36BD /* QRCode.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB84CD5358005AFCBA81FA25 /* QRCode.swift */; };
 		26142DF8D7225D3AC3BEA184 /* MDBListService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 414898F11CD091C483A70A67 /* MDBListService.swift */; };
 		276BD4FAF524DAD3A6C360DE /* Secrets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2C9C87FFBAD0E1EECA829F5A /* Secrets.swift */; };
+		2B0385C407CF63C38D4453C5 /* PluginStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9033005E03573788ECC97D1 /* PluginStore.swift */; };
 		2DCA83982721109BBFD27A97 /* StreamBadges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5780AD496BA8A2CFBBCD07CB /* StreamBadges.swift */; };
 		2F285C593B479C27A9A8069E /* RemoteInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33E98DE3FF2BD0DC102D80F4 /* RemoteInput.swift */; };
 		3980DE34DE34E597267BC6A3 /* PlayerSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C26E3B4C279900B78470C667 /* PlayerSettingsStore.swift */; };
@@ -31,11 +33,13 @@
 		3F2C9867CC3DD146F997D28A /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11754AD2FDC70C869EC871BC /* ProfileStore.swift */; };
 		4412060276D57FF1BBE56C30 /* PlayerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 824B17483732A7F2EBB5F81D /* PlayerViewModel.swift */; };
 		4E54D704783E4680F2021062 /* RequestCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = AD681267F7BC35D3CC1F797C /* RequestCache.swift */; };
+		4ECEDFD89EDCFD7403B1E488 /* PluginModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 102BA7D7815453677A6A8EB5 /* PluginModels.swift */; };
 		548BE5350BCB2D3F680185F8 /* SettingsLayoutView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 142717F90563AF0BC845136D /* SettingsLayoutView.swift */; };
 		563A626670904DF05648D760 /* SidebarNav.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5A881246C6166C28BCD7C8B /* SidebarNav.swift */; };
 		5A1A603ACF792546257DA9D3 /* DiagnosticsService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 757A803B163112348471FFDB /* DiagnosticsService.swift */; };
 		6866CA62BAB2D88C2968222B /* NuvioTVApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = B927939FBF8E9EC49EC75E7F /* NuvioTVApp.swift */; };
 		7000373F832F741F5E30C8D0 /* StreamsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D89B97FD2C452C0137A911D /* StreamsView.swift */; };
+		72F37280A6685C9D48A69C16 /* SettingsPluginsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7EC7EEE05D52CC374B75AF0F /* SettingsPluginsView.swift */; };
 		7E27EFF436F5ABF148CCB301 /* TrailerPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E07F3565C7E5BB417A83893E /* TrailerPlayer.swift */; };
 		87BE6E3BECE882078235D494 /* SidePanels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AABBCDB9DAA6E74AB201B6E /* SidePanels.swift */; };
 		886C7D799342227181ECBE83 /* ProgressStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBDCBEA43CE00C6DD740B204 /* ProgressStore.swift */; };
@@ -82,6 +86,7 @@
 		09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogSeeAllView.swift; sourceTree = "<group>"; };
 		0AABBCDB9DAA6E74AB201B6E /* SidePanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidePanels.swift; sourceTree = "<group>"; };
 		0CEDB85725047F73A8229A81 /* DeepLinkService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeepLinkService.swift; sourceTree = "<group>"; };
+		102BA7D7815453677A6A8EB5 /* PluginModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginModels.swift; sourceTree = "<group>"; };
 		11754AD2FDC70C869EC871BC /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
 		142717F90563AF0BC845136D /* SettingsLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsLayoutView.swift; sourceTree = "<group>"; };
 		17D137BCE0827FF5B9EBCA42 /* ExternalPlayers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPlayers.swift; sourceTree = "<group>"; };
@@ -90,6 +95,7 @@
 		260D75DAB36C83E9C3ABC4C6 /* CastDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CastDetailView.swift; sourceTree = "<group>"; };
 		27E6B87A80D6B01D3A58DD6B /* ParentalGuideService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParentalGuideService.swift; sourceTree = "<group>"; };
 		2C9C87FFBAD0E1EECA829F5A /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
+		30F27F22F4533CD299587859 /* PluginRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginRuntime.swift; sourceTree = "<group>"; };
 		33630A3CF4A4B769A36A3404 /* AnimeSkipService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimeSkipService.swift; sourceTree = "<group>"; };
 		33E98DE3FF2BD0DC102D80F4 /* RemoteInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInput.swift; sourceTree = "<group>"; };
 		3A1B94052D73FAE9626AEBA3 /* DebridService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebridService.swift; sourceTree = "<group>"; };
@@ -113,6 +119,7 @@
 		75C74274D8317A3EC634F256 /* PlayerScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerScreen.swift; sourceTree = "<group>"; };
 		760F22FDFFEF572A2AB98E3D /* VLCEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLCEngine.swift; sourceTree = "<group>"; };
 		79E6F3DF03C6701BE4587833 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		7EC7EEE05D52CC374B75AF0F /* SettingsPluginsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPluginsView.swift; sourceTree = "<group>"; };
 		824B17483732A7F2EBB5F81D /* PlayerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewModel.swift; sourceTree = "<group>"; };
 		88808D61D06962DC1E8D8598 /* PlayerVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerVideoView.swift; sourceTree = "<group>"; };
 		8E7D954FA6B8F52309A05490 /* StremioAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StremioAPI.swift; sourceTree = "<group>"; };
@@ -144,6 +151,7 @@
 		EDBD5D6D83637232496C5D02 /* AddonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddonManager.swift; sourceTree = "<group>"; };
 		F0510E8569C2B8AAC1E46969 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F1510EE278728A03479CC185 /* NuvioTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NuvioTheme.swift; sourceTree = "<group>"; };
+		F9033005E03573788ECC97D1 /* PluginStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -160,6 +168,16 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		012D641B8259F5E8B8E02BF1 /* Plugins */ = {
+			isa = PBXGroup;
+			children = (
+				102BA7D7815453677A6A8EB5 /* PluginModels.swift */,
+				30F27F22F4533CD299587859 /* PluginRuntime.swift */,
+				F9033005E03573788ECC97D1 /* PluginStore.swift */,
+			);
+			path = Plugins;
+			sourceTree = "<group>";
+		};
 		1ADF6C620D8A70DBCD8DA34C /* Theme */ = {
 			isa = PBXGroup;
 			children = (
@@ -206,6 +224,7 @@
 				C34BF835101EA7DC519880C9 /* SettingsIntegrationsView.swift */,
 				142717F90563AF0BC845136D /* SettingsLayoutView.swift */,
 				553617D03EC21CCE1DC07E6F /* SettingsPlaybackView.swift */,
+				7EC7EEE05D52CC374B75AF0F /* SettingsPluginsView.swift */,
 				1EC4C10B5219C8C94F5868AA /* SettingsTraktView.swift */,
 				6A77D0DFF73779D6393DDF7A /* SettingsView.swift */,
 				D5A881246C6166C28BCD7C8B /* SidebarNav.swift */,
@@ -242,6 +261,7 @@
 				A4EA353DABA76B77A9FCA728 /* TraktService.swift */,
 				B526B12FF40C35C8286806C2 /* WatchedStore.swift */,
 				502AC6FA40CD9F47BE851581 /* NuvioAccount */,
+				012D641B8259F5E8B8E02BF1 /* Plugins */,
 			);
 			path = Core;
 			sourceTree = "<group>";
@@ -433,6 +453,9 @@
 				3980DE34DE34E597267BC6A3 /* PlayerSettingsStore.swift in Sources */,
 				117B56AA7E177A2635031B9D /* PlayerVideoView.swift in Sources */,
 				4412060276D57FF1BBE56C30 /* PlayerViewModel.swift in Sources */,
+				4ECEDFD89EDCFD7403B1E488 /* PluginModels.swift in Sources */,
+				0E2802C1B431A3AC70B72BB9 /* PluginRuntime.swift in Sources */,
+				2B0385C407CF63C38D4453C5 /* PluginStore.swift in Sources */,
 				3F2C9867CC3DD146F997D28A /* ProfileStore.swift in Sources */,
 				95D56F234169C4D3C66B6EC7 /* ProfilesView.swift in Sources */,
 				886C7D799342227181ECBE83 /* ProgressStore.swift in Sources */,
@@ -445,6 +468,7 @@
 				3EC157D90F074782DEEB8E73 /* SettingsIntegrationsView.swift in Sources */,
 				548BE5350BCB2D3F680185F8 /* SettingsLayoutView.swift in Sources */,
 				0F24DF0540C57C77690AA0B1 /* SettingsPlaybackView.swift in Sources */,
+				72F37280A6685C9D48A69C16 /* SettingsPluginsView.swift in Sources */,
 				14112BEF124289B4FC2A911A /* SettingsTraktView.swift in Sources */,
 				21DF981C8F7FCF69FA6358DB /* SettingsView.swift in Sources */,
 				87BE6E3BECE882078235D494 /* SidePanels.swift in Sources */,

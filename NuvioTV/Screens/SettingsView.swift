@@ -9,7 +9,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     // Matches the live APK rail (Essential mode): no Account/Profiles (those
     // live on the sidebar profile avatar). Only categories whose settings are
     // actually wired up are shown — no stub panes.
-    case account, appearance, layout, contentDiscovery, integration, playback, trakt, about
+    case account, appearance, layout, contentDiscovery, integration, plugins, playback, trakt, about
 
     var id: String { rawValue }
 
@@ -20,6 +20,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .layout: return "Layout"
         case .contentDiscovery: return "Content & Discovery"
         case .integration: return "Integrations"
+        case .plugins: return "Plugins"
         case .playback: return "Playback"
         case .trakt: return "Trakt"
         case .about: return "About"
@@ -33,6 +34,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .layout: return "Home structure and poster styles"
         case .contentDiscovery: return "Add-ons, catalogs, and collections"
         case .integration: return "Manage available integrations"
+        case .plugins: return "Scraper repositories and plugins"
         case .playback: return "Auto-play and next-episode behavior"
         case .trakt: return "Scrobble and sync your watch history"
         case .about: return "App information, updates, and legal links"
@@ -47,6 +49,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .layout: return "square.grid.2x2.fill"
         case .contentDiscovery: return "safari.fill"
         case .integration: return "link"
+        case .plugins: return "puzzlepiece.extension.fill"
         case .playback: return "play.fill"
         case .trakt: return "checkmark.seal.fill"
         case .about: return "info.circle.fill"
@@ -166,6 +169,8 @@ struct SettingsView: View {
             ContentDiscoveryDetail()
         case .integration:
             IntegrationsDetail()
+        case .plugins:
+            PluginsSettingsDetail()
         case .trakt:
             TraktDetail()
         case .about:

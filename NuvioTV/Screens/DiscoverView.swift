@@ -36,6 +36,7 @@ final class DiscoverViewModel: ObservableObject {
 /// Search compass button).
 struct DiscoverView: View {
     @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var posterLayout: HomeCatalogSettingsStore
     @EnvironmentObject private var addonManager: AddonManager
     @StateObject private var viewModel = DiscoverViewModel()
 
@@ -45,7 +46,7 @@ struct DiscoverView: View {
     @State private var catalogIndex = 0
     @State private var genre = ""              // "" = Default (no filter)
 
-    private let columns = Array(repeating: GridItem(.fixed(220), spacing: NuvioSpacing.lg), count: 6)
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: posterLayout.posterSize.posterWidth, maximum: posterLayout.posterSize.posterWidth), spacing: NuvioSpacing.lg, alignment: .top)] }
 
     private var stremioType: String { type == "Series" ? "series" : "movie" }
 

@@ -564,7 +564,9 @@ struct HomeView: View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             catalogHeader(row)
             LazyVGrid(
-                columns: Array(repeating: GridItem(.fixed(220), spacing: NuvioSpacing.lg), count: 6),
+                columns: [GridItem(.adaptive(minimum: homeCatalogSettings.posterSize.posterWidth,
+                                             maximum: homeCatalogSettings.posterSize.posterWidth),
+                                   spacing: NuvioSpacing.lg, alignment: .top)],
                 alignment: .leading,
                 spacing: NuvioSpacing.xl
             ) {

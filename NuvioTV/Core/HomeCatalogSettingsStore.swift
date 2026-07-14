@@ -28,6 +28,27 @@ enum HomeLayout: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// Poster card size — drives the portrait card width everywhere it renders.
+enum PosterSize: String, CaseIterable, Identifiable, Codable {
+    case small, medium, large
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .small: return "Small"
+        case .medium: return "Medium"
+        case .large: return "Large"
+        }
+    }
+    /// Portrait poster width (points). Height is width × 3/2.
+    var posterWidth: CGFloat {
+        switch self {
+        case .small: return 180
+        case .medium: return 220
+        case .large: return 264
+        }
+    }
+}
+
 // MARK: - Sync payload (matches Android SyncHomeCatalogPayload exactly)
 
 struct SyncCatalogItem: Codable, Hashable {
@@ -140,6 +161,14 @@ final class HomeCatalogSettingsStore: ObservableObject {
     /// Whether the home hero backdrop fills the screen (APK "Fullscreen Hero Backdrop").
     @Published var fullscreenHero: Bool = true {
         didSet { guard fullscreenHero != oldValue else { return }; save() }
+    }
+    /// Poster card size across all grids/rows.
+    @Published var posterSize: PosterSize = .medium {
+        didSet { guard posterSize != oldValue else { return }; save() }
+    }
+    /// Show the title label beneath poster cards.
+    @Published var showPosterLabels: Bool = true {
+        didSet { guard showPosterLabels != oldValue else { return }; save() }
     }
 
     var onLocalChange: (() -> Void)?
@@ -290,6 +319,8 @@ final class HomeCatalogSettingsStore: ObservableObject {
         var homeLayout: HomeLayout?
         var landscapePosters: Bool?
         var fullscreenHero: Bool?
+        var posterSize: PosterSize?
+        var showPosterLabels: Bool?
     }
 
     private func notifyLocalChange() {
@@ -317,6 +348,8 @@ final class HomeCatalogSettingsStore: ObservableObject {
         homeLayout = decoded.homeLayout ?? .modern
         landscapePosters = decoded.landscapePosters ?? false
         fullscreenHero = decoded.fullscreenHero ?? true
+        posterSize = decoded.posterSize ?? .medium
+        showPosterLabels = decoded.showPosterLabels ?? true
         suppressChange = false
     }
 
@@ -328,7 +361,9 @@ final class HomeCatalogSettingsStore: ObservableObject {
             hideUnreleasedContent: hideUnreleasedContent,
             homeLayout: homeLayout,
             landscapePosters: landscapePosters,
-            fullscreenHero: fullscreenHero
+            fullscreenHero: fullscreenHero,
+            posterSize: posterSize,
+            showPosterLabels: showPosterLabels
         )
         guard let data = try? JSONEncoder().encode(persisted) else { return }
         UserDefaults.standard.set(data, forKey: storageKey)

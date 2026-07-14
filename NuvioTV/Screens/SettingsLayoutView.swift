@@ -39,6 +39,49 @@ struct LayoutSettingsDetail: View {
                 }
             }
 
+            SettingsGroupCard(title: "Posters", subtitle: "Card size and labels across the app") {
+                HStack(spacing: NuvioSpacing.md) {
+                    ForEach(PosterSize.allCases) { size in
+                        Button { settings.posterSize = size } label: {
+                            Text(size.displayName)
+                                .font(.system(size: 22, weight: .semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, NuvioSpacing.md)
+                                .background(
+                                    RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                                        .fill(settings.posterSize == size
+                                              ? theme.palette.secondary.opacity(0.25)
+                                              : theme.palette.backgroundCard.opacity(0.85))
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                                        .strokeBorder(settings.posterSize == size ? theme.palette.secondary : .clear, lineWidth: 2)
+                                )
+                                .foregroundStyle(settings.posterSize == size ? theme.palette.secondary : theme.palette.textSecondary)
+                        }
+                        .buttonStyle(PlainCardButtonStyle())
+                    }
+                }
+
+                SettingsToggleCard(
+                    title: "Poster labels",
+                    subtitle: "Show the title beneath poster cards",
+                    isOn: $settings.showPosterLabels
+                )
+
+                SettingsToggleCard(
+                    title: "Fullscreen hero backdrop",
+                    subtitle: "Let the home hero image fill the screen behind the rows",
+                    isOn: $settings.fullscreenHero
+                )
+
+                SettingsToggleCard(
+                    title: "Hide unreleased content",
+                    subtitle: "Keep titles that haven't aired yet out of catalog rows",
+                    isOn: $settings.hideUnreleasedContent
+                )
+            }
+
             CatalogOrderSection()
         }
     }

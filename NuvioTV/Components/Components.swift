@@ -208,10 +208,14 @@ struct PosterCard: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var watched: WatchedStore
     @EnvironmentObject private var progressStore: ProgressStore
+    @EnvironmentObject private var layout: HomeCatalogSettingsStore
     @Environment(\.isFocused) private var isFocused
 
     let item: MetaItem
     var progress: Double? = nil
+
+    private var cardWidth: CGFloat { layout.posterSize.posterWidth }
+    private var cardHeight: CGFloat { cardWidth * 3 / 2 }
 
     /// Explicit progress wins; otherwise an O(1) Continue Watching lookup so
     /// a started movie/show carries its progress bar EVERYWHERE it appears
@@ -232,7 +236,7 @@ struct PosterCard: View {
                         .padding(.bottom, 10)
                 }
             }
-            .frame(width: 220, height: 330)
+            .frame(width: cardWidth, height: cardHeight)
             .background(theme.palette.backgroundCard)
             .clipShape(RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous))
             .overlay(alignment: .topTrailing) {
@@ -244,11 +248,13 @@ struct PosterCard: View {
             )
             .shadow(color: .black.opacity(isFocused ? 0.7 : 0.35), radius: isFocused ? 24 : 10, y: 10)
 
-            Text(item.name)
-                .font(.system(size: 22, weight: .medium))
-                .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
-                .lineLimit(1)
-                .frame(width: 220, alignment: .leading)
+            if layout.showPosterLabels {
+                Text(item.name)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
+                    .lineLimit(1)
+                    .frame(width: cardWidth, alignment: .leading)
+            }
         }
         .scaleEffect(isFocused ? 1.08 : 1.0)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)

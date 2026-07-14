@@ -4,6 +4,7 @@ private enum LibraryTab: String, CaseIterable { case saved = "Saved", cloud = "C
 
 struct LibraryView: View {
     @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var posterLayout: HomeCatalogSettingsStore
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var progressStore: ProgressStore
 
@@ -13,7 +14,7 @@ struct LibraryView: View {
     @State private var typeFilter = "All"          // All / Movies / Series
     @State private var sort = "Added"              // Added / Name / Recently Watched
 
-    private let columns = Array(repeating: GridItem(.fixed(220), spacing: NuvioSpacing.lg), count: 6)
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: posterLayout.posterSize.posterWidth, maximum: posterLayout.posterSize.posterWidth), spacing: NuvioSpacing.lg, alignment: .top)] }
 
     private var filtered: [SavedLibraryItem] {
         var items = library.sorted

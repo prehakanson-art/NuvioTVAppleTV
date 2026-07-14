@@ -51,6 +51,7 @@ final class SearchViewModel: ObservableObject {
 
 struct SearchView: View {
     @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var posterLayout: HomeCatalogSettingsStore
     @EnvironmentObject private var addonManager: AddonManager
     // Owned by RootView so the query + results PERSIST across tab switches.
     // A local @StateObject would be rebuilt (and cleared) every time the Search
@@ -60,7 +61,7 @@ struct SearchView: View {
     let onSelect: (MetaItem) -> Void
     var onOpenDiscover: () -> Void = {}
 
-    private let columns = Array(repeating: GridItem(.fixed(220), spacing: NuvioSpacing.lg), count: 6)
+    private var columns: [GridItem] { [GridItem(.adaptive(minimum: posterLayout.posterSize.posterWidth, maximum: posterLayout.posterSize.posterWidth), spacing: NuvioSpacing.lg, alignment: .top)] }
 
     var body: some View {
         ZStack {

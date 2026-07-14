@@ -1839,6 +1839,21 @@ final class PlayerViewModel: ObservableObject {
         }
     }
 
+    /// A chapter that reads like the end credits, and sits in the back half of
+    /// the runtime (so a mid-film "credits sequence" or an oddly-named early
+    /// chapter can't false-trigger). This is the "credits roll" moment the
+    /// Up Next card keys off when present.
+    private var creditsChapter: Chapter? {
+        guard duration > 0 else { return nil }
+        return chapters.first { chapter in
+            guard chapter.start > duration * 0.6 else { return false }
+            let title = chapter.title.lowercased()
+            return title.contains("credit") || title.contains("outro")
+                || title.contains("closing") || title.contains("ending")
+                || title == "end" || title == "ed"
+        }
+    }
+
     /// Chapter starts as 0…1 fractions for timeline tick marks.
     var chapterFractions: [Double] {
         guard duration > 0, chapters.count > 1 else { return [] }
@@ -2153,10 +2168,14 @@ final class PlayerViewModel: ObservableObject {
 
     // MARK: - Post-play / auto-next
 
-    /// Whether the current position has crossed the configured next-episode
-    /// threshold (percentage of runtime, or minutes-before-end).
+    /// When the Up Next card should arm. Prefers the exact moment the end
+    /// credits start (a "credits"/"ending"/"outro" chapter in the back half of
+    /// the runtime) — so the card pops as the credits roll and you can skip
+    /// them — and falls back to the configured percentage / minutes-before-end
+    /// threshold for content without chapter markers.
     private func crossedNextEpisodeThreshold() -> Bool {
         guard duration > 0 else { return false }
+        if let credits = creditsChapter { return position >= credits.start }
         switch settings.nextEpisodeThresholdMode {
         case .percentage:
             return position >= duration * (settings.nextEpisodeThresholdPercent / 100)

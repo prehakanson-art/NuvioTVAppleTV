@@ -426,17 +426,33 @@ struct Stream: Codable, Hashable {
     /// torrent counts as NOT instant — the debrid provider would have to
     /// download it first.
     var isInstant: Bool {
-        if isPlayable { return true }
         let haystack = "\(name ?? "") \(title ?? "") \(description ?? "")"
-        if haystack.contains("⚡") { return true }
         let lower = haystack.lowercased()
-        if lower.contains("uncached") { return false }
+        // Explicitly-uncached debrid links (Torrentio's "[RD download]", a ⏳,
+        // "uncached") DO carry a playable URL — the debrid service just
+        // downloads on demand — so they must be caught BEFORE the isPlayable
+        // shortcut, or "cached only" lets them through.
+        if isUncachedMarked(lower) { return false }
+        if isPlayable { return true }
+        if haystack.contains("⚡") { return true }
         if lower.contains("cached") { return true }
         guard let regex = Self.cachedMarkerRegex else { return false }
         return regex.firstMatch(
             in: haystack, options: [],
             range: NSRange(haystack.startIndex..., in: haystack)
         ) != nil
+    }
+
+    private static let uncachedRegex = try? NSRegularExpression(
+        pattern: #"\b(?:rd|ad|pm|tb|dl|oc|pk|torbox|debrid)\b[\s\-\]]*download|download\]|uncached|not cached"#,
+        options: [.caseInsensitive]
+    )
+    private func isUncachedMarked(_ lower: String) -> Bool {
+        if lower.contains("uncached") { return true }
+        let raw = "\(name ?? "") \(title ?? "") \(description ?? "")"
+        if raw.contains("⏳") || raw.contains("⌛") || raw.contains("⏬") { return true }
+        guard let regex = Self.uncachedRegex else { return false }
+        return regex.firstMatch(in: lower, range: NSRange(lower.startIndex..., in: lower)) != nil
     }
 
     private var searchHaystack: String { "\(name ?? "") \(title ?? "") \(description ?? "")".lowercased() }

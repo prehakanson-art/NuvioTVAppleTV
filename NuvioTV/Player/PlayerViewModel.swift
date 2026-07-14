@@ -1849,12 +1849,17 @@ final class PlayerViewModel: ObservableObject {
     /// shows a "Skip Intro" pill and Play/Pause skips it.
     @Published private(set) var skipIntroActive = false
 
-    /// A chapter that reads like an intro/opening/recap.
+    /// A chapter that reads like an intro/opening/recap. Covers common
+    /// TV/anime conventions ("Opening", "OP", "NCOP", "Cold Open", "Avant",
+    /// "Teaser", "Recap"). Needs the FILE to carry named chapters — most
+    /// movie/web-dl remuxes don't, which is why the pill often won't appear.
     private var introChapter: Chapter? {
         chapters.first { chapter in
-            let title = chapter.title.lowercased()
-            return title.contains("intro") || title.contains("opening")
-                || title.contains("recap") || title.contains("prologue")
+            let t = chapter.title.lowercased().trimmingCharacters(in: .whitespaces)
+            if t == "op" || t == "ncop" || t == "opening" || t == "intro" { return true }
+            return t.contains("intro") || t.contains("opening")
+                || t.contains("recap") || t.contains("prologue")
+                || t.contains("cold open") || t.contains("avant") || t.contains("teaser")
         }
     }
 

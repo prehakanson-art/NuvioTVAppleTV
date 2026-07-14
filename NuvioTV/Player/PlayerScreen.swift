@@ -152,20 +152,16 @@ struct PlayerScreen: View {
                     .transition(.opacity)
             }
 
-            // A side panel = two clean, separate motions: the rest of the screen
-            // just DIMS (this scrim fades in), and the 640pt panel just SLIDES
-            // in from the right (move-only transition, see SidePanel). Both share
-            // one gentle spring so they're in sync.
-            Group {
-                if sidePanelActive {
-                    Color.black.opacity(0.5)
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                }
-                sidePanels
-            }
-            .animation(.spring(response: 0.45, dampingFraction: 0.9), value: viewModel.overlay)
+            // A side panel = two clean, separate motions on ONE curve: the rest
+            // of the screen just DIMS (this scrim's opacity fades in — always
+            // mounted so there's no competing insert transition), and the 640pt
+            // panel just SLIDES in from the right (move-only transition, see
+            // SidePanel). Both ride the ZStack's single overlay animation below.
+            Color.black
+                .opacity(sidePanelActive ? 0.5 : 0)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            sidePanels
 
             if viewModel.overlay == .info {
                 VStack(spacing: 0) {

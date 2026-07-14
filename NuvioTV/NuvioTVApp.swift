@@ -296,19 +296,20 @@ struct RootView: View {
                     // behavior). The dim STARTS at the sidebar's own tone right
                     // at the seam and eases into the dim over the first sliver,
                     // so there's no hard bright/dark two-tone line at the edge.
-                    if sidebarFocus != nil && showSidebar {
-                        LinearGradient(
-                            stops: [
-                                .init(color: theme.palette.backgroundElevated, location: 0),
-                                .init(color: .black.opacity(0.55), location: 0.09),
-                                .init(color: .black.opacity(0.55), location: 1)
-                            ],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                        .ignoresSafeArea()
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
-                    }
+                    // Always mounted with an animated opacity (not an insert
+                    // transition) so it fades in IN LOCKSTEP with the sidebar's
+                    // width expansion instead of popping in ahead of it.
+                    LinearGradient(
+                        stops: [
+                            .init(color: theme.palette.backgroundElevated, location: 0),
+                            .init(color: .black.opacity(0.55), location: 0.09),
+                            .init(color: .black.opacity(0.55), location: 1)
+                        ],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .opacity(sidebarFocus != nil && showSidebar ? 1 : 0)
                 }
                 .focusSection()
         }

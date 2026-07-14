@@ -226,6 +226,35 @@ struct PlaybackSettingsDetail: View {
                 ) { store.settings.aspectModeRaw = $0 }
             }
 
+            SettingsGroupCard(title: "On-screen display", subtitle: "Player overlays and status") {
+                PlaybackToggleRow(
+                    icon: "pause.rectangle.fill",
+                    title: "Pause overlay",
+                    subtitle: "Show the info overlay (title, artwork, progress) when playback is paused",
+                    isOn: s.pauseOverlayEnabled
+                )
+                PlaybackToggleRow(
+                    icon: "clock.fill",
+                    title: "Clock",
+                    subtitle: "Show a wall clock on the player controls",
+                    isOn: s.osdClockEnabled
+                )
+                PlaybackToggleRow(
+                    icon: "photo.fill",
+                    title: "Loading backdrop",
+                    subtitle: "Show the full-screen loading screen (artwork + spinner) while a stream opens",
+                    isOn: s.loadingOverlayEnabled
+                )
+                if store.settings.loadingOverlayEnabled {
+                    PlaybackToggleRow(
+                        icon: "text.append",
+                        title: "Loading status",
+                        subtitle: "Show the “Loading / Caching %” text and cache bar on the loading screen",
+                        isOn: s.showPlayerLoadingStatus
+                    )
+                }
+            }
+
             SettingsGroupCard(title: "Audio", subtitle: "Track selection and output") {
                 NuvioDropdown(
                     title: "Preferred language",

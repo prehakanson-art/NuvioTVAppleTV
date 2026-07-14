@@ -109,9 +109,14 @@ struct PlayerScreen: View {
             }
 
             if !viewModel.hasStartedPlayback && !viewModel.isShowingError {
-                // Full-screen Nuvio-style loading backdrop for the initial load.
-                PlayerLoadingOverlay(viewModel: viewModel)
-                    .transition(.opacity)
+                if viewModel.settings.loadingOverlayEnabled {
+                    // Full-screen Nuvio-style loading backdrop for the initial load.
+                    PlayerLoadingOverlay(viewModel: viewModel)
+                        .transition(.opacity)
+                } else {
+                    // Overlay off: plain black covers the undecoded first frames.
+                    Color.black.ignoresSafeArea().transition(.opacity)
+                }
             } else if viewModel.showBufferSpinner && viewModel.overlay != .controls {
                 // Light spinner for mid-playback rebuffers (keep the video
                 // visible). Debounced in the view model: skip/seek blips must
@@ -133,9 +138,16 @@ struct PlayerScreen: View {
             if viewModel.overlay == .controls {
                 PlayerControlsOverlay(viewModel: viewModel)
                     .transition(.opacity)
+                if viewModel.settings.osdClockEnabled {
+                    OSDClock()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                        .padding(.top, NuvioSpacing.xl)
+                        .padding(.trailing, NuvioSpacing.huge)
+                        .transition(.opacity)
+                }
             }
 
-            if viewModel.overlay == .pauseInfo {
+            if viewModel.overlay == .pauseInfo, viewModel.settings.pauseOverlayEnabled {
                 PauseOverlayView(viewModel: viewModel)
                     .transition(.opacity)
             }
@@ -500,6 +512,27 @@ struct PlayerScreen: View {
 /// backdrop under a dark vertical gradient, with the movie/show logo (or its
 /// name) gently pulsing in the center and a status line beneath. Replaces the
 /// bare spinner so loading a stream feels like the APK.
+/// A live wall clock for the player OSD (Android's osdClock). Ticks each
+/// minute while the controls overlay is visible.
+struct OSDClock: View {
+    @State private var now = Date()
+    private let timer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.timeStyle = .short
+        return f
+    }()
+
+    var body: some View {
+        Text(Self.formatter.string(from: now))
+            .font(.system(size: 30, weight: .semibold).monospacedDigit())
+            .foregroundStyle(.white.opacity(0.85))
+            .shadow(color: .black.opacity(0.6), radius: 6, y: 2)
+            .onReceive(timer) { now = $0 }
+    }
+}
+
 struct PlayerLoadingOverlay: View {
     @EnvironmentObject private var theme: ThemeManager
     @ObservedObject var viewModel: PlayerViewModel
@@ -553,16 +586,18 @@ struct PlayerLoadingOverlay: View {
                     .scaleEffect(1.7)
                     .opacity(revealed ? 1 : 0)
 
-                Text(phaseLabel)
-                    .font(.system(size: 24, weight: .medium))
-                    .foregroundStyle(.white.opacity(0.75))
-                    .opacity(revealed ? 1 : 0)
-                    .contentTransition(.numericText())
-                    .animation(.easeOut(duration: 0.2), value: phaseLabel)
+                if viewModel.settings.showPlayerLoadingStatus {
+                    Text(phaseLabel)
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .opacity(revealed ? 1 : 0)
+                        .contentTransition(.numericText())
+                        .animation(.easeOut(duration: 0.2), value: phaseLabel)
+                }
 
                 // A real cache-fill bar during the caching phase, so you can
                 // watch the buffer building toward playback.
-                if viewModel.loadPhase == .caching {
+                if viewModel.settings.showPlayerLoadingStatus, viewModel.loadPhase == .caching {
                     ZStack(alignment: .leading) {
                         Capsule().fill(.white.opacity(0.15))
                         Capsule().fill(.white.opacity(0.85))

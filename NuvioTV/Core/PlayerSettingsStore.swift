@@ -143,6 +143,15 @@ struct PlayerSettings: Codable, Equatable {
     /// Default subtitle timing offset in seconds (+ = later, − = earlier).
     /// Applied when a stream loads; the in-player nudge adjusts it live.
     var subtitleDelaySeconds: Double = 0
+    // --- Player OSD / overlays (cosmetic) ---
+    /// Show the Infuse-style info overlay when playback is paused.
+    var pauseOverlayEnabled: Bool = true
+    /// Show a wall clock on the player controls overlay.
+    var osdClockEnabled: Bool = true
+    /// Show the full-screen loading backdrop while a stream opens.
+    var loadingOverlayEnabled: Bool = true
+    /// Show the "Loading / Caching %" status text on the loading backdrop.
+    var showPlayerLoadingStatus: Bool = true
 
     /// Master switch for the curated link filters. On = each addon's links
     /// are grouped into size tiers (250 MB–4 GB … 30 GB+), debrid-cached
@@ -301,6 +310,10 @@ struct PlayerSettings: Codable, Equatable {
             ?? (audioRendererEnabled ? .renderer : d.audioOutputMode)
         aspectModeRaw = (try? c.decode(String.self, forKey: .aspectModeRaw)) ?? d.aspectModeRaw
         subtitleDelaySeconds = (try? c.decode(Double.self, forKey: .subtitleDelaySeconds)) ?? d.subtitleDelaySeconds
+        pauseOverlayEnabled = (try? c.decode(Bool.self, forKey: .pauseOverlayEnabled)) ?? d.pauseOverlayEnabled
+        osdClockEnabled = (try? c.decode(Bool.self, forKey: .osdClockEnabled)) ?? d.osdClockEnabled
+        loadingOverlayEnabled = (try? c.decode(Bool.self, forKey: .loadingOverlayEnabled)) ?? d.loadingOverlayEnabled
+        showPlayerLoadingStatus = (try? c.decode(Bool.self, forKey: .showPlayerLoadingStatus)) ?? d.showPlayerLoadingStatus
         sourceFiltersEnabled = (try? c.decode(Bool.self, forKey: .sourceFiltersEnabled)) ?? d.sourceFiltersEnabled
         sourcesHighGBPerTier = (try? c.decode(Int.self, forKey: .sourcesHighGBPerTier)) ?? d.sourcesHighGBPerTier
         sourcesLowGBPerTier = (try? c.decode(Int.self, forKey: .sourcesLowGBPerTier)) ?? d.sourcesLowGBPerTier

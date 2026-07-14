@@ -1,5 +1,16 @@
 import Foundation
 
+/// Decodes `T` if possible, otherwise nil — so a single malformed element in
+/// an array (a collection / folder / source written by another platform or a
+/// newer app version) doesn't throw and drop the ENTIRE array. Used for the
+/// synced collections blob so every valid custom catalog still comes through.
+struct Lenient<T: Decodable>: Decodable {
+    let value: T?
+    init(from decoder: Decoder) throws {
+        value = try? T(from: decoder)
+    }
+}
+
 // MARK: - Models
 //
 // These mirror the Android app's Gson-serialized collection shape exactly
@@ -130,8 +141,9 @@ struct NuvioCollectionFolder: Codable, Identifiable, Hashable {
         coverEmoji = try c.decodeIfPresent(String.self, forKey: .coverEmoji)
         tileShape = try c.decodeIfPresent(String.self, forKey: .tileShape) ?? "SQUARE"
         hideTitle = try c.decodeIfPresent(Bool.self, forKey: .hideTitle) ?? false
-        sources = try c.decodeIfPresent([CollectionSourceDTO].self, forKey: .sources)
-        catalogSources = try c.decodeIfPresent([CollectionSourceDTO].self, forKey: .catalogSources)
+        // Lenient element decode: a bad source doesn't drop the folder.
+        sources = try c.decodeIfPresent([Lenient<CollectionSourceDTO>].self, forKey: .sources)?.compactMap(\.value)
+        catalogSources = try c.decodeIfPresent([Lenient<CollectionSourceDTO>].self, forKey: .catalogSources)?.compactMap(\.value)
         heroBackdropUrl = try c.decodeIfPresent(String.self, forKey: .heroBackdropUrl)
         heroVideoUrl = try c.decodeIfPresent(String.self, forKey: .heroVideoUrl)
         titleLogoUrl = try c.decodeIfPresent(String.self, forKey: .titleLogoUrl)
@@ -195,7 +207,8 @@ struct NuvioCollection: Codable, Identifiable, Hashable {
         focusGlowEnabled = try c.decodeIfPresent(Bool.self, forKey: .focusGlowEnabled)
         viewMode = try c.decodeIfPresent(String.self, forKey: .viewMode) ?? "TABBED_GRID"
         showAllTab = try c.decodeIfPresent(Bool.self, forKey: .showAllTab) ?? true
-        folders = try c.decodeIfPresent([NuvioCollectionFolder].self, forKey: .folders) ?? []
+        // Lenient element decode: a bad folder doesn't drop the collection.
+        folders = (try c.decodeIfPresent([Lenient<NuvioCollectionFolder>].self, forKey: .folders) ?? []).compactMap(\.value)
     }
 
     init(id: String, title: String, folders: [NuvioCollectionFolder] = []) {
@@ -288,8 +301,11 @@ final class CollectionsStore: ObservableObject {
     /// preserves local; identical JSON is a no-op. Returns true when applied.
     @discardableResult
     func applyRemote(json: String) -> Bool {
-        guard let data = json.data(using: .utf8),
-              let remote = try? JSONDecoder().decode([NuvioCollection].self, from: data) else { return false }
+        guard let data = json.data(using: .utf8) else { return false }
+        // Lenient element decode so one malformed collection (from another
+        // platform / newer version) can't drop every other custom catalog.
+        guard let lenient = try? JSONDecoder().decode([Lenient<NuvioCollection>].self, from: data) else { return false }
+        let remote = lenient.compactMap(\.value)
         if remote.isEmpty && !collections.isEmpty { return false }
         guard remote != collections else { return false }
         suppressChange = true

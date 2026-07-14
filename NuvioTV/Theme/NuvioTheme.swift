@@ -214,12 +214,20 @@ enum SettingsUiStyle: String, CaseIterable, Identifiable, Codable {
         case .horizon: return "Sharp, squared edges"
         }
     }
-    /// Corner radius for settings rows/cards in this style.
+    /// Corner radius for settings rows in this style.
     var rowRadius: CGFloat {
         switch self {
         case .classic: return 12
-        case .zen: return 26
-        case .horizon: return 3
+        case .zen: return 28
+        case .horizon: return 2
+        }
+    }
+    /// Corner radius for the larger settings group cards.
+    var cardRadius: CGFloat {
+        switch self {
+        case .classic: return 18
+        case .zen: return 34
+        case .horizon: return 2
         }
     }
 }
@@ -270,8 +278,10 @@ final class ThemeManager: ObservableObject {
             if !applyingRemote { onLocalChange?() }
         }
     }
-    /// Corner radius for settings rows/cards under the current style.
+    /// Corner radius for settings rows under the current style.
     var settingsRowRadius: CGFloat { settingsUiStyle.rowRadius }
+    /// Corner radius for the larger settings group cards under the current style.
+    var settingsCardRadius: CGFloat { settingsUiStyle.cardRadius }
 
     /// Fired on a local (user-driven) theme change so the sync manager pushes it.
     var onLocalChange: (() -> Void)?

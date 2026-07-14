@@ -55,6 +55,9 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .about: return "info.circle.fill"
         }
     }
+
+    /// Categories hidden from the rail in Essential experience mode.
+    var isAdvanced: Bool { self == .plugins }
 }
 
 struct SettingsView: View {
@@ -88,6 +91,11 @@ struct SettingsView: View {
     // the RIGHT. Focusing a rail pill live-previews its detail (as the APK
     // does); both regions are focus sections so Right enters the detail and
     // Left returns to the rail without locking up.
+    /// Rail categories, minus advanced ones when Essential mode is on.
+    private var visibleCategories: [SettingsCategory] {
+        SettingsCategory.allCases.filter { theme.experienceMode.isAdvanced || !$0.isAdvanced }
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: NuvioSpacing.xl) {
             rail
@@ -95,6 +103,10 @@ struct SettingsView: View {
                 .frame(maxWidth: 900, alignment: .topLeading)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .focusSection()
+        }
+        // Essential mode may hide the category you're viewing — fall back.
+        .onChange(of: theme.experienceMode) { _, _ in
+            if !visibleCategories.contains(selected) { selected = .appearance }
         }
         .padding(NuvioSpacing.lg)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -121,7 +133,7 @@ struct SettingsView: View {
         // 220dp rail, pills vertically centered (matches the APK's
         // spacedBy(10, CenterVertically)). 10 categories fit at 56dp each.
         VStack(spacing: NuvioSpacing.sm) {
-            ForEach(SettingsCategory.allCases) { category in
+            ForEach(visibleCategories) { category in
                 Button {
                     selected = category
                 } label: {
@@ -279,11 +291,11 @@ struct SettingsGroupCard<Content: View>: View {
         .padding(NuvioSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: theme.settingsCardRadius, style: .continuous)
                 .fill(theme.palette.background.opacity(0.55))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: theme.settingsCardRadius, style: .continuous)
                 .strokeBorder(NuvioPrimitives.neutral750.opacity(0.6), lineWidth: 1)
         )
     }
@@ -369,8 +381,6 @@ struct DetailScaffold<Content: View>: View {
 
 private struct AppearanceDetail: View {
     @EnvironmentObject private var theme: ThemeManager
-    /// Confirmation before switching INTO Essential (it hides options).
-    @State private var pendingEssential = false
 
     var body: some View {
         DetailScaffold(title: SettingsCategory.appearance.title, subtitle: SettingsCategory.appearance.subtitle) {
@@ -414,18 +424,15 @@ private struct AppearanceDetail: View {
             SettingsGroupCard(title: "Experience Mode", subtitle: theme.experienceMode.summary) {
                 HStack(spacing: NuvioSpacing.md) {
                     ForEach(ExperienceMode.allCases) { mode in
-                        Button {
-                            if mode == .essential, theme.experienceMode != .essential {
-                                pendingEssential = true   // confirm hiding options
-                            } else {
-                                theme.experienceMode = mode
-                            }
-                        } label: {
+                        Button { theme.experienceMode = mode } label: {
                             SelectableChip(title: mode.displayName, selected: theme.experienceMode == mode)
                         }
                         .buttonStyle(PlainCardButtonStyle())
                     }
                 }
+                Text("Essential hides the Plugins section and the advanced Playback options (engine, on-screen display, auto-play source, audio and display tuning).")
+                    .font(.system(size: 17))
+                    .foregroundStyle(theme.palette.textTertiary)
             }
 
             SettingsGroupCard(title: "Settings Style", subtitle: theme.settingsUiStyle.summary) {
@@ -437,13 +444,10 @@ private struct AppearanceDetail: View {
                         .buttonStyle(PlainCardButtonStyle())
                     }
                 }
+                Text("Reshapes settings cards and rows — Classic rounded, Zen pill, Horizon squared.")
+                    .font(.system(size: 17))
+                    .foregroundStyle(theme.palette.textTertiary)
             }
-        }
-        .alert("Switch to Essential?", isPresented: $pendingEssential) {
-            Button("Cancel", role: .cancel) {}
-            Button("Switch") { theme.experienceMode = .essential }
-        } message: {
-            Text("Essential mode hides the more advanced Playback options (engine, on-screen display, auto-play source, audio and display tuning). You can switch back to Advanced any time.")
         }
     }
 }
@@ -607,11 +611,11 @@ struct SettingsValueCard: View {
         .padding(.horizontal, NuvioSpacing.lg)
         .frame(minHeight: 64)
         .background(
-            RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+            RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
                 .fill(isFocused ? theme.palette.focusBackground : theme.palette.backgroundCard.opacity(0.5))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+            RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
                 .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 4)
         )
         .scaleEffect(isFocused ? 1.01 : 1)

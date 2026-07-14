@@ -18,6 +18,20 @@ import ImageIO
 /// thread) and promote hits back into the memory layer.
 final class ImageCache: @unchecked Sendable {
     static let shared = ImageCache()
+
+    /// Dedicated download session for artwork. Posters/backdrops nearly all come
+    /// from one host (image.tmdb.org), so the default 6-connections-per-host cap
+    /// throttles a full poster grid to 6 at a time — raise it so the grid fills
+    /// in far fewer round-trips. Own URLCache keeps HTTP-cached art off the
+    /// shared session.
+    static let downloadSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.httpMaximumConnectionsPerHost = 12
+        config.timeoutIntervalForRequest = 25
+        config.urlCache = URLCache(memoryCapacity: 16 << 20, diskCapacity: 128 << 20)
+        return URLSession(configuration: config)
+    }()
+
     private let memory = NSCache<NSString, UIImage>()
     private let ioQueue = DispatchQueue(label: "nuvio.imagecache.io", qos: .utility)
     private let fm = FileManager.default
@@ -125,7 +139,7 @@ final class ImageCache: @unchecked Sendable {
                 guard let self, let url = URL(string: urlString) else { continue }
                 if self.image(for: urlString) != nil { continue }
                 if FileManager.default.fileExists(atPath: self.fileURL(for: urlString).path) { continue }
-                guard let (data, _) = try? await URLSession.shared.data(from: url),
+                guard let (data, _) = try? await ImageCache.downloadSession.data(from: url),
                       // Pre-decode (downsampled) so the first display is free.
                       let prepared = ImageCache.decodeDownsampled(data) else { continue }
                 self.insert(prepared, for: urlString, data: data)
@@ -203,7 +217,7 @@ struct RemoteImage: View {
             return
         }
         // Keep the current image visible while the replacement downloads.
-        guard let (data, _) = try? await URLSession.shared.data(from: parsed),
+        guard let (data, _) = try? await ImageCache.downloadSession.data(from: parsed),
               !Task.isCancelled else { return }
         // Decode off the render path (UIKit otherwise decodes lazily on first
         // draw — a scroll hitch per newly visible poster), downsampled to the

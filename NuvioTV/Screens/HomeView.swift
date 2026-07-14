@@ -141,8 +141,8 @@ final class HomeViewModel: ObservableObject {
         // screen (true first run). Warm starts render from cache instantly.
         isLoading = entries.isEmpty
         if isLoading {
-            loadingStep = "Loading add-ons…"
-            try? await Task.sleep(nanoseconds: 300_000_000)   // let the step be seen
+            // No artificial pause — go straight to fetching so the first-run
+            // load is as fast as the network allows.
             loadingStep = "Loading catalogs…"
         }
 

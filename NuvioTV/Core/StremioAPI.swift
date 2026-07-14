@@ -41,6 +41,10 @@ enum StremioAPI {
         config.timeoutIntervalForRequest = 20
         config.requestCachePolicy = .useProtocolCachePolicy
         config.urlCache = URLCache(memoryCapacity: 32 << 20, diskCapacity: 256 << 20)
+        // A single addon (Cinemeta, Torrentio…) usually serves every catalog /
+        // stream request from one host; the default cap of 6 makes a Home load
+        // fetch its rows 6-at-a-time. Let them all fire in parallel.
+        config.httpMaximumConnectionsPerHost = 12
         return URLSession(configuration: config)
     }()
 

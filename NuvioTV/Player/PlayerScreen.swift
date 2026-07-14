@@ -152,10 +152,20 @@ struct PlayerScreen: View {
                     .transition(.opacity)
             }
 
-            // The big 640pt panel gets its own gentle spring (smoother than the
-            // shared 0.18s overlay fade) so sliding in/out feels less abrupt.
-            sidePanels
-                .animation(.spring(response: 0.45, dampingFraction: 0.9), value: viewModel.overlay)
+            // A side panel = two clean, separate motions: the rest of the screen
+            // just DIMS (this scrim fades in), and the 640pt panel just SLIDES
+            // in from the right (move-only transition, see SidePanel). Both share
+            // one gentle spring so they're in sync.
+            Group {
+                if sidePanelActive {
+                    Color.black.opacity(0.5)
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
+                }
+                sidePanels
+            }
+            .animation(.spring(response: 0.45, dampingFraction: 0.9), value: viewModel.overlay)
 
             if viewModel.overlay == .info {
                 VStack(spacing: 0) {
@@ -460,6 +470,14 @@ struct PlayerScreen: View {
                 wheelEngaged: viewModel.wheelEngaged
             )
             .transition(.opacity)
+        }
+    }
+
+    /// The overlay states that show a right-hand side panel (drive the dim scrim).
+    private var sidePanelActive: Bool {
+        switch viewModel.overlay {
+        case .episodes, .sources, .audio, .subtitles, .speed, .engine: return true
+        default: return false
         }
     }
 

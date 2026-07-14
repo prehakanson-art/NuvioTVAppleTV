@@ -13,11 +13,7 @@ struct SidePanel<Content: View>: View {
 
     var body: some View {
         HStack(spacing: 0) {
-            LinearGradient(
-                colors: [.clear, .black.opacity(0.55)],
-                startPoint: .leading, endPoint: .trailing
-            )
-            .allowsHitTesting(false)
+            Spacer(minLength: 0)
 
             VStack(alignment: .leading, spacing: NuvioSpacing.lg) {
                 Text(title)
@@ -30,10 +26,12 @@ struct SidePanel<Content: View>: View {
             .padding(.horizontal, NuvioSpacing.xl)
             .frame(width: 640, alignment: .leading)
             .frame(maxHeight: .infinity)
-            .background(theme.palette.panel.opacity(0.97))
+            .background(theme.palette.panel.opacity(0.98))
         }
         .ignoresSafeArea()
-        .transition(.move(edge: .trailing).combined(with: .opacity))
+        // Slide only — the dimming is a separate scrim (see PlayerScreen) so the
+        // panel just moves sideways instead of sliding AND fading at once.
+        .transition(.move(edge: .trailing))
         // Defensive: attached directly beside the panel's own ScrollView
         // (rather than relying only on PlayerScreen's top-level handler) so a
         // Menu press while focus is deep inside the row list is guaranteed to

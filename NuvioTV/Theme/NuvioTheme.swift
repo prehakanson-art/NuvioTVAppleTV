@@ -195,6 +195,35 @@ enum ExperienceMode: String, CaseIterable, Identifiable, Codable {
     var isAdvanced: Bool { self == .advanced }
 }
 
+/// Settings-screen presentation style (mirrors Android's SettingsUiStyle).
+/// Drives the corner radius of settings rows/cards.
+enum SettingsUiStyle: String, CaseIterable, Identifiable, Codable {
+    case classic, zen, horizon
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .classic: return "Classic"
+        case .zen: return "Zen"
+        case .horizon: return "Horizon"
+        }
+    }
+    var summary: String {
+        switch self {
+        case .classic: return "Soft rounded cards"
+        case .zen: return "Pill-shaped rows"
+        case .horizon: return "Sharp, squared edges"
+        }
+    }
+    /// Corner radius for settings rows/cards in this style.
+    var rowRadius: CGFloat {
+        switch self {
+        case .classic: return 12
+        case .zen: return 26
+        case .horizon: return 3
+        }
+    }
+}
+
 /// The synced slice of the theme (accent palette + AMOLED + font + experience).
 struct ThemeSnapshot: Codable, Equatable {
     var paletteID: String
@@ -202,6 +231,7 @@ struct ThemeSnapshot: Codable, Equatable {
     var font: AppFont
     /// Default advanced so existing users keep the full settings surface.
     var experienceMode: ExperienceMode = .advanced
+    var settingsUiStyle: SettingsUiStyle = .classic
 }
 
 @MainActor
@@ -233,6 +263,15 @@ final class ThemeManager: ObservableObject {
             if !applyingRemote { onLocalChange?() }
         }
     }
+    /// Settings-screen presentation style (row/card shape).
+    @Published var settingsUiStyle: SettingsUiStyle {
+        didSet {
+            UserDefaults.standard.set(settingsUiStyle.rawValue, forKey: Self.settingsStyleKey)
+            if !applyingRemote { onLocalChange?() }
+        }
+    }
+    /// Corner radius for settings rows/cards under the current style.
+    var settingsRowRadius: CGFloat { settingsUiStyle.rowRadius }
 
     /// Fired on a local (user-driven) theme change so the sync manager pushes it.
     var onLocalChange: (() -> Void)?
@@ -242,6 +281,7 @@ final class ThemeManager: ObservableObject {
     private static let amoledKey = "nuvio.theme.amoled"
     private static let fontKey = "nuvio.theme.font"
     private static let experienceKey = "nuvio.theme.experience"
+    private static let settingsStyleKey = "nuvio.theme.settingsstyle"
 
     init() {
         // Default to violet to match the Nuvio brand mark (cyan→purple play
@@ -251,11 +291,15 @@ final class ThemeManager: ObservableObject {
         amoled = UserDefaults.standard.bool(forKey: Self.amoledKey)
         font = AppFont(rawValue: UserDefaults.standard.string(forKey: Self.fontKey) ?? "") ?? .system
         experienceMode = ExperienceMode(rawValue: UserDefaults.standard.string(forKey: Self.experienceKey) ?? "") ?? .advanced
+        settingsUiStyle = SettingsUiStyle(rawValue: UserDefaults.standard.string(forKey: Self.settingsStyleKey) ?? "") ?? .classic
     }
 
     /// Current theme as a syncable snapshot.
     var snapshot: ThemeSnapshot {
-        ThemeSnapshot(paletteID: basePalette.id, amoled: amoled, font: font, experienceMode: experienceMode)
+        ThemeSnapshot(
+            paletteID: basePalette.id, amoled: amoled, font: font,
+            experienceMode: experienceMode, settingsUiStyle: settingsUiStyle
+        )
     }
 
     /// Apply a snapshot pulled from the account without echoing it back up.
@@ -266,6 +310,7 @@ final class ThemeManager: ObservableObject {
         amoled = s.amoled
         font = s.font
         experienceMode = s.experienceMode
+        settingsUiStyle = s.settingsUiStyle
         applyingRemote = false
     }
 

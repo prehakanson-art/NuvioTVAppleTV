@@ -604,11 +604,11 @@ private struct PlaybackToggleLabel: View {
         .frame(minHeight: 74)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+            RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
                 .fill(isFocused ? theme.palette.focusBackground : theme.palette.backgroundCard.opacity(0.5))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+            RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
                 .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 4)
         )
     }

@@ -422,6 +422,17 @@ private struct AppearanceDetail: View {
                     }
                 }
             }
+
+            SettingsGroupCard(title: "Settings Style", subtitle: theme.settingsUiStyle.summary) {
+                HStack(spacing: NuvioSpacing.md) {
+                    ForEach(SettingsUiStyle.allCases) { style in
+                        Button { theme.settingsUiStyle = style } label: {
+                            SelectableChip(title: style.displayName, selected: theme.settingsUiStyle == style)
+                        }
+                        .buttonStyle(PlainCardButtonStyle())
+                    }
+                }
+            }
         }
         .alert("Switch to Essential?", isPresented: $pendingEssential) {
             Button("Cancel", role: .cancel) {}
@@ -555,11 +566,11 @@ private struct ToggleCardLabel: View {
         .padding(.horizontal, NuvioSpacing.lg)
         .frame(minHeight: 68)
         .background(
-            RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+            RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
                 .fill(isFocused ? theme.palette.focusBackground : theme.palette.backgroundCard.opacity(0.5))
         )
         .overlay(
-            RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+            RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
                 .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 4)
         )
     }

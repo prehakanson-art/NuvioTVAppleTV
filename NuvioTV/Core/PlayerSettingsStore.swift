@@ -155,6 +155,8 @@ struct PlayerSettings: Codable, Equatable {
     var loadingOverlayEnabled: Bool = true
     /// Show the "Loading / Caching %" status text on the loading backdrop.
     var showPlayerLoadingStatus: Bool = true
+    /// Show IMDb parental-guide content advisories on the details page.
+    var parentalGuideEnabled: Bool = true
 
     /// Master switch for the curated link filters. On = each addon's links
     /// are grouped into size tiers (250 MB–4 GB … 30 GB+), debrid-cached
@@ -318,6 +320,7 @@ struct PlayerSettings: Codable, Equatable {
         osdClockEnabled = (try? c.decode(Bool.self, forKey: .osdClockEnabled)) ?? d.osdClockEnabled
         loadingOverlayEnabled = (try? c.decode(Bool.self, forKey: .loadingOverlayEnabled)) ?? d.loadingOverlayEnabled
         showPlayerLoadingStatus = (try? c.decode(Bool.self, forKey: .showPlayerLoadingStatus)) ?? d.showPlayerLoadingStatus
+        parentalGuideEnabled = (try? c.decode(Bool.self, forKey: .parentalGuideEnabled)) ?? d.parentalGuideEnabled
         sourceFiltersEnabled = (try? c.decode(Bool.self, forKey: .sourceFiltersEnabled)) ?? d.sourceFiltersEnabled
         sourcesHighGBPerTier = (try? c.decode(Int.self, forKey: .sourcesHighGBPerTier)) ?? d.sourcesHighGBPerTier
         sourcesLowGBPerTier = (try? c.decode(Int.self, forKey: .sourcesLowGBPerTier)) ?? d.sourcesLowGBPerTier

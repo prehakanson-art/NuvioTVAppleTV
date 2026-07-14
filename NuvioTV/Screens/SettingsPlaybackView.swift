@@ -119,6 +119,15 @@ struct PlaybackSettingsDetail: View {
                 )
             }
 
+            SettingsGroupCard(title: "Content", subtitle: "Advisories shown on the details page") {
+                PlaybackToggleRow(
+                    icon: "exclamationmark.shield.fill",
+                    title: "Parental guide",
+                    subtitle: "Show IMDb content advisories (sex, violence, profanity, drugs, frightening) on the details page",
+                    isOn: s.parentalGuideEnabled
+                )
+            }
+
             // Advanced-only cards (hidden in Essential experience mode).
             if theme.experienceMode.isAdvanced {
             SettingsGroupCard(title: "Auto-play source", subtitle: "Skip the Sources page and start playing on its own") {

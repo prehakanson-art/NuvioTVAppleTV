@@ -19,6 +19,7 @@ final class DetailViewModel: ObservableObject {
     @Published var country: String?
     @Published var language: String?
     @Published var releaseDate: String?
+    @Published var parentalGuide: [ParentalGuideEntry] = []
     /// Per-season episode extras (rating / air date), keyed season → episode.
     @Published var episodeExtras: [Int: [Int: TMDBService.EpisodeExtra]] = [:]
 
@@ -26,7 +27,7 @@ final class DetailViewModel: ObservableObject {
         meta = item
     }
 
-    func load(addonManager: AddonManager, mdbSettings: MDBListSettings = .default, tmdb: TMDBSettings = .default) async {
+    func load(addonManager: AddonManager, mdbSettings: MDBListSettings = .default, tmdb: TMDBSettings = .default, parentalGuideEnabled: Bool = false) async {
         defer { isLoading = false }
         useEpisodeExtras = tmdb.useEpisodes
         // Canonicalize the identity FIRST: TMDB-sourced items arrive as
@@ -83,6 +84,10 @@ final class DetailViewModel: ObservableObject {
         }
         comments = await commentsTask.value
         mdbRatings = await ratingsTask.value
+        // Content advisories (IMDb parents guide) once the id is canonical tt.
+        if parentalGuideEnabled, meta.id.hasPrefix("tt") {
+            parentalGuide = await ParentalGuideService.guide(imdbID: meta.id)
+        }
     }
 
     /// Fetch MDBList source ratings, resolving a tmdb id to imdb first if needed.
@@ -170,7 +175,7 @@ struct DetailView: View {
             }
             .scrollClipDisabled()
         }
-        .task { await viewModel.load(addonManager: addonManager, mdbSettings: mdblist.settings, tmdb: tmdbSettings.settings) }
+        .task { await viewModel.load(addonManager: addonManager, mdbSettings: mdblist.settings, tmdb: tmdbSettings.settings, parentalGuideEnabled: playerSettings.settings.parentalGuideEnabled) }
         // Auto-play the trailer in the backdrop after the configured idle
         // delay. Re-runs once trailers finish loading. Resolves silently — no
         // loading UI — and only swaps in when the video is actually ready.
@@ -339,6 +344,10 @@ struct DetailView: View {
                 if !entries.isEmpty {
                     MDBListRatingsRow(entries: entries)
                 }
+            }
+
+            if !viewModel.parentalGuide.isEmpty {
+                ParentalGuideRow(entries: viewModel.parentalGuide)
             }
         }
         .padding(.leading, NuvioSpacing.huge)
@@ -931,5 +940,46 @@ struct SeasonChip: View {
             )
             .scaleEffect(isFocused ? 1.06 : 1)
             .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isFocused)
+    }
+}
+
+/// A compact IMDb parental-guide advisory row: one chip per category, tinted
+/// by severity (mild → amber, moderate → orange, severe → red).
+private struct ParentalGuideRow: View {
+    @EnvironmentObject private var theme: ThemeManager
+    let entries: [ParentalGuideEntry]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.xs) {
+            Text("PARENTAL GUIDE")
+                .font(.system(size: 17, weight: .heavy))
+                .foregroundStyle(theme.palette.textTertiary)
+            HStack(spacing: NuvioSpacing.sm) {
+                ForEach(entries.sorted { $0.severity.rank > $1.severity.rank }) { entry in
+                    HStack(spacing: 6) {
+                        Text(entry.label)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(theme.palette.textPrimary)
+                        Text(entry.severity.display)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(tint(entry.severity))
+                    }
+                    .padding(.horizontal, NuvioSpacing.md)
+                    .padding(.vertical, 6)
+                    .background(
+                        Capsule().fill(tint(entry.severity).opacity(0.16))
+                    )
+                }
+            }
+        }
+        .padding(.top, 2)
+    }
+
+    private func tint(_ s: ParentalSeverity) -> Color {
+        switch s {
+        case .mild: return NuvioPrimitives.warning
+        case .moderate: return NuvioPrimitives.amber500
+        case .severe: return NuvioPrimitives.error
+        }
     }
 }

@@ -63,6 +63,7 @@
 		CC4A6D4DD45D75EFED96839E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79E6F3DF03C6701BE4587833 /* Models.swift */; };
 		D31767F9B2A2591C6DF38322 /* NuvioAccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88E24392958CAE9EB4727EE /* NuvioAccountManager.swift */; };
 		D5A546FAEA5DBF7EF868DBE3 /* NuvioSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 969D7289F1E624FC42108D86 /* NuvioSyncManager.swift */; };
+		D80260DF602808C85646CA6F /* ParentalGuideService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E6B87A80D6B01D3A58DD6B /* ParentalGuideService.swift */; };
 		DE74561D221C4C25B60C7E41 /* CloudLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB57AA419192D7276E5E56DC /* CloudLibraryService.swift */; };
 		E5B79A409AAB47A1AC1155D8 /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243ACB41C793BA410B49B210 /* DetailView.swift */; };
 		E70E13C52AD92FE35CBC2E4C /* CatalogSeeAllView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */; };
@@ -83,6 +84,7 @@
 		1EC4C10B5219C8C94F5868AA /* SettingsTraktView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTraktView.swift; sourceTree = "<group>"; };
 		243ACB41C793BA410B49B210 /* DetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailView.swift; sourceTree = "<group>"; };
 		260D75DAB36C83E9C3ABC4C6 /* CastDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CastDetailView.swift; sourceTree = "<group>"; };
+		27E6B87A80D6B01D3A58DD6B /* ParentalGuideService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParentalGuideService.swift; sourceTree = "<group>"; };
 		2C9C87FFBAD0E1EECA829F5A /* Secrets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Secrets.swift; sourceTree = "<group>"; };
 		33E98DE3FF2BD0DC102D80F4 /* RemoteInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInput.swift; sourceTree = "<group>"; };
 		3A1B94052D73FAE9626AEBA3 /* DebridService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebridService.swift; sourceTree = "<group>"; };
@@ -219,6 +221,7 @@
 				40ED41BE6AC1AE734241A985 /* LibraryStore.swift */,
 				414898F11CD091C483A70A67 /* MDBListService.swift */,
 				79E6F3DF03C6701BE4587833 /* Models.swift */,
+				27E6B87A80D6B01D3A58DD6B /* ParentalGuideService.swift */,
 				C26E3B4C279900B78470C667 /* PlayerSettingsStore.swift */,
 				11754AD2FDC70C869EC871BC /* ProfileStore.swift */,
 				BBDCBEA43CE00C6DD740B204 /* ProgressStore.swift */,
@@ -411,6 +414,7 @@
 				13920A373FF2E5D7BB06F939 /* NuvioSyncModels.swift in Sources */,
 				6866CA62BAB2D88C2968222B /* NuvioTVApp.swift in Sources */,
 				F285DC442C9BCF03E79A73EA /* NuvioTheme.swift in Sources */,
+				D80260DF602808C85646CA6F /* ParentalGuideService.swift in Sources */,
 				A0E0B1CA9C96B4892749E9AB /* PauseOverlayView.swift in Sources */,
 				C4A89B31BA169E57A828C8A5 /* PlayerControlsOverlay.swift in Sources */,
 				9AD59B3BF5A0C489ADD1AA58 /* PlayerScreen.swift in Sources */,

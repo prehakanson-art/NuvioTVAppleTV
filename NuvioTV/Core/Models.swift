@@ -21,6 +21,21 @@ struct AddonManifest: Codable, Identifiable, Hashable {
     var providesMeta: Bool { provides("meta") }
     var providesCatalogs: Bool { !(catalogs ?? []).isEmpty }
     var providesSubtitles: Bool { provides("subtitles") }
+
+    /// True while this addon exists only as a URL we couldn't fetch a manifest
+    /// for yet. It contributes nothing (no catalogs/streams) but is retained so
+    /// a sync push never silently drops — and thereby deletes — it.
+    var isPlaceholder: Bool { resources == nil && catalogs == nil && version == nil }
+
+    /// A minimal stand-in for an addon whose manifest failed to load. Names it
+    /// after the host so the list stays recognisable; self-heals on the next
+    /// successful manifest refresh.
+    static func placeholder(manifestURL: String) -> AddonManifest {
+        let host = URL(string: manifestURL)?.host ?? manifestURL
+        return AddonManifest(id: manifestURL, name: host, version: nil,
+                             description: nil, logo: nil, types: nil,
+                             idPrefixes: nil, catalogs: nil, resources: nil)
+    }
 }
 
 /// Manifest `resources` entries are either plain strings ("stream") or

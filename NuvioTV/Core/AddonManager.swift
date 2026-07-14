@@ -51,16 +51,19 @@ final class AddonManager: ObservableObject {
         guard !toInstall.isEmpty else { return }
 
         // Fetch every new manifest concurrently, then apply in the original
-        // order so the installed list is deterministic.
-        let fetched = await withTaskGroup(of: (Int, String, AddonManifest)?.self) { group in
+        // order so the installed list is deterministic. A manifest that fails
+        // to fetch still installs as a placeholder (never dropped): dropping it
+        // would let a later push delete this account addon from the server.
+        let fetched = await withTaskGroup(of: (Int, String, AddonManifest).self) { group in
             for (index, manifestURL) in toInstall.enumerated() {
                 group.addTask {
-                    guard let manifest = try? await StremioAPI.manifest(url: manifestURL) else { return nil }
+                    let manifest = (try? await StremioAPI.manifest(url: manifestURL))
+                        ?? AddonManifest.placeholder(manifestURL: manifestURL)
                     return (index, manifestURL, manifest)
                 }
             }
             var results: [(Int, String, AddonManifest)] = []
-            for await result in group { if let result { results.append(result) } }
+            for await result in group { results.append(result) }
             return results.sorted { $0.0 < $1.0 }
         }
 

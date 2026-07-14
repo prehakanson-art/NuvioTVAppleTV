@@ -68,6 +68,7 @@ struct RootView: View {
     @EnvironmentObject private var playerSettings: PlayerSettingsStore
     @EnvironmentObject private var streamBadges: StreamBadgeStore
     @EnvironmentObject private var tmdbSettings: TMDBSettingsStore
+    @EnvironmentObject private var debrid: DebridStore
 
     // One navigation stack per tab (tvOS expects TabView at the top level with
     // an independent NavigationStack inside each tab; a shared stack under one
@@ -118,7 +119,8 @@ struct RootView: View {
                         streamBadges: streamBadges,
                         playerSettings: playerSettings,
                         tmdbSettings: tmdbSettings,
-                        themeManager: theme
+                        themeManager: theme,
+                        debridStore: debrid
                     )
                     sync?.enrichContinueWatchingEnabled = { [tmdbSettings] in
                         tmdbSettings.settings.enrichContinueWatching

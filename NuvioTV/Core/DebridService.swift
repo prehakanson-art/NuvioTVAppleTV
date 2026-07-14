@@ -46,8 +46,17 @@ enum DebridProvider: String, CaseIterable, Identifiable, Codable {
 final class DebridStore: ObservableObject {
     @Published private(set) var keys: [DebridProvider: String] = [:]
     @Published var preferred: DebridProvider? {
-        didSet { saveMeta() }
+        didSet {
+            guard preferred != oldValue else { return }
+            saveMeta()
+            if !applyingRemote { onLocalChange?() }
+        }
     }
+
+    /// Fired on a local key/preferred change so account sync can push. Guarded
+    /// during a remote apply so a pull never echoes back as a push.
+    var onLocalChange: (() -> Void)?
+    private var applyingRemote = false
 
     private static let keysKey = "nuvio.debrid.keys.v1"
     private static let preferredKey = "nuvio.debrid.preferred.v1"
@@ -78,6 +87,39 @@ final class DebridStore: ObservableObject {
         if preferred == nil, !trimmed.isEmpty { preferred = provider }
         if preferred != nil, keys[preferred!] == nil { preferred = configuredProviders.first }
         saveKeys()
+        if !applyingRemote { onLocalChange?() }
+    }
+
+    // MARK: Sync
+
+    /// Provider keys + preferred, as a syncable snapshot.
+    struct DebridSnapshot: Codable, Equatable {
+        var keys: [String: String] = [:]
+        var preferred: String?
+    }
+
+    var snapshot: DebridSnapshot {
+        DebridSnapshot(
+            keys: Dictionary(uniqueKeysWithValues: keys.map { ($0.key.rawValue, $0.value) }),
+            preferred: preferred?.rawValue
+        )
+    }
+
+    /// Apply keys pulled from the account without echoing them back up. Merges:
+    /// remote keys win, but a locally-entered key the remote lacks is kept.
+    func applyRemote(_ s: DebridSnapshot) {
+        applyingRemote = true
+        defer { applyingRemote = false }
+        var merged = keys
+        for (raw, value) in s.keys {
+            guard let provider = DebridProvider(rawValue: raw), !value.isEmpty else { continue }
+            merged[provider] = value
+        }
+        if merged != keys { keys = merged; saveKeys() }
+        if let raw = s.preferred, let provider = DebridProvider(rawValue: raw),
+           configuredProviders.contains(provider), preferred != provider {
+            preferred = provider
+        }
     }
 
     /// The provider to try first for resolution.

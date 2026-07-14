@@ -11,6 +11,9 @@ struct WatchProgress: Codable, Identifiable, Hashable {
     let season: Int?
     let episode: Int?
     let episodeTitle: String?
+    /// Episode still image, so Continue Watching can show it instead of the
+    /// show poster. Optional → old saves without it decode to nil.
+    var episodeThumbnail: String? = nil
     var positionSeconds: Double
     var durationSeconds: Double
     var streamURL: String?
@@ -85,12 +88,29 @@ final class ProgressStore: ObservableObject {
     /// watched episode — so starting a new episode replaces the old card
     /// instead of stacking a second entry for the same series.
     var continueWatching: [WatchProgress] {
+        continueWatching(sortMode: .recentlyWatched)
+    }
+
+    /// Continue Watching, ordered per the chosen sort mode.
+    /// - recentlyWatched: most recently played first.
+    /// - streamingStyle: titles you're mid-episode on (2–95%) first, each by
+    ///   recency, then barely-started ones — so you resume what you're actually
+    ///   in the middle of.
+    func continueWatching(sortMode: ContinueWatchingSortMode) -> [WatchProgress] {
         var latestPerShow: [String: WatchProgress] = [:]
         for item in items.values where item.fraction < 0.95 {
             if let existing = latestPerShow[item.metaID], existing.updatedAt >= item.updatedAt { continue }
             latestPerShow[item.metaID] = item
         }
-        return latestPerShow.values.sorted { $0.updatedAt > $1.updatedAt }
+        let byRecency = latestPerShow.values.sorted { $0.updatedAt > $1.updatedAt }
+        switch sortMode {
+        case .recentlyWatched:
+            return byRecency
+        case .streamingStyle:
+            let inProgress = byRecency.filter { $0.fraction >= 0.02 }
+            let fresh = byRecency.filter { $0.fraction < 0.02 }
+            return inProgress + fresh
+        }
     }
 
     func progress(for key: String) -> WatchProgress? {
@@ -126,6 +146,7 @@ final class ProgressStore: ObservableObject {
                 season: video?.season,
                 episode: video?.episode,
                 episodeTitle: video?.title,
+                episodeThumbnail: video?.thumbnail,
                 positionSeconds: position,
                 durationSeconds: duration,
                 streamURL: streamURL,
@@ -162,6 +183,7 @@ final class ProgressStore: ObservableObject {
             season: video?.season,
             episode: video?.episode,
             episodeTitle: video?.title,
+            episodeThumbnail: video?.thumbnail,
             positionSeconds: position,
             durationSeconds: duration,
             streamURL: streamURL,

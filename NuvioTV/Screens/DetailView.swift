@@ -111,6 +111,7 @@ struct DetailView: View {
     @EnvironmentObject private var watched: WatchedStore
     @EnvironmentObject private var mdblist: MDBListSettingsStore
     @EnvironmentObject private var tmdbSettings: TMDBSettingsStore
+    @EnvironmentObject private var layout: HomeCatalogSettingsStore
     @EnvironmentObject private var playerSettings: PlayerSettingsStore
     @StateObject private var viewModel: DetailViewModel
 
@@ -368,7 +369,7 @@ struct DetailView: View {
     }
 
     /// For a series, the episode the Play button should start: an in-progress
-    /// episode, else the first unwatched, else the very first — like the APK.
+    /// episode, else the next-up episode, else the very first — like the APK.
     private var seriesPlayTarget: MetaVideo? {
         let all = viewModel.meta.seasons.flatMap { viewModel.meta.episodes(season: $0) }
         guard !all.isEmpty else { return nil }
@@ -376,10 +377,32 @@ struct DetailView: View {
             if let p = progressStore.progress(for: ep.id) { return p.fraction > 0.02 && p.fraction < 0.95 }
             return false
         }) { return inProgress }
-        if let unwatched = all.first(where: { ep in
-            !watched.isWatched(contentID: viewModel.meta.id, season: ep.season ?? 0, episode: ep.episode)
-        }) { return unwatched }
+
+        func isWatched(_ ep: MetaVideo) -> Bool {
+            watched.isWatched(contentID: viewModel.meta.id, season: ep.season ?? 0, episode: ep.episode)
+        }
+        // Candidate unwatched episodes, honoring the "skip unaired" preference.
+        let unwatched = all.filter { !isWatched($0) && (layout.showUnairedNextUp || $0.hasAired) }
+
+        if layout.nextUpFromFurthestEpisode {
+            // Next-up = the episode right after the FURTHEST watched one.
+            if let furthestIndex = all.lastIndex(where: isWatched) {
+                if let next = all[(furthestIndex + 1)...].first(where: {
+                    layout.showUnairedNextUp || $0.hasAired
+                }) { return next }
+            }
+        }
+        if let firstUnwatched = unwatched.first { return firstUnwatched }
         return all.first
+    }
+
+    /// Blur an episode still when spoiler-blur is on and the episode is neither
+    /// watched nor in progress.
+    private func shouldBlurEpisode(_ episode: MetaVideo, season: Int) -> Bool {
+        guard layout.blurUnwatchedEpisodes else { return false }
+        let isWatched = watched.isWatched(contentID: viewModel.meta.id, season: season, episode: episode.episode)
+        let inProgress = (progressStore.progress(for: episode.id)?.fraction ?? 0) > 0.02
+        return !isWatched && !inProgress
     }
 
     private func seriesPlayTitle(_ episode: MetaVideo) -> String {
@@ -443,7 +466,8 @@ struct DetailView: View {
                                         season: season,
                                         episode: episode.episode
                                     ),
-                                    rating: extra?.rating.map { String(format: "%.1f", $0) }
+                                    rating: extra?.rating.map { String(format: "%.1f", $0) },
+                                    blurImage: shouldBlurEpisode(episode, season: season)
                                 )
                             }
                             .buttonStyle(PlainCardButtonStyle())

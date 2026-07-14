@@ -290,12 +290,15 @@ struct LandscapeCard: View {
     var watched: Bool = false
     var rating: String? = nil
     var width: CGFloat = 380
+    /// Spoiler-blur the still until the card is focused (then it reveals).
+    var blurImage: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
             ZStack(alignment: .bottom) {
                 RemoteImage(url: imageURL)
                     .aspectRatio(16 / 9, contentMode: .fill)
+                    .blur(radius: blurImage && !isFocused ? 28 : 0)
                 if let progress, progress > 0 {
                     ProgressStrip(fraction: progress)
                         .padding(.horizontal, 12)

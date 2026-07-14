@@ -154,6 +154,7 @@ final class NuvioSyncManager: ObservableObject {
         playerSettings?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
         tmdbSettings?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
         themeManager?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
+        homeCatalogSettings.onPresentationChange = { [weak self] in self?.scheduleAppPreferencesPush() }
 
         // Authed operations the profile UI needs (require the access token).
         profileStore.avatarCatalogLoader = { [weak self] in
@@ -915,6 +916,9 @@ final class NuvioSyncManager: ObservableObject {
         var player: PlayerSettings
         var tmdb: TMDBSettings
         var theme: ThemeSnapshot
+        /// Home/Continue-Watching presentation prefs. Optional so blobs written
+        /// before this field decode cleanly.
+        var home: HomePresentationSnapshot?
     }
 
     private func scheduleAppPreferencesPush() {
@@ -946,6 +950,7 @@ final class NuvioSyncManager: ObservableObject {
         playerSettings.applyRemote(snapshot.player)
         tmdbSettings.applyRemote(snapshot.tmdb)
         themeManager.applyRemote(snapshot.theme)
+        if let home = snapshot.home { homeCatalogSettings.applyRemotePresentation(home) }
     }
 
     /// READ-MERGE-WRITE: fetch the blob, replace only our own feature key, push
@@ -956,7 +961,8 @@ final class NuvioSyncManager: ObservableObject {
         let snapshot = AppPreferencesSnapshot(
             player: playerSettings.settings,
             tmdb: tmdbSettings.settings,
-            theme: themeManager.snapshot
+            theme: themeManager.snapshot,
+            home: homeCatalogSettings.presentationSnapshot
         )
         guard let data = try? JSONEncoder().encode(snapshot),
               let json = String(data: data, encoding: .utf8) else { return }

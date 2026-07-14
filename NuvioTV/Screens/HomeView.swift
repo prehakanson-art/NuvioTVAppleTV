@@ -386,7 +386,7 @@ struct HomeView: View {
 
     @ViewBuilder
     private var rowsList: some View {
-        let continueItems = progressStore.continueWatching
+        let continueItems = progressStore.continueWatching(sortMode: homeCatalogSettings.continueWatchingSortMode)
         if !continueItems.isEmpty {
             continueRow(continueItems)
                 .id(Self.continueRowID)
@@ -429,10 +429,11 @@ struct HomeView: View {
                             onResume(progress)
                         } label: {
                             LandscapeCard(
-                                imageURL: progress.background ?? progress.poster,
+                                imageURL: continueImage(progress),
                                 title: progress.name,
                                 subtitle: continueSubtitle(progress),
-                                progress: progress.fraction
+                                progress: progress.fraction,
+                                blurImage: homeCatalogSettings.blurContinueWatchingNextUp && progress.fraction < 0.02
                             )
                             // Hero bar follows focus here too, like every other
                             // row. Inside the label: `\.isFocused` only resolves
@@ -651,6 +652,15 @@ struct HomeView: View {
             return line
         }
         return nil
+    }
+
+    /// Continue Watching card art: the episode still when enabled and present,
+    /// otherwise the show backdrop/poster.
+    private func continueImage(_ progress: WatchProgress) -> String? {
+        if homeCatalogSettings.useEpisodeThumbnailsInCw, let thumb = progress.episodeThumbnail, !thumb.isEmpty {
+            return thumb
+        }
+        return progress.background ?? progress.poster
     }
 
     /// A hero-bar item for a Continue Watching entry. Progress rows only carry

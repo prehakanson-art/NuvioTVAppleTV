@@ -68,6 +68,48 @@ struct LayoutSettingsDetail: View {
                 )
             }
 
+            SettingsGroupCard(title: "Continue Watching", subtitle: "How the resume row behaves") {
+                NuvioDropdown(
+                    title: "Sort order",
+                    subtitle: settings.continueWatchingSortMode.summary,
+                    icon: "arrow.up.arrow.down",
+                    selection: settings.continueWatchingSortMode.rawValue,
+                    options: ContinueWatchingSortMode.allCases.map {
+                        NuvioDropdownOption($0.rawValue, $0.displayName)
+                    }
+                ) { settings.continueWatchingSortMode = ContinueWatchingSortMode(rawValue: $0) ?? .recentlyWatched }
+
+                SettingsToggleCard(
+                    title: "Episode thumbnails",
+                    subtitle: "Show the episode still on Continue Watching cards instead of the show poster",
+                    isOn: $settings.useEpisodeThumbnailsInCw
+                )
+
+                SettingsToggleCard(
+                    title: "Next up from furthest episode",
+                    subtitle: "Resume a series after the furthest episode you've watched, not the most recently played one",
+                    isOn: $settings.nextUpFromFurthestEpisode
+                )
+
+                SettingsToggleCard(
+                    title: "Show unaired next up",
+                    subtitle: "Allow an episode that hasn't aired yet to be the next-up target",
+                    isOn: $settings.showUnairedNextUp
+                )
+
+                SettingsToggleCard(
+                    title: "Blur unwatched episodes",
+                    subtitle: "Spoiler-blur episode thumbnails you haven't watched (focus a card to reveal it)",
+                    isOn: $settings.blurUnwatchedEpisodes
+                )
+
+                SettingsToggleCard(
+                    title: "Blur Continue Watching next up",
+                    subtitle: "Spoiler-blur art for barely-started next-up episodes on the home row",
+                    isOn: $settings.blurContinueWatchingNextUp
+                )
+            }
+
             CatalogOrderSection()
         }
     }

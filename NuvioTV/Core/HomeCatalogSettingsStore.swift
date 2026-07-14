@@ -49,6 +49,41 @@ enum PosterSize: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// How the Continue Watching row is ordered (mirrors Android's
+/// ContinueWatchingSortMode).
+enum ContinueWatchingSortMode: String, CaseIterable, Identifiable, Codable {
+    case recentlyWatched, streamingStyle
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .recentlyWatched: return "Recently watched"
+        case .streamingStyle: return "Streaming style"
+        }
+    }
+    var summary: String {
+        switch self {
+        case .recentlyWatched: return "Most recently played first"
+        case .streamingStyle: return "Titles you're mid-episode on first, then the rest"
+        }
+    }
+}
+
+/// The device-local Home/Continue-Watching presentation prefs that ride in the
+/// tvOS-only sync blob (see NuvioSyncManager.AppPreferencesSnapshot).
+struct HomePresentationSnapshot: Codable, Equatable {
+    var homeLayout: HomeLayout = .modern
+    var landscapePosters = false
+    var fullscreenHero = true
+    var posterSize: PosterSize = .medium
+    var showPosterLabels = true
+    var continueWatchingSortMode: ContinueWatchingSortMode = .recentlyWatched
+    var nextUpFromFurthestEpisode = true
+    var showUnairedNextUp = true
+    var useEpisodeThumbnailsInCw = true
+    var blurUnwatchedEpisodes = false
+    var blurContinueWatchingNextUp = false
+}
+
 // MARK: - Sync payload (matches Android SyncHomeCatalogPayload exactly)
 
 struct SyncCatalogItem: Codable, Hashable {
@@ -148,30 +183,55 @@ final class HomeCatalogSettingsStore: ObservableObject {
     /// Presentation style. Device-local (not part of the cross-platform sync
     /// payload — Android keeps layout local too).
     @Published var homeLayout: HomeLayout = .modern {
-        didSet {
-            guard homeLayout != oldValue else { return }
-            save()
-        }
+        didSet { guard homeLayout != oldValue else { return }; save(); notifyPresentationChange() }
     }
     /// Modern-view cards: portrait (false) or landscape (true), like the APK's
     /// "Landscape Posters" toggle.
     @Published var landscapePosters: Bool = false {
-        didSet { guard landscapePosters != oldValue else { return }; save() }
+        didSet { guard landscapePosters != oldValue else { return }; save(); notifyPresentationChange() }
     }
     /// Whether the home hero backdrop fills the screen (APK "Fullscreen Hero Backdrop").
     @Published var fullscreenHero: Bool = true {
-        didSet { guard fullscreenHero != oldValue else { return }; save() }
+        didSet { guard fullscreenHero != oldValue else { return }; save(); notifyPresentationChange() }
     }
     /// Poster card size across all grids/rows.
     @Published var posterSize: PosterSize = .medium {
-        didSet { guard posterSize != oldValue else { return }; save() }
+        didSet { guard posterSize != oldValue else { return }; save(); notifyPresentationChange() }
     }
     /// Show the title label beneath poster cards.
     @Published var showPosterLabels: Bool = true {
-        didSet { guard showPosterLabels != oldValue else { return }; save() }
+        didSet { guard showPosterLabels != oldValue else { return }; save(); notifyPresentationChange() }
+    }
+    /// Continue Watching row ordering.
+    @Published var continueWatchingSortMode: ContinueWatchingSortMode = .recentlyWatched {
+        didSet { guard continueWatchingSortMode != oldValue else { return }; save(); notifyPresentationChange() }
+    }
+    /// Resume a series from the episode after the FURTHEST watched one rather
+    /// than the most recently played.
+    @Published var nextUpFromFurthestEpisode: Bool = true {
+        didSet { guard nextUpFromFurthestEpisode != oldValue else { return }; save(); notifyPresentationChange() }
+    }
+    /// Allow an unaired episode to be the next-up target (off skips it).
+    @Published var showUnairedNextUp: Bool = true {
+        didSet { guard showUnairedNextUp != oldValue else { return }; save(); notifyPresentationChange() }
+    }
+    /// Use the episode still (not the show poster) on Continue Watching cards.
+    @Published var useEpisodeThumbnailsInCw: Bool = true {
+        didSet { guard useEpisodeThumbnailsInCw != oldValue else { return }; save(); notifyPresentationChange() }
+    }
+    /// Spoiler-blur episode thumbnails you haven't watched (focus reveals them).
+    @Published var blurUnwatchedEpisodes: Bool = false {
+        didSet { guard blurUnwatchedEpisodes != oldValue else { return }; save(); notifyPresentationChange() }
+    }
+    /// Spoiler-blur Continue Watching art for barely-started next-up episodes.
+    @Published var blurContinueWatchingNextUp: Bool = false {
+        didSet { guard blurContinueWatchingNextUp != oldValue else { return }; save(); notifyPresentationChange() }
     }
 
     var onLocalChange: (() -> Void)?
+    /// Fired when a device-local presentation pref changes, so the tvOS sync
+    /// blob (player/TMDB/theme/home) can push it.
+    var onPresentationChange: (() -> Void)?
     private var suppressChange = false
     private var profileID = 1
 
@@ -321,11 +381,58 @@ final class HomeCatalogSettingsStore: ObservableObject {
         var fullscreenHero: Bool?
         var posterSize: PosterSize?
         var showPosterLabels: Bool?
+        var continueWatchingSortMode: ContinueWatchingSortMode?
+        var nextUpFromFurthestEpisode: Bool?
+        var showUnairedNextUp: Bool?
+        var useEpisodeThumbnailsInCw: Bool?
+        var blurUnwatchedEpisodes: Bool?
+        var blurContinueWatchingNextUp: Bool?
     }
 
     private func notifyLocalChange() {
         guard !suppressChange else { return }
         onLocalChange?()
+    }
+
+    private func notifyPresentationChange() {
+        guard !suppressChange else { return }
+        onPresentationChange?()
+    }
+
+    /// The presentation prefs as a syncable snapshot.
+    var presentationSnapshot: HomePresentationSnapshot {
+        HomePresentationSnapshot(
+            homeLayout: homeLayout,
+            landscapePosters: landscapePosters,
+            fullscreenHero: fullscreenHero,
+            posterSize: posterSize,
+            showPosterLabels: showPosterLabels,
+            continueWatchingSortMode: continueWatchingSortMode,
+            nextUpFromFurthestEpisode: nextUpFromFurthestEpisode,
+            showUnairedNextUp: showUnairedNextUp,
+            useEpisodeThumbnailsInCw: useEpisodeThumbnailsInCw,
+            blurUnwatchedEpisodes: blurUnwatchedEpisodes,
+            blurContinueWatchingNextUp: blurContinueWatchingNextUp
+        )
+    }
+
+    /// Apply presentation prefs pulled from the account without echoing back up.
+    func applyRemotePresentation(_ s: HomePresentationSnapshot) {
+        guard s != presentationSnapshot else { return }
+        suppressChange = true
+        homeLayout = s.homeLayout
+        landscapePosters = s.landscapePosters
+        fullscreenHero = s.fullscreenHero
+        posterSize = s.posterSize
+        showPosterLabels = s.showPosterLabels
+        continueWatchingSortMode = s.continueWatchingSortMode
+        nextUpFromFurthestEpisode = s.nextUpFromFurthestEpisode
+        showUnairedNextUp = s.showUnairedNextUp
+        useEpisodeThumbnailsInCw = s.useEpisodeThumbnailsInCw
+        blurUnwatchedEpisodes = s.blurUnwatchedEpisodes
+        blurContinueWatchingNextUp = s.blurContinueWatchingNextUp
+        suppressChange = false
+        save()
     }
 
     private func load() {
@@ -350,6 +457,12 @@ final class HomeCatalogSettingsStore: ObservableObject {
         fullscreenHero = decoded.fullscreenHero ?? true
         posterSize = decoded.posterSize ?? .medium
         showPosterLabels = decoded.showPosterLabels ?? true
+        continueWatchingSortMode = decoded.continueWatchingSortMode ?? .recentlyWatched
+        nextUpFromFurthestEpisode = decoded.nextUpFromFurthestEpisode ?? true
+        showUnairedNextUp = decoded.showUnairedNextUp ?? true
+        useEpisodeThumbnailsInCw = decoded.useEpisodeThumbnailsInCw ?? true
+        blurUnwatchedEpisodes = decoded.blurUnwatchedEpisodes ?? false
+        blurContinueWatchingNextUp = decoded.blurContinueWatchingNextUp ?? false
         suppressChange = false
     }
 
@@ -363,7 +476,13 @@ final class HomeCatalogSettingsStore: ObservableObject {
             landscapePosters: landscapePosters,
             fullscreenHero: fullscreenHero,
             posterSize: posterSize,
-            showPosterLabels: showPosterLabels
+            showPosterLabels: showPosterLabels,
+            continueWatchingSortMode: continueWatchingSortMode,
+            nextUpFromFurthestEpisode: nextUpFromFurthestEpisode,
+            showUnairedNextUp: showUnairedNextUp,
+            useEpisodeThumbnailsInCw: useEpisodeThumbnailsInCw,
+            blurUnwatchedEpisodes: blurUnwatchedEpisodes,
+            blurContinueWatchingNextUp: blurContinueWatchingNextUp
         )
         guard let data = try? JSONEncoder().encode(persisted) else { return }
         UserDefaults.standard.set(data, forKey: storageKey)

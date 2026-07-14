@@ -21,8 +21,13 @@ final class TMDBSettingsStore: ObservableObject {
             guard settings != oldValue else { return }
             save()
             TMDBService.preferredLanguage = settings.language
+            if !applyingRemote { onLocalChange?() }
         }
     }
+
+    /// Fired on a local (user-driven) change so the sync manager can push it up.
+    var onLocalChange: (() -> Void)?
+    private var applyingRemote = false
 
     private static let key = "nuvio.tmdb.settings.v1"
 
@@ -35,6 +40,14 @@ final class TMDBSettingsStore: ObservableObject {
         }
         // Localize every TMDB request from launch (get() reads this global).
         TMDBService.preferredLanguage = settings.language
+    }
+
+    /// Apply settings pulled from the account without echoing them back up.
+    func applyRemote(_ new: TMDBSettings) {
+        guard new != settings else { return }
+        applyingRemote = true
+        settings = new
+        applyingRemote = false
     }
 
     var isEnabled: Bool { settings.enabled }

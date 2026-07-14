@@ -115,7 +115,10 @@ struct RootView: View {
                         profileStore: profiles,
                         collectionsStore: collections,
                         homeCatalogSettings: homeCatalogSettings,
-                        streamBadges: streamBadges
+                        streamBadges: streamBadges,
+                        playerSettings: playerSettings,
+                        tmdbSettings: tmdbSettings,
+                        themeManager: theme
                     )
                     sync?.enrichContinueWatchingEnabled = { [tmdbSettings] in
                         tmdbSettings.settings.enrichContinueWatching

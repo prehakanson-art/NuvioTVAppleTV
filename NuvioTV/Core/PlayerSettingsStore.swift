@@ -294,8 +294,14 @@ final class PlayerSettingsStore: ObservableObject {
         didSet {
             guard settings != oldValue else { return }
             save()
+            if !applyingRemote { onLocalChange?() }
         }
     }
+
+    /// Fired when the user changes settings locally (not when applying a remote
+    /// pull) so the sync manager can push the change up.
+    var onLocalChange: (() -> Void)?
+    private var applyingRemote = false
 
     private static let key = "nuvio.player.settings.v1"
 
@@ -306,6 +312,14 @@ final class PlayerSettingsStore: ObservableObject {
         } else {
             settings = .default
         }
+    }
+
+    /// Apply settings pulled from the account without echoing them back up.
+    func applyRemote(_ new: PlayerSettings) {
+        guard new != settings else { return }
+        applyingRemote = true
+        settings = new
+        applyingRemote = false
     }
 
     private func save() {

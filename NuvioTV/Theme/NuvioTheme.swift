@@ -175,19 +175,39 @@ enum AppFont: String, CaseIterable, Identifiable, Codable {
     }
 }
 
+/// The synced slice of the theme (accent palette + AMOLED + font).
+struct ThemeSnapshot: Codable, Equatable {
+    var paletteID: String
+    var amoled: Bool
+    var font: AppFont
+}
+
 @MainActor
 final class ThemeManager: ObservableObject {
     @Published private var basePalette: ThemePalette {
-        didSet { UserDefaults.standard.set(basePalette.id, forKey: Self.key) }
+        didSet {
+            UserDefaults.standard.set(basePalette.id, forKey: Self.key)
+            if !applyingRemote { onLocalChange?() }
+        }
     }
     /// AMOLED mode: force pure-black surfaces (APK "Use pure black for app backgrounds").
     @Published var amoled: Bool {
-        didSet { UserDefaults.standard.set(amoled, forKey: Self.amoledKey) }
+        didSet {
+            UserDefaults.standard.set(amoled, forKey: Self.amoledKey)
+            if !applyingRemote { onLocalChange?() }
+        }
     }
     /// App-wide font family (applied at the root with `.fontDesign`).
     @Published var font: AppFont {
-        didSet { UserDefaults.standard.set(font.rawValue, forKey: Self.fontKey) }
+        didSet {
+            UserDefaults.standard.set(font.rawValue, forKey: Self.fontKey)
+            if !applyingRemote { onLocalChange?() }
+        }
     }
+
+    /// Fired on a local (user-driven) theme change so the sync manager pushes it.
+    var onLocalChange: (() -> Void)?
+    private var applyingRemote = false
 
     private static let key = "nuvio.theme"
     private static let amoledKey = "nuvio.theme.amoled"
@@ -200,6 +220,21 @@ final class ThemeManager: ObservableObject {
         basePalette = NuvioThemes.palette(id: saved)
         amoled = UserDefaults.standard.bool(forKey: Self.amoledKey)
         font = AppFont(rawValue: UserDefaults.standard.string(forKey: Self.fontKey) ?? "") ?? .system
+    }
+
+    /// Current theme as a syncable snapshot.
+    var snapshot: ThemeSnapshot {
+        ThemeSnapshot(paletteID: basePalette.id, amoled: amoled, font: font)
+    }
+
+    /// Apply a snapshot pulled from the account without echoing it back up.
+    func applyRemote(_ s: ThemeSnapshot) {
+        guard s != snapshot else { return }
+        applyingRemote = true
+        basePalette = NuvioThemes.palette(id: s.paletteID)
+        amoled = s.amoled
+        font = s.font
+        applyingRemote = false
     }
 
     /// The palette used across the app, with the AMOLED override applied.

@@ -24,6 +24,11 @@ final class NuvioSyncManager: ObservableObject {
     private let collectionsStore: CollectionsStore
     private let homeCatalogSettings: HomeCatalogSettingsStore
     private let streamBadges: StreamBadgeStore?
+    /// App-preference stores synced together as one own-feature blob
+    /// (`nuvio_tvos_preferences`): player, TMDB, and theme settings.
+    private let playerSettings: PlayerSettingsStore?
+    private let tmdbSettings: TMDBSettingsStore?
+    private let themeManager: ThemeManager?
     /// Reads the "Enrich Continue Watching" TMDB setting (the store lives
     /// outside this manager). nil → enrich (default).
     var enrichContinueWatchingEnabled: (() -> Bool)?
@@ -36,6 +41,7 @@ final class NuvioSyncManager: ObservableObject {
     private var pushCollectionsTask: Task<Void, Never>?
     private var pushHomeCatalogTask: Task<Void, Never>?
     private var pushBadgeSettingsTask: Task<Void, Never>?
+    private var pushAppPreferencesTask: Task<Void, Never>?
     private var avatarCatalogCache: [AvatarCatalogItem] = []
     private var wasSignedIn = false
 
@@ -102,7 +108,10 @@ final class NuvioSyncManager: ObservableObject {
         profileStore: ProfileStore,
         collectionsStore: CollectionsStore,
         homeCatalogSettings: HomeCatalogSettingsStore,
-        streamBadges: StreamBadgeStore? = nil
+        streamBadges: StreamBadgeStore? = nil,
+        playerSettings: PlayerSettingsStore? = nil,
+        tmdbSettings: TMDBSettingsStore? = nil,
+        themeManager: ThemeManager? = nil
     ) {
         self.account = account
         self.addonManager = addonManager
@@ -113,6 +122,9 @@ final class NuvioSyncManager: ObservableObject {
         self.collectionsStore = collectionsStore
         self.homeCatalogSettings = homeCatalogSettings
         self.streamBadges = streamBadges
+        self.playerSettings = playerSettings
+        self.tmdbSettings = tmdbSettings
+        self.themeManager = themeManager
 
         // Sync whenever we transition into a signed-in state.
         account.$authState
@@ -138,6 +150,10 @@ final class NuvioSyncManager: ObservableObject {
         streamBadges?.remoteSync = { [weak self] in
             await self?.pullBadgeSettings() ?? "Account sync isn't ready yet"
         }
+        // App preferences (player / TMDB / theme) share one own-feature blob.
+        playerSettings?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
+        tmdbSettings?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
+        themeManager?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
 
         // Authed operations the profile UI needs (require the access token).
         profileStore.avatarCatalogLoader = { [weak self] in
@@ -194,6 +210,7 @@ final class NuvioSyncManager: ObservableObject {
             try await pullCollections()
             try await pullHomeCatalogSettings()
             await pullBadgeSettings()   // best-effort; badge chips are cosmetic
+            await pullAppPreferences()  // best-effort; player/TMDB/theme prefs
             try await pushProfiles()
             try await pushAddons()
             try await pushWatchProgressAll()
@@ -201,6 +218,7 @@ final class NuvioSyncManager: ObservableObject {
             try await pushWatchedItems()
             try await pushCollections()
             try await pushHomeCatalogSettings()
+            await pushAppPreferences()
         } catch {
             lastSyncError = describe(error)
         }
@@ -608,6 +626,7 @@ final class NuvioSyncManager: ObservableObject {
                 try await pullCollections()
                 try await pullHomeCatalogSettings()
                 await pullBadgeSettings()
+                await pullAppPreferences()
             } catch {
                 lastSyncError = describe(error)
             }
@@ -872,6 +891,87 @@ final class NuvioSyncManager: ObservableObject {
         var badgeFeature = features["stream_badge_settings"] as? [String: Any] ?? [:]
         badgeFeature["stream_badge_rules"] = ["type": "string", "value": rulesJSON]
         features["stream_badge_settings"] = badgeFeature
+        blob["features"] = features
+        if blob["version"] == nil { blob["version"] = 1 }
+
+        let body: [String: Any] = [
+            "p_profile_id": pid,
+            "p_settings_json": blob,
+            "p_platform": Self.settingsBlobPlatform,
+            "p_origin_client_id": clientID,
+        ]
+        _ = try? await authedPost(RPC.url(RPC.pushProfileSettingsBlob), body: body)
+    }
+
+    // MARK: - App preferences (player / TMDB / theme)
+
+    /// Own-feature key inside the profile settings blob. tvOS-specific — Android
+    /// ignores it — so pushing it can never clobber the app's shared features.
+    private static let appPrefsFeatureKey = "nuvio_tvos_preferences"
+
+    /// The synced slice of local app preferences.
+    private struct AppPreferencesSnapshot: Codable {
+        var version = 1
+        var player: PlayerSettings
+        var tmdb: TMDBSettings
+        var theme: ThemeSnapshot
+    }
+
+    private func scheduleAppPreferencesPush() {
+        pushAppPreferencesTask?.cancel()
+        pushAppPreferencesTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.pushAppPreferences()
+        }
+    }
+
+    /// Pull the tvOS preferences feature (if present) and apply it to the three
+    /// stores. Best-effort: any decode failure leaves local settings untouched.
+    private func pullAppPreferences() async {
+        guard account.accessToken != nil,
+              let playerSettings, let tmdbSettings, let themeManager else { return }
+        guard let data = try? await authedPost(
+            RPC.url(RPC.pullProfileSettingsBlob),
+            body: ["p_profile_id": pid, "p_platform": Self.settingsBlobPlatform]
+        ),
+            let blob = Self.settingsBlob(from: data),
+            let features = blob["features"] as? [String: Any],
+            let feature = features[Self.appPrefsFeatureKey] as? [String: Any],
+            let json = Self.preferenceString(feature["value"]),
+            let snapshot = try? JSONDecoder().decode(
+                AppPreferencesSnapshot.self, from: Data(json.utf8)
+            )
+        else { return }
+        playerSettings.applyRemote(snapshot.player)
+        tmdbSettings.applyRemote(snapshot.tmdb)
+        themeManager.applyRemote(snapshot.theme)
+    }
+
+    /// READ-MERGE-WRITE: fetch the blob, replace only our own feature key, push
+    /// it all back so the badge feature and Android's features survive intact.
+    private func pushAppPreferences() async {
+        guard account.accessToken != nil,
+              let playerSettings, let tmdbSettings, let themeManager else { return }
+        let snapshot = AppPreferencesSnapshot(
+            player: playerSettings.settings,
+            tmdb: tmdbSettings.settings,
+            theme: themeManager.snapshot
+        )
+        guard let data = try? JSONEncoder().encode(snapshot),
+              let json = String(data: data, encoding: .utf8) else { return }
+
+        var blob: [String: Any] = ["version": 1, "features": [String: Any]()]
+        if let existingData = try? await authedPost(
+            RPC.url(RPC.pullProfileSettingsBlob),
+            body: ["p_profile_id": pid, "p_platform": Self.settingsBlobPlatform]
+        ),
+            let rows = try? JSONSerialization.jsonObject(with: existingData) as? [[String: Any]],
+            let existing = rows.first?["settings_json"] as? [String: Any] {
+            blob = existing
+        }
+        var features = blob["features"] as? [String: Any] ?? [:]
+        features[Self.appPrefsFeatureKey] = ["type": "string", "value": json]
         blob["features"] = features
         if blob["version"] == nil { blob["version"] = 1 }
 

@@ -292,12 +292,22 @@ struct RootView: View {
             contentColumn
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .overlay {
-                    // Dim the content while the sidebar is expanded/focused (APK behavior).
+                    // Dim the content while the sidebar is expanded/focused (APK
+                    // behavior). The dim STARTS at the sidebar's own tone right
+                    // at the seam and eases into the dim over the first sliver,
+                    // so there's no hard bright/dark two-tone line at the edge.
                     if sidebarFocus != nil && showSidebar {
-                        Color.black.opacity(0.55)
-                            .ignoresSafeArea()
-                            .allowsHitTesting(false)
-                            .transition(.opacity)
+                        LinearGradient(
+                            stops: [
+                                .init(color: theme.palette.backgroundElevated, location: 0),
+                                .init(color: .black.opacity(0.55), location: 0.09),
+                                .init(color: .black.opacity(0.55), location: 1)
+                            ],
+                            startPoint: .leading, endPoint: .trailing
+                        )
+                        .ignoresSafeArea()
+                        .allowsHitTesting(false)
+                        .transition(.opacity)
                     }
                 }
                 .focusSection()

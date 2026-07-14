@@ -439,6 +439,19 @@ struct Stream: Codable, Hashable {
         ) != nil
     }
 
+    private var searchHaystack: String { "\(name ?? "") \(title ?? "") \(description ?? "")".lowercased() }
+
+    /// AV1-encoded (no hardware decode on the Apple TV A10X).
+    var isAV1: Bool { searchHaystack.contains("av1") }
+    /// Dolby Vision.
+    var isDolbyVision: Bool {
+        let h = searchHaystack
+        return h.contains("dolby vision") || h.contains("dolby.vision") || h.contains("dovi")
+            || h.range(of: #"\bdv\b"#, options: .regularExpression) != nil
+    }
+    /// Any HDR flavor (including Dolby Vision).
+    var isHDR: Bool { isDolbyVision || searchHaystack.contains("hdr") || searchHaystack.contains("hlg") }
+
     /// Torrentio-style seeder count ("👤 123").
     private static let seedersRegex = try? NSRegularExpression(pattern: #"👤\s*(\d+)"#)
 

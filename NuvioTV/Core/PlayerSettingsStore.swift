@@ -83,6 +83,11 @@ struct PlayerSettings: Codable, Equatable {
     /// (muted) in the backdrop. 0 = off. On by default so hero previews work
     /// out of the box.
     var autoPlayTrailerSeconds: Int = 3
+    /// Show the "Skip Intro" pill when playback sits inside an intro/recap
+    /// chapter (⏯ then skips it).
+    var skipIntroEnabled: Bool = true
+    /// Automatically jump past intro/recap chapters without a button press.
+    var autoSkipSegments: Bool = false
     /// Seconds a single left/right press seeks in the player. Rapid presses
     /// accumulate (2 presses = 2×), holding accelerates.
     var skipSeconds: Int = 10
@@ -103,6 +108,20 @@ struct PlayerSettings: Codable, Equatable {
     var subtitlesOnByDefault: Bool = false
     /// Preferred subtitle language (ISO 639-1 code); "" = first available.
     var preferredSubtitleLanguage: String = "en"
+    /// Fallback subtitle language when the preferred one isn't present.
+    var subtitleSecondaryLanguage: String = ""
+    /// Prefer a "forced" subtitle track (foreign-dialogue only) when one exists.
+    var subtitlePreferForced: Bool = false
+    // --- Styling ---
+    /// Caption text color (hex, no #).
+    var subtitleTextColorHex: String = "FFFFFF"
+    /// Draw an outline around the text for readability on any background.
+    var subtitleOutlineEnabled: Bool = true
+    var subtitleOutlineColorHex: String = "000000"
+    /// Background plate opacity 0–100 (used when subtitleBackground is on).
+    var subtitleBackgroundOpacity: Int = 45
+    /// Raise (+) or lower (−) the caption from its default bottom margin, points.
+    var subtitleVerticalOffset: Int = 0
 
     /// Preferred audio language (ISO 639-1 code); "" = stream default. When a
     /// stream carries a matching track it's selected automatically.
@@ -131,6 +150,17 @@ struct PlayerSettings: Codable, Equatable {
     var sourcesLowGBPerTier: Int = 5
     /// Links shown per size tier (250 MB–4 GB / 4–10 / 10–20 / 20–30 / 30+).
     var sourcesPerSizeTier: Int = 6
+    // --- Stream filters (applied before curation) ---
+    /// Drop links below this resolution. "" = no minimum. (2160p/1080p/720p/480p)
+    var streamMinResolution: String = ""
+    /// Hide AV1 links (no hardware decode on the Apple TV A10X → slideshow).
+    var streamExcludeAV1: Bool = false
+    /// Only show HDR (HDR10/HLG/DV) links.
+    var streamHDROnly: Bool = false
+    /// Only show Dolby Vision links.
+    var streamDolbyVisionOnly: Bool = false
+    /// Only show links the debrid service already has cached (instant play).
+    var streamCachedOnly: Bool = false
     /// OPT-IN HDR/frame-rate display-mode switching. Off (default) = the
     /// Apple TV stays in its home-screen format and tone-maps content into it
     /// (like the Android APK/Stremio). On = ask the TV to switch into the
@@ -169,6 +199,14 @@ struct PlayerSettings: Codable, Equatable {
     static let trailerDelayValues: [Int] = [0, 1, 2, 3, 5]
     /// Selectable Up Next lead times (seconds before end) for chapter-less files.
     static let upNextLeadValues: [Int] = [10, 15, 20, 30, 45, 60, 90, 120, 180]
+    /// Subtitle color presets (hex, display name) — no color picker on tvOS.
+    static let subtitleColorOptions: [(String, String)] = [
+        ("FFFFFF", "White"), ("F5F5F5", "Off-White"), ("FFEB3B", "Yellow"),
+        ("00E5FF", "Cyan"), ("69F0AE", "Green"), ("BDBDBD", "Grey"), ("000000", "Black"),
+    ]
+    /// Selectable subtitle vertical offsets (points; + raises).
+    static let subtitleOffsetValues: [Int] = [-40, -20, 0, 20, 40, 80, 120, 160]
+    static let subtitleBackgroundOpacityValues: [Int] = [0, 15, 30, 45, 60, 80, 100]
     /// Selectable per-press skip amounts (seconds).
     static let skipValues: [Int] = [5, 10, 15, 30]
     /// Selectable scrub-mode jump amounts (seconds).
@@ -178,6 +216,17 @@ struct PlayerSettings: Codable, Equatable {
     /// Max links shown per addon when the curated filters are OFF — enough to
     /// dig through, small enough that the tvOS list stays scrollable.
     static let unfilteredPerAddonCap = 40
+
+    /// The user's stream filters as a value for SourceSelection.filter.
+    var streamFilterOptions: StreamFilterOptions {
+        StreamFilterOptions(
+            minResolution: streamMinResolution,
+            excludeAV1: streamExcludeAV1,
+            hdrOnly: streamHDROnly,
+            dolbyVisionOnly: streamDolbyVisionOnly,
+            cachedOnly: streamCachedOnly
+        )
+    }
 
     static let `default` = PlayerSettings()
 
@@ -200,6 +249,8 @@ struct PlayerSettings: Codable, Equatable {
         nextEpisodeThresholdMinutesBeforeEnd = (try? c.decode(Double.self, forKey: .nextEpisodeThresholdMinutesBeforeEnd)) ?? d.nextEpisodeThresholdMinutesBeforeEnd
         upNextLeadSeconds = (try? c.decode(Int.self, forKey: .upNextLeadSeconds)) ?? d.upNextLeadSeconds
         autoPlayTrailerSeconds = (try? c.decode(Int.self, forKey: .autoPlayTrailerSeconds)) ?? d.autoPlayTrailerSeconds
+        skipIntroEnabled = (try? c.decode(Bool.self, forKey: .skipIntroEnabled)) ?? d.skipIntroEnabled
+        autoSkipSegments = (try? c.decode(Bool.self, forKey: .autoSkipSegments)) ?? d.autoSkipSegments
         skipSeconds = (try? c.decode(Int.self, forKey: .skipSeconds)) ?? d.skipSeconds
         scrubJumpSeconds = (try? c.decode(Int.self, forKey: .scrubJumpSeconds)) ?? d.scrubJumpSeconds
         showInputDebug = (try? c.decode(Bool.self, forKey: .showInputDebug)) ?? d.showInputDebug
@@ -208,6 +259,13 @@ struct PlayerSettings: Codable, Equatable {
         subtitleBold = (try? c.decode(Bool.self, forKey: .subtitleBold)) ?? d.subtitleBold
         subtitlesOnByDefault = (try? c.decode(Bool.self, forKey: .subtitlesOnByDefault)) ?? d.subtitlesOnByDefault
         preferredSubtitleLanguage = (try? c.decode(String.self, forKey: .preferredSubtitleLanguage)) ?? d.preferredSubtitleLanguage
+        subtitleSecondaryLanguage = (try? c.decode(String.self, forKey: .subtitleSecondaryLanguage)) ?? d.subtitleSecondaryLanguage
+        subtitlePreferForced = (try? c.decode(Bool.self, forKey: .subtitlePreferForced)) ?? d.subtitlePreferForced
+        subtitleTextColorHex = (try? c.decode(String.self, forKey: .subtitleTextColorHex)) ?? d.subtitleTextColorHex
+        subtitleOutlineEnabled = (try? c.decode(Bool.self, forKey: .subtitleOutlineEnabled)) ?? d.subtitleOutlineEnabled
+        subtitleOutlineColorHex = (try? c.decode(String.self, forKey: .subtitleOutlineColorHex)) ?? d.subtitleOutlineColorHex
+        subtitleBackgroundOpacity = (try? c.decode(Int.self, forKey: .subtitleBackgroundOpacity)) ?? d.subtitleBackgroundOpacity
+        subtitleVerticalOffset = (try? c.decode(Int.self, forKey: .subtitleVerticalOffset)) ?? d.subtitleVerticalOffset
         preferredAudioLanguage = (try? c.decode(String.self, forKey: .preferredAudioLanguage)) ?? d.preferredAudioLanguage
         playerEngine = (try? c.decode(PlayerEngine.self, forKey: .playerEngine)) ?? d.playerEngine
         externalPlayerID = (try? c.decode(String.self, forKey: .externalPlayerID)) ?? d.externalPlayerID
@@ -220,6 +278,11 @@ struct PlayerSettings: Codable, Equatable {
         sourcesHighGBPerTier = (try? c.decode(Int.self, forKey: .sourcesHighGBPerTier)) ?? d.sourcesHighGBPerTier
         sourcesLowGBPerTier = (try? c.decode(Int.self, forKey: .sourcesLowGBPerTier)) ?? d.sourcesLowGBPerTier
         sourcesPerSizeTier = (try? c.decode(Int.self, forKey: .sourcesPerSizeTier)) ?? d.sourcesPerSizeTier
+        streamMinResolution = (try? c.decode(String.self, forKey: .streamMinResolution)) ?? d.streamMinResolution
+        streamExcludeAV1 = (try? c.decode(Bool.self, forKey: .streamExcludeAV1)) ?? d.streamExcludeAV1
+        streamHDROnly = (try? c.decode(Bool.self, forKey: .streamHDROnly)) ?? d.streamHDROnly
+        streamDolbyVisionOnly = (try? c.decode(Bool.self, forKey: .streamDolbyVisionOnly)) ?? d.streamDolbyVisionOnly
+        streamCachedOnly = (try? c.decode(Bool.self, forKey: .streamCachedOnly)) ?? d.streamCachedOnly
         matchContentDisplayMode = (try? c.decode(Bool.self, forKey: .matchContentDisplayMode)) ?? d.matchContentDisplayMode
         nativeDolbyVision = (try? c.decode(Bool.self, forKey: .nativeDolbyVision)) ?? d.nativeDolbyVision
     }

@@ -51,7 +51,40 @@ struct SourceSection: Identifiable {
 /// (AV1 punished — no hardware decode on the A10X), HDR/DV, audio, seeders,
 /// and a per-resolution size sweet spot. The addon's own ordering survives as
 /// the tiebreak (sorts are stable).
+/// User stream filters, applied to the raw pool BEFORE curation.
+struct StreamFilterOptions {
+    var minResolution: String = ""   // "2160p"/"1080p"/"720p"/"480p" or ""
+    var excludeAV1 = false
+    var hdrOnly = false
+    var dolbyVisionOnly = false
+    var cachedOnly = false
+
+    var isActive: Bool {
+        !minResolution.isEmpty || excludeAV1 || hdrOnly || dolbyVisionOnly || cachedOnly
+    }
+}
+
 enum SourceSelection {
+    /// Apply the user's stream filters. A link with an UNKNOWN resolution is
+    /// kept by the min-resolution filter (never hide a possibly-good link on
+    /// missing metadata); the codec/HDR/DV/cached filters are explicit opt-ins.
+    static func filter(_ entries: [StreamEntry], _ options: StreamFilterOptions) -> [StreamEntry] {
+        guard options.isActive else { return entries }
+        let minTier = options.minResolution.isEmpty ? nil
+            : ResolutionTier.from(resolutionLabel: options.minResolution)
+        return entries.filter { entry in
+            if let minTier, let label = entry.resolutionLabel {
+                // Lower rawValue = higher resolution.
+                if ResolutionTier.from(resolutionLabel: label).rawValue > minTier.rawValue { return false }
+            }
+            if options.excludeAV1, entry.stream.isAV1 { return false }
+            if options.dolbyVisionOnly, !entry.stream.isDolbyVision { return false }
+            if options.hdrOnly, !entry.stream.isHDR { return false }
+            if options.cachedOnly, !entry.isInstant { return false }
+            return true
+        }
+    }
+
     /// First-seen order of the addons that returned links.
     private static func addonOrder(_ entries: [StreamEntry]) -> [String] {
         var order: [String] = []

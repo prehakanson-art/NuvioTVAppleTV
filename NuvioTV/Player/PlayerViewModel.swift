@@ -932,6 +932,7 @@ final class PlayerViewModel: ObservableObject {
         subtitleAutoApplied = false
         chapters = []
         skipIntroActive = false
+        autoSkippedChapters = []
         if !hasStartedPlayback {
             loadPhase = .loading
             cacheProgress = 0
@@ -996,6 +997,7 @@ final class PlayerViewModel: ObservableObject {
         subtitleAutoApplied = false
         chapters = []
         skipIntroActive = false
+        autoSkippedChapters = []
         engineName = "VLC"
         if !hasStartedPlayback {
             loadPhase = .loading   // VLC never enters the .caching hold
@@ -1174,12 +1176,29 @@ final class PlayerViewModel: ObservableObject {
         guard settings.subtitlesOnByDefault, !subtitleAutoApplied else { return }
         let real = subtitleOptions.filter { $0.id != "sub-off" }
         guard !real.isEmpty else { return }
+
+        // Preferred language, then the secondary fallback, then (once no more
+        // waves are coming) the first available. Within a language, honor the
+        // "prefer forced" setting.
+        func pickInLanguage(_ code: String) -> TrackOption? {
+            let matches = real.filter { optionMatchesLanguage($0, code) }
+            guard !matches.isEmpty else { return nil }
+            if settings.subtitlePreferForced,
+               let forced = matches.first(where: { $0.displayName.localizedCaseInsensitiveContains("forced") }) {
+                return forced
+            }
+            return matches.first
+        }
+
         let want = settings.preferredSubtitleLanguage
+        let secondary = settings.subtitleSecondaryLanguage
         let chosen: TrackOption?
         if want.isEmpty {
             chosen = real.first
-        } else if let match = real.first(where: { optionMatchesLanguage($0, want) }) {
-            chosen = match
+        } else if let m = pickInLanguage(want) {
+            chosen = m
+        } else if !secondary.isEmpty, let m = pickInLanguage(secondary) {
+            chosen = m
         } else if allowFallback {
             chosen = real.first
         } else {
@@ -1860,12 +1879,27 @@ final class PlayerViewModel: ObservableObject {
         return chapters.map { $0.start / duration }.filter { $0 > 0.01 && $0 < 0.99 }
     }
 
+    /// Intro/recap chapters already auto-skipped this session, so we jump each
+    /// one at most once (the viewer can seek back into it without re-skipping).
+    private var autoSkippedChapters: Set<Double> = []
+
     private func updateSkipIntro() {
         guard let intro = introChapter else {
             if skipIntroActive { skipIntroActive = false }
             return
         }
-        let active = position >= intro.start && position < intro.end - 2
+        let inside = position >= intro.start && position < intro.end - 2
+        // Auto-skip: jump straight past the intro/recap the first time we land
+        // in it (no button press needed).
+        if inside, settings.autoSkipSegments, !autoSkippedChapters.contains(intro.start) {
+            autoSkippedChapters.insert(intro.start)
+            skipIntroActive = false
+            seek(to: intro.end)
+            showToast("Skipped intro")
+            return
+        }
+        // Otherwise show the pill (if enabled) while inside the chapter.
+        let active = inside && settings.skipIntroEnabled
         if active != skipIntroActive { skipIntroActive = active }
     }
 
@@ -1953,16 +1987,20 @@ final class PlayerViewModel: ObservableObject {
                 await StreamsViewModel.sourceCache.store(snapshot, for: id)
             }
         }
+        // User stream filters (min resolution, exclude AV1, HDR/DV/cached) run
+        // first, then curation. Never let filters empty the list — if they
+        // remove everything, fall back to the unfiltered set so playback still
+        // has sources.
+        let filtered = SourceSelection.filter(entries, settings.streamFilterOptions)
+        let base = filtered.isEmpty ? entries : filtered
         // Curate into size tiers with cached links first (same rule as the
-        // Sources page) so the panel is a short, useful list instead of every
-        // link an addon returned. Filters off → raw addon order (cached still
-        // first), capped per addon.
+        // Sources page). Filters off → raw addon order (cached still first).
         guard settings.sourceFiltersEnabled else {
             return SourceSelection.selectUnfiltered(
-                entries, cap: PlayerSettings.unfilteredPerAddonCap
+                base, cap: PlayerSettings.unfilteredPerAddonCap
             )
         }
-        return SourceSelection.select(entries, perTier: settings.sourcesPerSizeTier)
+        return SourceSelection.select(base, perTier: settings.sourcesPerSizeTier)
     }
 
     /// Playback started from Continue Watching carries `allEntries: []` (only

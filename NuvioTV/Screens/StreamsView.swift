@@ -162,11 +162,15 @@ final class StreamsViewModel: ObservableObject {
         if let selected = selectedAddon, !addonNames.contains(selected) {
             selectedAddon = nil
         }
-        let scoped = selectedAddon.map { name in pool.filter { $0.addonName == name } } ?? pool
+        let scoped0 = selectedAddon.map { name in pool.filter { $0.addonName == name } } ?? pool
+        let scoped = SourceSelection.filter(scoped0, streamFilters)
         groups = filtersEnabled
             ? SourceSelection.byAddon(scoped, perTier: perTier)
             : SourceSelection.byAddonUnfiltered(scoped, cap: PlayerSettings.unfilteredPerAddonCap)
     }
+
+    /// User stream filters (min resolution, exclude AV1, HDR/DV/cached only).
+    var streamFilters = StreamFilterOptions()
 }
 
 struct StreamsView: View {
@@ -229,6 +233,7 @@ struct StreamsView: View {
             }
         }
         .task {
+            viewModel.streamFilters = playerSettings.settings.streamFilterOptions
             await viewModel.load(
                 addonManager: addonManager,
                 debridEnabled: debrid.hasAnyConfigured,

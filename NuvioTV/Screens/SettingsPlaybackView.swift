@@ -40,6 +40,20 @@ struct PlaybackSettingsDetail: View {
                 ) { store.settings.scrubJumpSeconds = Int($0) ?? 60 }
 
                 PlaybackToggleRow(
+                    icon: "forward.frame.fill",
+                    title: "Skip Intro button",
+                    subtitle: "Show a Skip Intro pill while inside an intro/recap chapter (⏯ skips it)",
+                    isOn: s.skipIntroEnabled
+                )
+
+                PlaybackToggleRow(
+                    icon: "forward.fill",
+                    title: "Auto-skip intros",
+                    subtitle: "Jump past intro and recap chapters automatically, no button press. Needs chapter markers in the file.",
+                    isOn: s.autoSkipSegments
+                )
+
+                PlaybackToggleRow(
                     icon: "ladybug.fill",
                     title: "Show input debug",
                     subtitle: "Overlay the last trackpad/remote event in the player (for tuning gestures on a real Apple TV)",
@@ -66,6 +80,43 @@ struct PlaybackSettingsDetail: View {
                         }
                     ) { store.settings.sourcesPerSizeTier = Int($0) ?? 6 }
                 }
+
+                NuvioDropdown(
+                    title: "Minimum resolution",
+                    subtitle: "Hide links below this quality (links with no resolution tag are kept)",
+                    icon: "arrow.up.right.video.fill",
+                    selection: store.settings.streamMinResolution,
+                    options: [NuvioDropdownOption("", "No minimum")]
+                        + ["2160p", "1080p", "720p", "480p"].map { NuvioDropdownOption($0, $0) }
+                ) { store.settings.streamMinResolution = $0 }
+
+                PlaybackToggleRow(
+                    icon: "cpu.fill",
+                    title: "Hide AV1 links",
+                    subtitle: "AV1 has no hardware decode on the Apple TV — those links stutter",
+                    isOn: s.streamExcludeAV1
+                )
+
+                PlaybackToggleRow(
+                    icon: "sparkles",
+                    title: "HDR only",
+                    subtitle: "Only show HDR10 / HLG / Dolby Vision links",
+                    isOn: s.streamHDROnly
+                )
+
+                PlaybackToggleRow(
+                    icon: "sparkles.tv.fill",
+                    title: "Dolby Vision only",
+                    subtitle: "Only show Dolby Vision links",
+                    isOn: s.streamDolbyVisionOnly
+                )
+
+                PlaybackToggleRow(
+                    icon: "bolt.fill",
+                    title: "Cached only",
+                    subtitle: "Only show debrid-cached links (instant play, no download wait)",
+                    isOn: s.streamCachedOnly
+                )
             }
 
             SettingsGroupCard(title: "Badges", subtitle: "Badge packs from Badger (nintle.github.io/Badger) shown on source rows") {
@@ -147,6 +198,21 @@ struct PlaybackSettingsDetail: View {
                         selection: store.settings.preferredSubtitleLanguage,
                         options: PlayerSettings.subtitleLanguageOptions.map { NuvioDropdownOption($0.0, $0.1) }
                     ) { store.settings.preferredSubtitleLanguage = $0 }
+
+                    NuvioDropdown(
+                        title: "Secondary language",
+                        subtitle: "Used when the preferred language isn't available",
+                        icon: "globe.badge.chevron.backward",
+                        selection: store.settings.subtitleSecondaryLanguage,
+                        options: PlayerSettings.subtitleLanguageOptions.map { NuvioDropdownOption($0.0, $0.1) }
+                    ) { store.settings.subtitleSecondaryLanguage = $0 }
+
+                    PlaybackToggleRow(
+                        icon: "exclamationmark.bubble.fill",
+                        title: "Prefer forced subtitles",
+                        subtitle: "When a forced track (foreign dialogue only) exists in your language, choose it",
+                        isOn: s.subtitlePreferForced
+                    )
                 }
 
                 NuvioDropdown(
@@ -158,12 +224,12 @@ struct PlaybackSettingsDetail: View {
                     }
                 ) { store.settings.subtitleSize = Int($0) ?? 36 }
 
-                PlaybackToggleRow(
-                    icon: "rectangle.fill.on.rectangle.fill",
-                    title: "Background plate",
-                    subtitle: "Dark panel behind captions for readability on bright scenes",
-                    isOn: s.subtitleBackground
-                )
+                NuvioDropdown(
+                    title: "Text color",
+                    icon: "paintpalette.fill",
+                    selection: store.settings.subtitleTextColorHex,
+                    options: PlayerSettings.subtitleColorOptions.map { NuvioDropdownOption($0.0, $0.1) }
+                ) { store.settings.subtitleTextColorHex = $0 }
 
                 PlaybackToggleRow(
                     icon: "bold",
@@ -171,6 +237,50 @@ struct PlaybackSettingsDetail: View {
                     subtitle: "Heavier caption weight",
                     isOn: s.subtitleBold
                 )
+
+                PlaybackToggleRow(
+                    icon: "a.square.fill",
+                    title: "Outline",
+                    subtitle: "Draw an outline around the text so it's readable on any background",
+                    isOn: s.subtitleOutlineEnabled
+                )
+
+                if store.settings.subtitleOutlineEnabled {
+                    NuvioDropdown(
+                        title: "Outline color",
+                        icon: "scribble",
+                        selection: store.settings.subtitleOutlineColorHex,
+                        options: PlayerSettings.subtitleColorOptions.map { NuvioDropdownOption($0.0, $0.1) }
+                    ) { store.settings.subtitleOutlineColorHex = $0 }
+                }
+
+                PlaybackToggleRow(
+                    icon: "rectangle.fill.on.rectangle.fill",
+                    title: "Background plate",
+                    subtitle: "Panel behind captions for readability on bright scenes",
+                    isOn: s.subtitleBackground
+                )
+
+                if store.settings.subtitleBackground {
+                    NuvioDropdown(
+                        title: "Background opacity",
+                        icon: "circle.lefthalf.filled",
+                        selection: String(store.settings.subtitleBackgroundOpacity),
+                        options: PlayerSettings.subtitleBackgroundOpacityValues.map {
+                            NuvioDropdownOption(String($0), "\($0)%")
+                        }
+                    ) { store.settings.subtitleBackgroundOpacity = Int($0) ?? 45 }
+                }
+
+                NuvioDropdown(
+                    title: "Vertical position",
+                    subtitle: "Raise or lower the captions",
+                    icon: "arrow.up.and.down.text.horizontal",
+                    selection: String(store.settings.subtitleVerticalOffset),
+                    options: PlayerSettings.subtitleOffsetValues.map {
+                        NuvioDropdownOption(String($0), $0 == 0 ? "Default" : ($0 > 0 ? "Higher +\($0)" : "Lower \($0)"))
+                    }
+                ) { store.settings.subtitleVerticalOffset = Int($0) ?? 0 }
             }
 
             SettingsGroupCard(title: "Trailers", subtitle: "Preview a title's trailer while browsing") {

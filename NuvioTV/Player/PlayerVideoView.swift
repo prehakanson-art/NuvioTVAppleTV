@@ -66,31 +66,55 @@ struct SubtitleOverlayView: View {
                             .padding(.bottom, 60)
                     }
                 } else if let text = part.text {
-                    // Broadcast-caption look: modest size (the font itself is
-                    // stamped by SubtitleModel.textFont — configured to 36pt),
-                    // tight dark plate, double shadow for readability on
-                    // bright scenes, safe-area bottom margin.
+                    // Broadcast-caption look, styled from Playback settings:
+                    // text color, optional true outline, background plate with
+                    // adjustable opacity, and a vertical offset.
                     VStack {
                         Spacer()
-                        Text(AttributedString(text))
-                            .font(.system(size: CGFloat(settings.subtitleSize), weight: settings.subtitleBold ? .bold : .medium))
-                            .foregroundStyle(.white)
-                            .multilineTextAlignment(.center)
-                            .lineSpacing(4)
-                            .shadow(color: .black.opacity(0.95), radius: 2, y: 1)
-                            .shadow(color: .black.opacity(0.6), radius: 8)
+                        styledCaption(text)
                             .padding(.horizontal, 22)
                             .padding(.vertical, 9)
                             .background(
-                                .black.opacity(settings.subtitleBackground ? 0.42 : 0),
+                                Color.black.opacity(settings.subtitleBackground
+                                    ? Double(settings.subtitleBackgroundOpacity) / 100 : 0),
                                 in: RoundedRectangle(cornerRadius: 10, style: .continuous)
                             )
-                            .padding(.bottom, 84)
+                            .padding(.bottom, CGFloat(84 + settings.subtitleVerticalOffset))
                             .frame(maxWidth: 1200)
                     }
                 }
             }
         }
         .allowsHitTesting(false)
+    }
+
+    private var textColor: Color { Color(badgeHex: settings.subtitleTextColorHex) ?? .white }
+    private var outlineColor: Color { Color(badgeHex: settings.subtitleOutlineColorHex) ?? .black }
+
+    /// One caption line with the configured color and (optionally) a real
+    /// outline — SwiftUI has no text stroke, so the outline is the same text
+    /// rendered in 8 directions behind the fill. Falls back to a soft double
+    /// shadow when the outline is off.
+    @ViewBuilder
+    private func styledCaption(_ text: NSAttributedString) -> some View {
+        let base = Text(AttributedString(text))
+            .font(.system(size: CGFloat(settings.subtitleSize), weight: settings.subtitleBold ? .bold : .medium))
+            .multilineTextAlignment(.center)
+            .lineSpacing(4)
+        if settings.subtitleOutlineEnabled {
+            ZStack {
+                let w: CGFloat = 2
+                ForEach(0 ..< 8, id: \.self) { i in
+                    let a = Double(i) / 8 * 2 * .pi
+                    base.foregroundStyle(outlineColor)
+                        .offset(x: cos(a) * w, y: sin(a) * w)
+                }
+                base.foregroundStyle(textColor)
+            }
+        } else {
+            base.foregroundStyle(textColor)
+                .shadow(color: .black.opacity(0.95), radius: 2, y: 1)
+                .shadow(color: .black.opacity(0.6), radius: 8)
+        }
     }
 }

@@ -8,9 +8,10 @@ struct IntegrationsDetail: View {
     @EnvironmentObject private var tmdb: TMDBSettingsStore
     @EnvironmentObject private var mdblist: MDBListSettingsStore
     @EnvironmentObject private var debrid: DebridStore
+    @EnvironmentObject private var torrent: TorrentSettingsStore
     @State private var sheet: IntegrationSheet?
 
-    enum IntegrationSheet: String, Identifiable { case tmdb, mdblist, debrid; var id: String { rawValue } }
+    enum IntegrationSheet: String, Identifiable { case tmdb, mdblist, debrid, p2p; var id: String { rawValue } }
 
     var body: some View {
         // APK layout: a single list of drill-in rows, each opening a sub-screen.
@@ -20,6 +21,7 @@ struct IntegrationsDetail: View {
                 integrationRow(title: "TMDB", subtitle: "Metadata enrichment controls") { sheet = .tmdb }
                 integrationRow(title: "MDBList", subtitle: "External ratings providers") { sheet = .mdblist }
                 integrationRow(title: "Debrid", subtitle: "Cached torrent sources as direct streams") { sheet = .debrid }
+                integrationRow(title: "P2P (TorrServer)", subtitle: "Stream torrents peer-to-peer via a TorrServer") { sheet = .p2p }
             }
         }
         .fullScreenCover(item: $sheet) { s in
@@ -31,6 +33,7 @@ struct IntegrationsDetail: View {
             .environmentObject(tmdb)
             .environmentObject(mdblist)
             .environmentObject(debrid)
+            .environmentObject(torrent)
             .onExitCommand { sheet = nil }
         }
     }
@@ -56,6 +59,10 @@ struct IntegrationsDetail: View {
         case .debrid:
             DetailScaffold(title: "Debrid", subtitle: "Cached torrent sources as direct, high-speed streams") {
                 SettingsGroupCard(title: "") { debridSection }
+            }
+        case .p2p:
+            DetailScaffold(title: "P2P (TorrServer)", subtitle: "Stream torrents peer-to-peer via a TorrServer instance") {
+                SettingsGroupCard(title: "") { P2PSection() }
             }
         }
     }
@@ -503,5 +510,74 @@ extension View {
     /// Shared, focus-aware card background for integration rows.
     func integrationRowBackground(_ theme: ThemeManager) -> some View {
         modifier(IntegrationRowBackground())
+    }
+}
+
+/// P2P via a TorrServer instance. tvOS can't run a torrent engine on-device
+/// (no subprocess / no BitTorrent library), so peering is offloaded to a
+/// TorrServer the user runs on their network.
+private struct P2PSection: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var torrent: TorrentSettingsStore
+    @State private var testing = false
+    @State private var testResult: String?
+
+    private var s: Binding<TorrentSettings> {
+        Binding(get: { torrent.settings }, set: { torrent.settings = $0 })
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
+            SettingsToggleCard(
+                title: "Enable P2P",
+                subtitle: "Play torrent sources peer-to-peer through TorrServer when no debrid provider is set",
+                isOn: s.p2pEnabled
+            )
+
+            if torrent.settings.p2pEnabled {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("TorrServer URL")
+                        .font(.system(size: 22, weight: .semibold))
+                        .foregroundStyle(theme.palette.textPrimary)
+                    TextField("http://192.168.1.10:8090", text: s.serverURL)
+                        .font(.system(size: 22))
+                    Text("Run TorrServer (github.com/YouROK/TorrServer) on a computer, NAS, or Raspberry Pi on your network, then enter its address here.")
+                        .font(.system(size: 17))
+                        .foregroundStyle(theme.palette.textTertiary)
+                }
+                .padding(.vertical, 4)
+
+                HStack(spacing: NuvioSpacing.md) {
+                    Button {
+                        guard !testing, !torrent.settings.serverURL.isEmpty else { return }
+                        testing = true; testResult = nil
+                        Task {
+                            let ok = await TorrServerService.ping(torrent.settings)
+                            testResult = ok ? "Connected ✓" : "Couldn't reach TorrServer"
+                            testing = false
+                        }
+                    } label: {
+                        if testing { ProgressView() } else { SeeAllLabel(text: "Test connection") }
+                    }
+                    .buttonStyle(PlainCardButtonStyle())
+                    if let testResult {
+                        Text(testResult)
+                            .font(.system(size: 19))
+                            .foregroundStyle(testResult.contains("✓") ? NuvioPrimitives.success : NuvioPrimitives.error)
+                    }
+                }
+
+                SettingsToggleCard(
+                    title: "Hide torrent stats",
+                    subtitle: "Don't show peer / seed counts while streaming",
+                    isOn: s.hideTorrentStats
+                )
+            }
+
+            Text("Apple TV can't run a torrent engine itself, so P2P streams through your TorrServer. Debrid (if configured) is still used first; P2P is the fallback for uncached torrents.")
+                .font(.system(size: 17))
+                .foregroundStyle(theme.palette.textTertiary)
+                .padding(.top, 2)
+        }
     }
 }

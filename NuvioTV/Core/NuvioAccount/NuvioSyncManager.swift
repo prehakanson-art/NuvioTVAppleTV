@@ -31,6 +31,7 @@ final class NuvioSyncManager: ObservableObject {
     private let themeManager: ThemeManager?
     private let debridStore: DebridStore?
     private let pluginStore: PluginStore?
+    private let torrentSettings: TorrentSettingsStore?
     /// Reads the "Enrich Continue Watching" TMDB setting (the store lives
     /// outside this manager). nil → enrich (default).
     var enrichContinueWatchingEnabled: (() -> Bool)?
@@ -115,7 +116,8 @@ final class NuvioSyncManager: ObservableObject {
         tmdbSettings: TMDBSettingsStore? = nil,
         themeManager: ThemeManager? = nil,
         debridStore: DebridStore? = nil,
-        pluginStore: PluginStore? = nil
+        pluginStore: PluginStore? = nil,
+        torrentSettings: TorrentSettingsStore? = nil
     ) {
         self.account = account
         self.addonManager = addonManager
@@ -131,6 +133,7 @@ final class NuvioSyncManager: ObservableObject {
         self.themeManager = themeManager
         self.debridStore = debridStore
         self.pluginStore = pluginStore
+        self.torrentSettings = torrentSettings
 
         // Sync whenever we transition into a signed-in state.
         account.$authState
@@ -162,6 +165,7 @@ final class NuvioSyncManager: ObservableObject {
         themeManager?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
         debridStore?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
         pluginStore?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
+        torrentSettings?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
         homeCatalogSettings.onPresentationChange = { [weak self] in self?.scheduleAppPreferencesPush() }
 
         // Authed operations the profile UI needs (require the access token).
@@ -931,6 +935,8 @@ final class NuvioSyncManager: ObservableObject {
         var debrid: DebridStore.DebridSnapshot?
         /// Installed plugin repository URLs. Optional for backward-compat.
         var plugins: PluginStore.PluginSyncSnapshot?
+        /// P2P / TorrServer settings. Optional for backward-compat.
+        var torrent: TorrentSettings?
     }
 
     private func scheduleAppPreferencesPush() {
@@ -967,6 +973,7 @@ final class NuvioSyncManager: ObservableObject {
         if let plugins = snapshot.plugins, let pluginStore {
             Task { await pluginStore.applyRemote(plugins) }
         }
+        if let torrent = snapshot.torrent { torrentSettings?.applyRemote(torrent) }
     }
 
     /// READ-MERGE-WRITE: fetch the blob, replace only our own feature key, push
@@ -980,7 +987,8 @@ final class NuvioSyncManager: ObservableObject {
             theme: themeManager.snapshot,
             home: homeCatalogSettings.presentationSnapshot,
             debrid: debridStore?.snapshot,
-            plugins: pluginStore?.snapshot
+            plugins: pluginStore?.snapshot,
+            torrent: torrentSettings?.settings
         )
         guard let data = try? JSONEncoder().encode(snapshot),
               let json = String(data: data, encoding: .utf8) else { return }

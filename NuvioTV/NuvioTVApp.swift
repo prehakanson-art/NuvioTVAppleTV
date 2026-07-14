@@ -18,6 +18,7 @@ struct NuvioTVApp: App {
     @StateObject private var playerSettings = PlayerSettingsStore()
     @StateObject private var streamBadges = StreamBadgeStore()
     @StateObject private var plugins = PluginStore()
+    @StateObject private var torrent = TorrentSettingsStore()
 
     var body: some Scene {
         WindowGroup {
@@ -39,6 +40,7 @@ struct NuvioTVApp: App {
                 .environmentObject(playerSettings)
                 .environmentObject(streamBadges)
                 .environmentObject(plugins)
+                .environmentObject(torrent)
                 .preferredColorScheme(.dark)
         }
     }
@@ -73,6 +75,7 @@ struct RootView: View {
     @EnvironmentObject private var tmdbSettings: TMDBSettingsStore
     @EnvironmentObject private var debrid: DebridStore
     @EnvironmentObject private var plugins: PluginStore
+    @EnvironmentObject private var torrent: TorrentSettingsStore
 
     // One navigation stack per tab (tvOS expects TabView at the top level with
     // an independent NavigationStack inside each tab; a shared stack under one
@@ -126,7 +129,8 @@ struct RootView: View {
                         tmdbSettings: tmdbSettings,
                         themeManager: theme,
                         debridStore: debrid,
-                        pluginStore: plugins
+                        pluginStore: plugins,
+                        torrentSettings: torrent
                     )
                     sync?.enrichContinueWatchingEnabled = { [tmdbSettings] in
                         tmdbSettings.settings.enrichContinueWatching

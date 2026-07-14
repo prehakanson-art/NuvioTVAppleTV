@@ -232,6 +232,7 @@ struct StreamsView: View {
     @EnvironmentObject private var playerSettings: PlayerSettingsStore
     @EnvironmentObject private var streamBadges: StreamBadgeStore
     @EnvironmentObject private var plugins: PluginStore
+    @EnvironmentObject private var torrent: TorrentSettingsStore
     @StateObject private var viewModel: StreamsViewModel
 
     @State private var resolving = false
@@ -284,7 +285,7 @@ struct StreamsView: View {
             if resolving {
                 ZStack {
                     Color.black.opacity(0.6).ignoresSafeArea()
-                    NuvioLoadingView(label: "Resolving via \(debrid.resolverProvider?.displayName ?? "debrid")")
+                    NuvioLoadingView(label: "Resolving via \(debrid.resolverProvider?.displayName ?? (torrent.settings.isConfigured ? "TorrServer" : "debrid"))")
                 }
             }
         }
@@ -298,7 +299,7 @@ struct StreamsView: View {
             let loadTask = Task {
                 await viewModel.load(
                     addonManager: addonManager,
-                    debridEnabled: debrid.hasAnyConfigured,
+                    debridEnabled: debrid.hasAnyConfigured || torrent.settings.isConfigured,
                     perTier: s.sourcesPerSizeTier,
                     filtersEnabled: s.sourceFiltersEnabled
                 )
@@ -362,7 +363,7 @@ struct StreamsView: View {
                         Task {
                             await viewModel.reload(
                                 addonManager: addonManager,
-                                debridEnabled: debrid.hasAnyConfigured,
+                                debridEnabled: debrid.hasAnyConfigured || torrent.settings.isConfigured,
                                 perTier: playerSettings.settings.sourcesPerSizeTier,
                                 filtersEnabled: playerSettings.settings.sourceFiltersEnabled
                             )
@@ -418,7 +419,12 @@ struct StreamsView: View {
             return
         }
         guard let provider = debrid.resolverProvider else {
-            resolveError = "Add a debrid API key in Settings → Integrations to play torrent sources."
+            // No debrid: fall back to P2P (TorrServer) if the user enabled it.
+            if torrent.settings.isConfigured {
+                resolveViaP2P(entry, all)
+            } else {
+                resolveError = "Add a debrid API key, or turn on P2P (TorrServer) in Settings → Integrations, to play torrent sources."
+            }
             return
         }
         resolving = true
@@ -450,6 +456,40 @@ struct StreamsView: View {
                 resolveError = "This torrent isn't cached on \(provider.displayName). Try another source."
             case .failed(let message):
                 resolveError = "\(provider.displayName): \(message)"
+            }
+        }
+    }
+
+    /// Play a torrent via the user's TorrServer instance (P2P) — no debrid.
+    private func resolveViaP2P(_ entry: StreamEntry, _ all: [StreamEntry]) {
+        guard let magnet = entry.stream.magnetURI
+            ?? entry.stream.infoHash.map({ "magnet:?xt=urn:btih:\($0)" }) else {
+            resolveError = "This source has no magnet link to hand to TorrServer."
+            return
+        }
+        resolving = true
+        Task {
+            let result = await TorrServerService.resolve(
+                magnet: magnet, settings: torrent.settings,
+                season: viewModel.video?.season, episode: viewModel.video?.episode
+            )
+            resolving = false
+            switch result {
+            case .success(let url, let filename):
+                let resolved = Stream(
+                    name: entry.stream.name,
+                    title: filename ?? entry.stream.title,
+                    description: entry.stream.description,
+                    url: url, infoHash: nil,
+                    behaviorHints: entry.stream.behaviorHints
+                )
+                let resolvedEntry = StreamEntry(addonName: "P2P · \(entry.addonName)", stream: resolved)
+                viewModel.recordLastLink(resolvedEntry)
+                onSelect(resolvedEntry, all)
+            case .notConfigured:
+                resolveError = "Turn on P2P and set a TorrServer URL in Settings → Integrations."
+            case .failed(let message):
+                resolveError = message
             }
         }
     }

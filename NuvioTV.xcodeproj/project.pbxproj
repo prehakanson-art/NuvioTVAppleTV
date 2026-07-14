@@ -26,6 +26,7 @@
 		2B0385C407CF63C38D4453C5 /* PluginStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9033005E03573788ECC97D1 /* PluginStore.swift */; };
 		2DCA83982721109BBFD27A97 /* StreamBadges.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5780AD496BA8A2CFBBCD07CB /* StreamBadges.swift */; };
 		2F285C593B479C27A9A8069E /* RemoteInput.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33E98DE3FF2BD0DC102D80F4 /* RemoteInput.swift */; };
+		3168B6CE490B234598A37408 /* TorrentSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39771A168193BE313C08DB26 /* TorrentSettingsStore.swift */; };
 		3980DE34DE34E597267BC6A3 /* PlayerSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C26E3B4C279900B78470C667 /* PlayerSettingsStore.swift */; };
 		3DC8FC0723F87B82CBF59ECA /* ExternalPlayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D137BCE0827FF5B9EBCA42 /* ExternalPlayers.swift */; };
 		3E75BF4F2B2008787D63DDDD /* TMDBBrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E565452F2EEBB3B76844EE38 /* TMDBBrowseView.swift */; };
@@ -63,6 +64,7 @@
 		AE0CFA7CB5922AEB4625975A /* CollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE1265EE9F6B43BD02CCC9F /* CollectionView.swift */; };
 		BAFA27E5E9E52210E0D89DA5 /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4581D56301494EB1525328EA /* AccountView.swift */; };
 		BF6961891F5345E7DBE28277 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BAA0E54FBA5A8CFE9473FA /* Components.swift */; };
+		C1E4CF340CEB3DCC7282754C /* TorrServerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B849FFDB58E807B07C473367 /* TorrServerService.swift */; };
 		C4A89B31BA169E57A828C8A5 /* PlayerControlsOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 57C4A723527A06C009FCB68A /* PlayerControlsOverlay.swift */; };
 		C7A329FA86460E8FE3DFCA59 /* DVRemuxer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D4225F2EA78DACA1350421 /* DVRemuxer.swift */; };
 		CB4FE6DE4F4A2038847E8042 /* KSPlayer in Frameworks */ = {isa = PBXBuildFile; productRef = 6F247E3DA7201162C0D31072 /* KSPlayer */; };
@@ -98,6 +100,7 @@
 		30F27F22F4533CD299587859 /* PluginRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PluginRuntime.swift; sourceTree = "<group>"; };
 		33630A3CF4A4B769A36A3404 /* AnimeSkipService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimeSkipService.swift; sourceTree = "<group>"; };
 		33E98DE3FF2BD0DC102D80F4 /* RemoteInput.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemoteInput.swift; sourceTree = "<group>"; };
+		39771A168193BE313C08DB26 /* TorrentSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrentSettingsStore.swift; sourceTree = "<group>"; };
 		3A1B94052D73FAE9626AEBA3 /* DebridService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebridService.swift; sourceTree = "<group>"; };
 		3A901073E967FB097E347259 /* CollectionsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionsStore.swift; sourceTree = "<group>"; };
 		3DA2F1D1196039A07AE5F6E0 /* NuvioAuthModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NuvioAuthModels.swift; sourceTree = "<group>"; };
@@ -129,6 +132,7 @@
 		AD681267F7BC35D3CC1F797C /* RequestCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestCache.swift; sourceTree = "<group>"; };
 		ADBB2C0716736EF000BE1068 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		B526B12FF40C35C8286806C2 /* WatchedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchedStore.swift; sourceTree = "<group>"; };
+		B849FFDB58E807B07C473367 /* TorrServerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrServerService.swift; sourceTree = "<group>"; };
 		B927939FBF8E9EC49EC75E7F /* NuvioTVApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NuvioTVApp.swift; sourceTree = "<group>"; };
 		BBDCBEA43CE00C6DD740B204 /* ProgressStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressStore.swift; sourceTree = "<group>"; };
 		C26E3B4C279900B78470C667 /* PlayerSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerSettingsStore.swift; sourceTree = "<group>"; };
@@ -258,6 +262,8 @@
 				5780AD496BA8A2CFBBCD07CB /* StreamBadges.swift */,
 				8E7D954FA6B8F52309A05490 /* StremioAPI.swift */,
 				E3BA0288809B5DD6BEFC91DE /* TMDBService.swift */,
+				39771A168193BE313C08DB26 /* TorrentSettingsStore.swift */,
+				B849FFDB58E807B07C473367 /* TorrServerService.swift */,
 				A4EA353DABA76B77A9FCA728 /* TraktService.swift */,
 				B526B12FF40C35C8286806C2 /* WatchedStore.swift */,
 				502AC6FA40CD9F47BE851581 /* NuvioAccount */,
@@ -479,6 +485,8 @@
 				8BEFD722640C2C3DCF9F0E71 /* StremioAPI.swift in Sources */,
 				3E75BF4F2B2008787D63DDDD /* TMDBBrowseView.swift in Sources */,
 				93E54350111ACD546EF3AA86 /* TMDBService.swift in Sources */,
+				C1E4CF340CEB3DCC7282754C /* TorrServerService.swift in Sources */,
+				3168B6CE490B234598A37408 /* TorrentSettingsStore.swift in Sources */,
 				7E27EFF436F5ABF148CCB301 /* TrailerPlayer.swift in Sources */,
 				93AB0F8D7406FDE418FD0158 /* TraktService.swift in Sources */,
 				23316C23B3E4386774491DB7 /* VLCEngine.swift in Sources */,

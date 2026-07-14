@@ -233,6 +233,7 @@ struct StreamsView: View {
     @EnvironmentObject private var streamBadges: StreamBadgeStore
     @EnvironmentObject private var plugins: PluginStore
     @EnvironmentObject private var torrent: TorrentSettingsStore
+    @EnvironmentObject private var downloads: DownloadManager
     @StateObject private var viewModel: StreamsViewModel
 
     @State private var resolving = false
@@ -584,9 +585,15 @@ struct StreamsView: View {
         }
         .buttonStyle(PlainCardButtonStyle())
         .focused($focusedEntry, equals: entry.id)
-        // Hold Select → hand a direct stream off to Infuse (only shown when
-        // Infuse is installed).
+        // Hold Select → context actions.
         .contextMenu {
+            // Download for offline. Direct links download straight away;
+            // torrents resolve via debrid/P2P first, then download the result.
+            Button {
+                downloadSelection(entry)
+            } label: {
+                Label("Download", systemImage: "arrow.down.circle")
+            }
             if entry.stream.isPlayable, let streamURL = entry.stream.url,
                ExternalPlayers.isInfuseInstalled {
                 Button {
@@ -595,6 +602,55 @@ struct StreamsView: View {
                     Label("Play in Infuse", systemImage: "arrow.up.forward.app.fill")
                 }
             }
+        }
+    }
+
+    /// Save a source to disk for offline viewing. Direct links start now;
+    /// torrents are resolved (debrid preferred, then P2P) into a direct URL
+    /// first — the same resolution used for playback.
+    private func downloadSelection(_ entry: StreamEntry) {
+        if entry.stream.isPlayable {
+            downloads.start(meta: viewModel.meta, video: viewModel.video, stream: entry.stream, addonName: entry.addonName)
+            return
+        }
+        // Torrent → resolve, then download the resolved direct stream.
+        if let provider = debrid.resolverProvider {
+            resolving = true
+            Task {
+                let result = await DebridService.resolve(
+                    stream: entry.stream, provider: provider, apiKey: debrid.key(for: provider),
+                    season: viewModel.video?.season, episode: viewModel.video?.episode
+                )
+                resolving = false
+                if case .success(let url, let filename) = result {
+                    let resolved = Stream(name: entry.stream.name, title: filename ?? entry.stream.title,
+                                          description: entry.stream.description, url: url, infoHash: nil,
+                                          behaviorHints: entry.stream.behaviorHints)
+                    downloads.start(meta: viewModel.meta, video: viewModel.video, stream: resolved, addonName: entry.addonName)
+                } else {
+                    resolveError = "Couldn't resolve this source to download it."
+                }
+            }
+        } else if torrent.settings.isConfigured,
+                  let magnet = entry.stream.magnetURI ?? entry.stream.infoHash.map({ "magnet:?xt=urn:btih:\($0)" }) {
+            resolving = true
+            Task {
+                let result = await TorrServerService.resolve(
+                    magnet: magnet, settings: torrent.settings,
+                    season: viewModel.video?.season, episode: viewModel.video?.episode
+                )
+                resolving = false
+                if case .success(let url, let filename) = result {
+                    let resolved = Stream(name: entry.stream.name, title: filename ?? entry.stream.title,
+                                          description: entry.stream.description, url: url, infoHash: nil,
+                                          behaviorHints: entry.stream.behaviorHints)
+                    downloads.start(meta: viewModel.meta, video: viewModel.video, stream: resolved, addonName: entry.addonName)
+                } else {
+                    resolveError = "Couldn't resolve this source to download it."
+                }
+            }
+        } else {
+            resolveError = "Add a debrid key or enable P2P to download torrent sources."
         }
     }
 }

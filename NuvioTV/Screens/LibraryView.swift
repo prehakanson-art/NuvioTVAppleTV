@@ -1,16 +1,19 @@
 import SwiftUI
 
-private enum LibraryTab: String, CaseIterable { case saved = "Saved", cloud = "Cloud" }
+private enum LibraryTab: String, CaseIterable { case saved = "Saved", downloads = "Downloads", cloud = "Cloud" }
 
 struct LibraryView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var posterLayout: HomeCatalogSettingsStore
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var progressStore: ProgressStore
+    @EnvironmentObject private var downloads: DownloadManager
 
     let onSelect: (MetaItem) -> Void
     /// Opens the full Cloud Library screen (debrid cloud files).
     var onOpenCloud: () -> Void = {}
+    /// Opens the full Downloads screen (offline saved titles).
+    var onOpenDownloads: () -> Void = {}
 
     @State private var tab: LibraryTab = .saved
     @State private var typeFilter = "All"          // All / Movies / Series
@@ -61,6 +64,17 @@ struct LibraryView: View {
                                             message: "Browse and play the files already in your Real-Debrid / Premiumize / TorBox / AllDebrid cloud.")
                             Button(action: onOpenCloud) {
                                 SeeAllLabel(text: "Open Cloud Library")
+                            }
+                            .buttonStyle(PlainCardButtonStyle())
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 460)
+                    } else if tab == .downloads {
+                        VStack(spacing: NuvioSpacing.lg) {
+                            NuvioEmptyState(icon: "arrow.down.circle",
+                                            title: downloads.items.isEmpty ? "No downloads yet" : "\(downloads.items.filter { $0.status == .completed }.count) saved offline",
+                                            message: "Save movies and episodes to this Apple TV to watch when the internet's out.")
+                            Button(action: onOpenDownloads) {
+                                SeeAllLabel(text: "Open Downloads")
                             }
                             .buttonStyle(PlainCardButtonStyle())
                         }

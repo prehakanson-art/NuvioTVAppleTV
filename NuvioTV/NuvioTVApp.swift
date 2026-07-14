@@ -19,6 +19,7 @@ struct NuvioTVApp: App {
     @StateObject private var streamBadges = StreamBadgeStore()
     @StateObject private var plugins = PluginStore()
     @StateObject private var torrent = TorrentSettingsStore()
+    @StateObject private var downloads = DownloadManager()
 
     var body: some Scene {
         WindowGroup {
@@ -41,6 +42,7 @@ struct NuvioTVApp: App {
                 .environmentObject(streamBadges)
                 .environmentObject(plugins)
                 .environmentObject(torrent)
+                .environmentObject(downloads)
                 .preferredColorScheme(.dark)
         }
     }
@@ -57,6 +59,7 @@ enum Route: Hashable {
     case catalogSeeAll(addon: InstalledAddon, catalog: ManifestCatalog, title: String)
     case discover
     case cloudLibrary
+    case downloads
 }
 
 struct RootView: View {
@@ -429,7 +432,8 @@ struct RootView: View {
             NavigationStack(path: $libraryPath) {
                 LibraryView(
                     onSelect: { libraryPath.append(Route.detail($0)) },
-                    onOpenCloud: { libraryPath.append(Route.cloudLibrary) }
+                    onOpenCloud: { libraryPath.append(Route.cloudLibrary) },
+                    onOpenDownloads: { libraryPath.append(Route.downloads) }
                 )
                     .onExitCommand { sidebarFocus = 2 }
                     .navigationDestination(for: Route.self) { destination(for: $0, path: $libraryPath) }
@@ -502,6 +506,13 @@ struct RootView: View {
             DiscoverView { path.wrappedValue.append(Route.detail($0)) }
         case .cloudLibrary:
             CloudLibraryView { meta, entry in
+                startPlayback(PlaybackRequest(
+                    meta: meta, video: nil, entry: entry,
+                    allEntries: [entry], resumePosition: nil
+                ))
+            }
+        case .downloads:
+            DownloadsView { meta, entry in
                 startPlayback(PlaybackRequest(
                     meta: meta, video: nil, entry: entry,
                     allEntries: [entry], resumePosition: nil

@@ -52,6 +52,7 @@ enum Route: Hashable {
     case tmdbCompany(id: Int, name: String)
     case catalogSeeAll(addon: InstalledAddon, catalog: ManifestCatalog, title: String)
     case discover
+    case cloudLibrary
 }
 
 struct RootView: View {
@@ -406,7 +407,10 @@ struct RootView: View {
             }
         case 2:
             NavigationStack(path: $libraryPath) {
-                LibraryView(onSelect: { libraryPath.append(Route.detail($0)) })
+                LibraryView(
+                    onSelect: { libraryPath.append(Route.detail($0)) },
+                    onOpenCloud: { libraryPath.append(Route.cloudLibrary) }
+                )
                     .onExitCommand { sidebarFocus = 2 }
                     .navigationDestination(for: Route.self) { destination(for: $0, path: $libraryPath) }
             }
@@ -476,6 +480,13 @@ struct RootView: View {
             CatalogSeeAllView(addon: addon, catalog: catalog, title: title) { path.wrappedValue.append(Route.detail($0)) }
         case .discover:
             DiscoverView { path.wrappedValue.append(Route.detail($0)) }
+        case .cloudLibrary:
+            CloudLibraryView { meta, entry in
+                startPlayback(PlaybackRequest(
+                    meta: meta, video: nil, entry: entry,
+                    allEntries: [entry], resumePosition: nil
+                ))
+            }
         case .streams(let meta, let video):
             StreamsView(meta: meta, video: video) { entry, all in
                 let key = ProgressStore.key(metaID: meta.id, video: video)

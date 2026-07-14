@@ -9,6 +9,8 @@ struct LibraryView: View {
     @EnvironmentObject private var progressStore: ProgressStore
 
     let onSelect: (MetaItem) -> Void
+    /// Opens the full Cloud Library screen (debrid cloud files).
+    var onOpenCloud: () -> Void = {}
 
     @State private var tab: LibraryTab = .saved
     @State private var typeFilter = "All"          // All / Movies / Series
@@ -53,9 +55,16 @@ struct LibraryView: View {
                     tabs
                     filters
                     if tab == .cloud {
-                        NuvioEmptyState(icon: "icloud", title: "Cloud library",
-                                        message: "Your account's cloud library appears here once you sign in and sync.")
-                            .frame(height: 460)
+                        VStack(spacing: NuvioSpacing.lg) {
+                            NuvioEmptyState(icon: "externaldrive.connected.to.line.below",
+                                            title: "Debrid cloud files",
+                                            message: "Browse and play the files already in your Real-Debrid / Premiumize / TorBox / AllDebrid cloud.")
+                            Button(action: onOpenCloud) {
+                                SeeAllLabel(text: "Open Cloud Library")
+                            }
+                            .buttonStyle(PlainCardButtonStyle())
+                        }
+                        .frame(maxWidth: .infinity, minHeight: 460)
                     } else if filtered.isEmpty {
                         NuvioEmptyState(icon: "bookmark",
                                         title: typeFilter == "All" ? "Nothing saved yet" : "No \(typeFilter.lowercased()) yet",

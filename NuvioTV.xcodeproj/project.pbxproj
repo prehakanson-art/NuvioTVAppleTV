@@ -63,8 +63,10 @@
 		CC4A6D4DD45D75EFED96839E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79E6F3DF03C6701BE4587833 /* Models.swift */; };
 		D31767F9B2A2591C6DF38322 /* NuvioAccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88E24392958CAE9EB4727EE /* NuvioAccountManager.swift */; };
 		D5A546FAEA5DBF7EF868DBE3 /* NuvioSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 969D7289F1E624FC42108D86 /* NuvioSyncManager.swift */; };
+		DE74561D221C4C25B60C7E41 /* CloudLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB57AA419192D7276E5E56DC /* CloudLibraryService.swift */; };
 		E5B79A409AAB47A1AC1155D8 /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243ACB41C793BA410B49B210 /* DetailView.swift */; };
 		E70E13C52AD92FE35CBC2E4C /* CatalogSeeAllView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */; };
+		EA3331CD768BFEBD84DF3E31 /* CloudLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0427A6C91DE30C948C8A38BF /* CloudLibraryView.swift */; };
 		EA3FAC10216300E9811CF19E /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D7F61A348C43BA8601218A /* SearchView.swift */; };
 		F016AB0B271739F9298BE959 /* NuvioDropdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44180118E0397498DE32CF39 /* NuvioDropdown.swift */; };
 		F285DC442C9BCF03E79A73EA /* NuvioTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1510EE278728A03479CC185 /* NuvioTheme.swift */; };
@@ -72,6 +74,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
+		0427A6C91DE30C948C8A38BF /* CloudLibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudLibraryView.swift; sourceTree = "<group>"; };
 		09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CatalogSeeAllView.swift; sourceTree = "<group>"; };
 		0AABBCDB9DAA6E74AB201B6E /* SidePanels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidePanels.swift; sourceTree = "<group>"; };
 		11754AD2FDC70C869EC871BC /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
@@ -115,6 +118,7 @@
 		BBDCBEA43CE00C6DD740B204 /* ProgressStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProgressStore.swift; sourceTree = "<group>"; };
 		C26E3B4C279900B78470C667 /* PlayerSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerSettingsStore.swift; sourceTree = "<group>"; };
 		C34BF835101EA7DC519880C9 /* SettingsIntegrationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsIntegrationsView.swift; sourceTree = "<group>"; };
+		CB57AA419192D7276E5E56DC /* CloudLibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudLibraryService.swift; sourceTree = "<group>"; };
 		CB84CD5358005AFCBA81FA25 /* QRCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCode.swift; sourceTree = "<group>"; };
 		D5A881246C6166C28BCD7C8B /* SidebarNav.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarNav.swift; sourceTree = "<group>"; };
 		DF61804404FEAD1E3E5E4FD6 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
@@ -183,6 +187,7 @@
 				4581D56301494EB1525328EA /* AccountView.swift */,
 				260D75DAB36C83E9C3ABC4C6 /* CastDetailView.swift */,
 				09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */,
+				0427A6C91DE30C948C8A38BF /* CloudLibraryView.swift */,
 				EAE1265EE9F6B43BD02CCC9F /* CollectionView.swift */,
 				243ACB41C793BA410B49B210 /* DetailView.swift */,
 				4C01CCB128223FD098404765 /* DiscoverView.swift */,
@@ -206,6 +211,7 @@
 			isa = PBXGroup;
 			children = (
 				EDBD5D6D83637232496C5D02 /* AddonManager.swift */,
+				CB57AA419192D7276E5E56DC /* CloudLibraryService.swift */,
 				3A901073E967FB097E347259 /* CollectionsStore.swift */,
 				3A1B94052D73FAE9626AEBA3 /* DebridService.swift */,
 				17D137BCE0827FF5B9EBCA42 /* ExternalPlayers.swift */,
@@ -381,6 +387,8 @@
 				14C76B28C6CFAB66591F7FEB /* AddonManager.swift in Sources */,
 				8C3C2D551DB191D562E74637 /* CastDetailView.swift in Sources */,
 				E70E13C52AD92FE35CBC2E4C /* CatalogSeeAllView.swift in Sources */,
+				DE74561D221C4C25B60C7E41 /* CloudLibraryService.swift in Sources */,
+				EA3331CD768BFEBD84DF3E31 /* CloudLibraryView.swift in Sources */,
 				AE0CFA7CB5922AEB4625975A /* CollectionView.swift in Sources */,
 				2072F1BAB7047F8207172DA4 /* CollectionsStore.swift in Sources */,
 				BF6961891F5345E7DBE28277 /* Components.swift in Sources */,

@@ -138,6 +138,31 @@ struct IntegrationsDetail: View {
                     subtitle: "Show the TMDB recommendations row on the details page.",
                     isOn: Binding(get: { tmdb.settings.useMoreLikeThis }, set: { tmdb.settings.useMoreLikeThis = $0 })
                 )
+                SettingsToggleCard(
+                    title: "Details",
+                    subtitle: "Show TMDB country and spoken-language details.",
+                    isOn: Binding(get: { tmdb.settings.useDetails }, set: { tmdb.settings.useDetails = $0 })
+                )
+                SettingsToggleCard(
+                    title: "Release dates",
+                    subtitle: "Show the TMDB release date on the details page.",
+                    isOn: Binding(get: { tmdb.settings.useReleaseDates }, set: { tmdb.settings.useReleaseDates = $0 })
+                )
+                SettingsToggleCard(
+                    title: "Production companies",
+                    subtitle: "Show the TMDB production-companies row.",
+                    isOn: Binding(get: { tmdb.settings.useProductions }, set: { tmdb.settings.useProductions = $0 })
+                )
+                SettingsToggleCard(
+                    title: "Collections",
+                    subtitle: "Show the “part of a collection” row and its other entries.",
+                    isOn: Binding(get: { tmdb.settings.useCollections }, set: { tmdb.settings.useCollections = $0 })
+                )
+                SettingsToggleCard(
+                    title: "Episodes",
+                    subtitle: "Fetch per-episode TMDB ratings and air dates for series.",
+                    isOn: Binding(get: { tmdb.settings.useEpisodes }, set: { tmdb.settings.useEpisodes = $0 })
+                )
             }
 
             Text("Uses a shared, app-embedded TMDB API key — no sign-in required.")

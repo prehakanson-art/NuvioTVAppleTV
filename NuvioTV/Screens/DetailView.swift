@@ -28,6 +28,7 @@ final class DetailViewModel: ObservableObject {
 
     func load(addonManager: AddonManager, mdbSettings: MDBListSettings = .default, tmdb: TMDBSettings = .default) async {
         defer { isLoading = false }
+        useEpisodeExtras = tmdb.useEpisodes
         // Canonicalize the identity FIRST: TMDB-sourced items arrive as
         // `tmdb:<n>`, but progress / watched / library are keyed by id — the
         // same movie found via different addons would otherwise never match
@@ -64,16 +65,20 @@ final class DetailViewModel: ObservableObject {
                 crew = detail.crew
                 director = detail.director
             }
-            country = detail.country
-            language = detail.language
-            releaseDate = detail.releaseDate
+            if tmdb.useDetails {
+                country = detail.country
+                language = detail.language
+            }
+            if tmdb.useReleaseDates { releaseDate = detail.releaseDate }
             if tmdb.useMoreLikeThis { moreLikeThis = detail.moreLikeThis }
-            collection = detail.collection
-            companies = detail.companies
+            if tmdb.useProductions { companies = detail.companies }
             if tmdb.useTrailers { trailers = detail.trailers }
-            if let collection {
-                collectionParts = await TMDBService.collectionItems(id: collection.id)
-                    .filter { $0.id != meta.id }
+            if tmdb.useCollections {
+                collection = detail.collection
+                if let collection {
+                    collectionParts = await TMDBService.collectionItems(id: collection.id)
+                        .filter { $0.id != meta.id }
+                }
             }
         }
         comments = await commentsTask.value
@@ -95,9 +100,13 @@ final class DetailViewModel: ObservableObject {
         return await MDBListService.ratings(imdbID: imdbID, type: meta.type, settings: settings)
     }
 
+    /// Whether to fetch per-episode TMDB extras (ratings / air dates). Set from
+    /// the TMDB "Episodes" toggle when the detail loads.
+    var useEpisodeExtras = true
+
     /// Load per-episode ratings + air dates for a season (once, cached).
     func loadSeason(_ season: Int) async {
-        guard episodeExtras[season] == nil, meta.isSeries else { return }
+        guard useEpisodeExtras, episodeExtras[season] == nil, meta.isSeries else { return }
         let extras = await TMDBService.seasonEpisodes(imdbID: meta.id, type: meta.type, season: season)
         if !extras.isEmpty { episodeExtras[season] = extras }
     }

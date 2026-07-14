@@ -10,6 +10,16 @@ struct TMDBSettings: Codable, Equatable {
     var useCredits: Bool = true
     var useTrailers: Bool = true
     var useMoreLikeThis: Bool = true
+    /// Country / spoken-language detail fields.
+    var useDetails: Bool = true
+    /// Release-date field.
+    var useReleaseDates: Bool = true
+    /// Production companies row.
+    var useProductions: Bool = true
+    /// Collection ("part of…") row and its parts.
+    var useCollections: Bool = true
+    /// Per-episode ratings + air dates.
+    var useEpisodes: Bool = true
 
     static let `default` = TMDBSettings()
 }

@@ -224,7 +224,11 @@ final class HomeViewModel: ObservableObject {
         default: typeLabel = request.catalog.type.capitalized
         }
         let baseName = request.catalog.name ?? request.catalog.id.capitalized
-        return settings.customTitle(for: key) ?? "\(baseName) - \(typeLabel)"
+        if let custom = settings.customTitle(for: key) { return custom }
+        var title = baseName
+        if settings.catalogAddonNameEnabled { title += " · \(request.addon.manifest.name)" }
+        if settings.catalogTypeSuffixEnabled { title += " - \(typeLabel)" }
+        return title
     }
 
     static func firstHero(_ entries: [HomeEntry]) -> MetaItem? {

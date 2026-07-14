@@ -82,6 +82,11 @@ struct HomePresentationSnapshot: Codable, Equatable {
     var useEpisodeThumbnailsInCw = true
     var blurUnwatchedEpisodes = false
     var blurContinueWatchingNextUp = false
+    var posterCornerRadius = 12
+    var catalogAddonNameEnabled = false
+    var catalogTypeSuffixEnabled = true
+    var showFullReleaseDate = true
+    var detailPageTrailerButtonEnabled = true
 }
 
 // MARK: - Sync payload (matches Android SyncHomeCatalogPayload exactly)
@@ -227,6 +232,29 @@ final class HomeCatalogSettingsStore: ObservableObject {
     @Published var blurContinueWatchingNextUp: Bool = false {
         didSet { guard blurContinueWatchingNextUp != oldValue else { return }; save(); notifyPresentationChange() }
     }
+    /// Poster card corner radius (points).
+    @Published var posterCornerRadius: Int = 12 {
+        didSet { guard posterCornerRadius != oldValue else { return }; save(); notifyPresentationChange() }
+    }
+    /// Append the addon's name to catalog row titles.
+    @Published var catalogAddonNameEnabled: Bool = false {
+        didSet { guard catalogAddonNameEnabled != oldValue else { return }; save(); notifyPresentationChange() }
+    }
+    /// Append the "- Movie/Series" type suffix to catalog row titles.
+    @Published var catalogTypeSuffixEnabled: Bool = true {
+        didSet { guard catalogTypeSuffixEnabled != oldValue else { return }; save(); notifyPresentationChange() }
+    }
+    /// Show the full release date (vs. just the year) on details.
+    @Published var showFullReleaseDate: Bool = true {
+        didSet { guard showFullReleaseDate != oldValue else { return }; save(); notifyPresentationChange() }
+    }
+    /// Show the Trailer button on the details page.
+    @Published var detailPageTrailerButtonEnabled: Bool = true {
+        didSet { guard detailPageTrailerButtonEnabled != oldValue else { return }; save(); notifyPresentationChange() }
+    }
+
+    /// Selectable poster corner radii (points).
+    static let posterCornerRadiusValues: [Int] = [0, 6, 12, 16, 22]
 
     var onLocalChange: (() -> Void)?
     /// Fired when a device-local presentation pref changes, so the tvOS sync
@@ -387,6 +415,11 @@ final class HomeCatalogSettingsStore: ObservableObject {
         var useEpisodeThumbnailsInCw: Bool?
         var blurUnwatchedEpisodes: Bool?
         var blurContinueWatchingNextUp: Bool?
+        var posterCornerRadius: Int?
+        var catalogAddonNameEnabled: Bool?
+        var catalogTypeSuffixEnabled: Bool?
+        var showFullReleaseDate: Bool?
+        var detailPageTrailerButtonEnabled: Bool?
     }
 
     private func notifyLocalChange() {
@@ -412,7 +445,12 @@ final class HomeCatalogSettingsStore: ObservableObject {
             showUnairedNextUp: showUnairedNextUp,
             useEpisodeThumbnailsInCw: useEpisodeThumbnailsInCw,
             blurUnwatchedEpisodes: blurUnwatchedEpisodes,
-            blurContinueWatchingNextUp: blurContinueWatchingNextUp
+            blurContinueWatchingNextUp: blurContinueWatchingNextUp,
+            posterCornerRadius: posterCornerRadius,
+            catalogAddonNameEnabled: catalogAddonNameEnabled,
+            catalogTypeSuffixEnabled: catalogTypeSuffixEnabled,
+            showFullReleaseDate: showFullReleaseDate,
+            detailPageTrailerButtonEnabled: detailPageTrailerButtonEnabled
         )
     }
 
@@ -431,6 +469,11 @@ final class HomeCatalogSettingsStore: ObservableObject {
         useEpisodeThumbnailsInCw = s.useEpisodeThumbnailsInCw
         blurUnwatchedEpisodes = s.blurUnwatchedEpisodes
         blurContinueWatchingNextUp = s.blurContinueWatchingNextUp
+        posterCornerRadius = s.posterCornerRadius
+        catalogAddonNameEnabled = s.catalogAddonNameEnabled
+        catalogTypeSuffixEnabled = s.catalogTypeSuffixEnabled
+        showFullReleaseDate = s.showFullReleaseDate
+        detailPageTrailerButtonEnabled = s.detailPageTrailerButtonEnabled
         suppressChange = false
         save()
     }
@@ -463,6 +506,11 @@ final class HomeCatalogSettingsStore: ObservableObject {
         useEpisodeThumbnailsInCw = decoded.useEpisodeThumbnailsInCw ?? true
         blurUnwatchedEpisodes = decoded.blurUnwatchedEpisodes ?? false
         blurContinueWatchingNextUp = decoded.blurContinueWatchingNextUp ?? false
+        posterCornerRadius = decoded.posterCornerRadius ?? 12
+        catalogAddonNameEnabled = decoded.catalogAddonNameEnabled ?? false
+        catalogTypeSuffixEnabled = decoded.catalogTypeSuffixEnabled ?? true
+        showFullReleaseDate = decoded.showFullReleaseDate ?? true
+        detailPageTrailerButtonEnabled = decoded.detailPageTrailerButtonEnabled ?? true
         suppressChange = false
     }
 
@@ -482,7 +530,12 @@ final class HomeCatalogSettingsStore: ObservableObject {
             showUnairedNextUp: showUnairedNextUp,
             useEpisodeThumbnailsInCw: useEpisodeThumbnailsInCw,
             blurUnwatchedEpisodes: blurUnwatchedEpisodes,
-            blurContinueWatchingNextUp: blurContinueWatchingNextUp
+            blurContinueWatchingNextUp: blurContinueWatchingNextUp,
+            posterCornerRadius: posterCornerRadius,
+            catalogAddonNameEnabled: catalogAddonNameEnabled,
+            catalogTypeSuffixEnabled: catalogTypeSuffixEnabled,
+            showFullReleaseDate: showFullReleaseDate,
+            detailPageTrailerButtonEnabled: detailPageTrailerButtonEnabled
         )
         guard let data = try? JSONEncoder().encode(persisted) else { return }
         UserDefaults.standard.set(data, forKey: storageKey)

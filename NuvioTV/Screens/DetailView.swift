@@ -298,7 +298,7 @@ struct DetailView: View {
                         active: watched.isWatched(viewModel.meta)
                     ) { watched.toggleMovie(viewModel.meta) }
                 }
-                if let trailer = viewModel.trailers.first {
+                if layout.detailPageTrailerButtonEnabled, let trailer = viewModel.trailers.first {
                     CircleIconButton(systemName: "play.rectangle.fill", active: false) {
                         activeTrailer = trailer
                     }
@@ -349,10 +349,26 @@ struct DetailView: View {
         if let genres = viewModel.meta.genres, !genres.isEmpty {
             segments.append(genres.prefix(3).joined(separator: " • "))
         }
-        if let date = DateFormat.releaseDate(viewModel.releaseDate) ?? viewModel.meta.releaseInfo {
-            segments.append(date)
+        if let full = DateFormat.releaseDate(viewModel.releaseDate) ?? viewModel.meta.releaseInfo {
+            if layout.showFullReleaseDate {
+                segments.append(full)
+            } else {
+                segments.append(Self.firstYear(in: viewModel.releaseDate ?? full) ?? full)
+            }
         }
         return segments
+    }
+
+    /// First 4-digit year found in a date/string (for the year-only display).
+    private static func firstYear(in text: String) -> String? {
+        let digits = Array(text)
+        for i in 0...(max(0, digits.count - 4)) where i + 4 <= digits.count {
+            let slice = String(digits[i..<i + 4])
+            if slice.allSatisfy(\.isNumber), let year = Int(slice), (1900...2100).contains(year) {
+                return slice
+            }
+        }
+        return nil
     }
 
     private var secondaryMetaSegments: [String] {

@@ -216,6 +216,7 @@ struct PosterCard: View {
 
     private var cardWidth: CGFloat { layout.posterSize.posterWidth }
     private var cardHeight: CGFloat { cardWidth * 3 / 2 }
+    private var cornerRadius: CGFloat { CGFloat(layout.posterCornerRadius) }
 
     /// Explicit progress wins; otherwise an O(1) Continue Watching lookup so
     /// a started movie/show carries its progress bar EVERYWHERE it appears
@@ -238,12 +239,12 @@ struct PosterCard: View {
             }
             .frame(width: cardWidth, height: cardHeight)
             .background(theme.palette.backgroundCard)
-            .clipShape(RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
             .overlay(alignment: .topTrailing) {
                 if watched.isWatched(item) { WatchedBadge().padding(10) }
             }
             .overlay(
-                RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
             )
             .shadow(color: .black.opacity(isFocused ? 0.7 : 0.35), radius: isFocused ? 24 : 10, y: 10)

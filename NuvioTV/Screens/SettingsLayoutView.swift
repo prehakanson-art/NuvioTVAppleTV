@@ -55,6 +55,16 @@ struct LayoutSettingsDetail: View {
                     isOn: $settings.showPosterLabels
                 )
 
+                NuvioDropdown(
+                    title: "Corner radius",
+                    subtitle: "Roundness of poster card corners",
+                    icon: "square.on.square.dashed",
+                    selection: String(settings.posterCornerRadius),
+                    options: HomeCatalogSettingsStore.posterCornerRadiusValues.map {
+                        NuvioDropdownOption(String($0), $0 == 0 ? "Square" : "\($0) pt")
+                    }
+                ) { settings.posterCornerRadius = Int($0) ?? 12 }
+
                 SettingsToggleCard(
                     title: "Fullscreen hero backdrop",
                     subtitle: "Let the home hero image fill the screen behind the rows",
@@ -65,6 +75,29 @@ struct LayoutSettingsDetail: View {
                     title: "Hide unreleased content",
                     subtitle: "Keep titles that haven't aired yet out of catalog rows",
                     isOn: $settings.hideUnreleasedContent
+                )
+            }
+
+            SettingsGroupCard(title: "Rows & Details", subtitle: "Row titles and detail-page fields") {
+                SettingsToggleCard(
+                    title: "Addon name in row titles",
+                    subtitle: "Append the source addon's name to each catalog row header",
+                    isOn: $settings.catalogAddonNameEnabled
+                )
+                SettingsToggleCard(
+                    title: "Type suffix in row titles",
+                    subtitle: "Append “- Movie” / “- Series” to catalog row headers",
+                    isOn: $settings.catalogTypeSuffixEnabled
+                )
+                SettingsToggleCard(
+                    title: "Full release date",
+                    subtitle: "Show the full date on the details page instead of just the year",
+                    isOn: $settings.showFullReleaseDate
+                )
+                SettingsToggleCard(
+                    title: "Trailer button",
+                    subtitle: "Show the Trailer button on the details page",
+                    isOn: $settings.detailPageTrailerButtonEnabled
                 )
             }
 

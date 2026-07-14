@@ -163,9 +163,14 @@ final class StreamsViewModel: ObservableObject {
             selectedAddon = nil
         }
         let scoped = selectedAddon.map { name in pool.filter { $0.addonName == name } } ?? pool
-        groups = filtersEnabled
-            ? SourceSelection.byAddon(scoped, perBucket: perTier)
-            : SourceSelection.byAddonUnfiltered(scoped, cap: PlayerSettings.unfilteredPerAddonCap)
+        if !filtersEnabled {
+            groups = SourceSelection.byAddonUnfiltered(scoped, cap: PlayerSettings.unfilteredPerAddonCap)
+        } else if selectedAddon != nil {
+            // Scoped to one addon → a cross-addon Top Picks row is redundant.
+            groups = SourceSelection.byAddon(scoped, perTier: perTier)
+        } else {
+            groups = SourceSelection.curated(scoped, perTier: perTier)
+        }
     }
 }
 
@@ -392,35 +397,25 @@ struct StreamsView: View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: NuvioSpacing.xl) {
                 ForEach(viewModel.groups) { group in
+                    let isPicks = group.addonName == SourceSelection.topPicksName
                     VStack(alignment: .leading, spacing: NuvioSpacing.md) {
-                        // Level 1: addon.
+                        // Level 1: addon (or the cross-addon "★ Top Picks").
                         Text(group.addonName.uppercased())
                             .font(.system(size: 24, weight: .heavy))
-                            .foregroundStyle(theme.palette.textPrimary)
+                            .foregroundStyle(isPicks ? theme.palette.secondary : theme.palette.textPrimary)
                             .padding(.leading, 4)
                         ForEach(group.sections) { section in
                             VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
                                 // Level 2: resolution (hidden when untiered).
                                 if !section.title.isEmpty {
                                     Text(section.title.uppercased())
-                                        .font(.system(size: 20, weight: .heavy))
-                                        .foregroundStyle(theme.palette.secondary)
+                                        .font(.system(size: isPicks ? 16 : 20, weight: .heavy))
+                                        .foregroundStyle(isPicks ? theme.palette.textTertiary : theme.palette.secondary)
                                         .padding(.leading, 8)
                                         .padding(.top, 2)
                                 }
-                                ForEach(section.subsections) { sub in
-                                    // Level 3: size band (hidden when untiered).
-                                    if !sub.title.isEmpty {
-                                        Text(sub.title)
-                                            .font(.system(size: 15, weight: .bold))
-                                            .kerning(0.5)
-                                            .foregroundStyle(theme.palette.textTertiary)
-                                            .padding(.leading, 12)
-                                            .padding(.top, 2)
-                                    }
-                                    ForEach(sub.entries) { entry in
-                                        sourceRow(entry)
-                                    }
+                                ForEach(section.entries) { entry in
+                                    sourceRow(entry)
                                 }
                             }
                         }

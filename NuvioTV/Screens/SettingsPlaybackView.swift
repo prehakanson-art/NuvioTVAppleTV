@@ -48,14 +48,14 @@ struct PlaybackSettingsDetail: View {
                 PlaybackToggleRow(
                     icon: "line.3.horizontal.decrease.circle.fill",
                     title: "Link filters",
-                    subtitle: "Group links by resolution (2160p / 1080p / 720p / 480p), then by size band within each, debrid-cached first. Off = show links exactly as each addon returns them (cached still first), up to \(PlayerSettings.unfilteredPerAddonCap) per addon",
+                    subtitle: "Smart-rank links: Top Picks (best link per resolution across all addons) up top, then each addon by resolution — scored by cached status, release quality (REMUX > Blu-ray > WEB-DL), codec, HDR/DV, audio, seeders and bitrate. Off = show links exactly as each addon returns them (cached still first), up to \(PlayerSettings.unfilteredPerAddonCap) per addon",
                     isOn: s.sourceFiltersEnabled
                 )
 
                 if store.settings.sourceFiltersEnabled {
                     NuvioDropdown(
-                        title: "Links per size band",
-                        subtitle: "Shown for each size band (250 MB–4 GB … 30 GB+) within every resolution",
+                        title: "Links per resolution",
+                        subtitle: "Best-scored links kept in each of 2160p / 1080p / 720p / 480p per addon",
                         icon: "square.stack.3d.up.fill",
                         selection: String(store.settings.sourcesPerSizeTier),
                         options: PlayerSettings.sourcesPerTierValues.filter { $0 > 0 }.map {

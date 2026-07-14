@@ -1947,7 +1947,7 @@ final class PlayerViewModel: ObservableObject {
                 entries, cap: PlayerSettings.unfilteredPerAddonCap
             )
         }
-        return SourceSelection.select(entries, perBucket: settings.sourcesPerSizeTier)
+        return SourceSelection.select(entries, perTier: settings.sourcesPerSizeTier)
     }
 
     /// Playback started from Continue Watching carries `allEntries: []` (only
@@ -2338,7 +2338,7 @@ final class PlayerViewModel: ObservableObject {
             // Curate the panel list (size tiers, cached first) like the Sources
             // page; fall back to the raw list if curation drops everything.
             let curated = settings.sourceFiltersEnabled
-                ? SourceSelection.select(entries, perBucket: settings.sourcesPerSizeTier)
+                ? SourceSelection.select(entries, perTier: settings.sourcesPerSizeTier)
                 : SourceSelection.selectUnfiltered(entries, cap: PlayerSettings.unfilteredPerAddonCap)
             let panelEntries = curated.isEmpty ? entries : curated
 

@@ -274,49 +274,69 @@ final class StreamBadgeStore: ObservableObject {
 
 // MARK: - Chip rendering
 
-/// One row of badge chips (image badges first, then colored text tags),
-/// visually matching the Android app: 20pt-tall chips, filled or outlined.
+/// One row of badge chips, visually matching the Android app: 20pt-tall
+/// chips. NEVER invisible: an image badge shows its text-tag form until the
+/// image loads (and keeps it if the image fails — some packs use formats
+/// UIKit can't decode, and most set all their colors fully transparent
+/// because they only intend the image to show).
 struct StreamBadgeChips: View {
     let badges: [StreamBadge]
 
     var body: some View {
         HStack(spacing: 6) {
             ForEach(badges.prefix(6)) { badge in
-                if badge.isImage {
-                    AsyncImage(url: URL(string: badge.imageURL)) { phase in
-                        if case .success(let image) = phase {
-                            image.resizable().scaledToFit()
-                        } else {
-                            Color.clear.frame(width: 1)
-                        }
-                    }
-                    .frame(height: 20)
-                } else {
-                    Text(badge.name)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(Color(badgeHex: badge.textColor) ?? .white)
-                        .padding(.horizontal, 8)
-                        .frame(height: 20)
-                        .background(
-                            Capsule().fill(
-                                badge.tagStyle.lowercased() == "filled"
-                                    ? (Color(badgeHex: badge.tagColor) ?? .white.opacity(0.15))
-                                    : Color.clear
-                            )
-                        )
-                        .overlay(
-                            Capsule().strokeBorder(
-                                Color(badgeHex: badge.borderColor) ?? .clear, lineWidth: 1
-                            )
-                        )
-                }
+                BadgeChip(badge: badge)
             }
         }
     }
 }
 
+private struct BadgeChip: View {
+    let badge: StreamBadge
+
+    var body: some View {
+        if badge.isImage {
+            AsyncImage(url: URL(string: badge.imageURL)) { phase in
+                if case .success(let image) = phase {
+                    image.resizable().scaledToFit()
+                } else {
+                    textChip   // visible placeholder / fallback
+                }
+            }
+            .frame(height: 20)
+            .fixedSize()
+        } else {
+            textChip
+        }
+    }
+
+    /// Text-tag form. Transparent pack colors (#00000000 — common in
+    /// image-only packs) fall back to a readable default instead of vanishing.
+    private var textChip: some View {
+        let fill = Color(badgeHex: badge.tagColor)
+        let text = Color(badgeHex: badge.textColor)
+        let border = Color(badgeHex: badge.borderColor)
+        return Text(badge.name)
+            .font(.system(size: 14, weight: .semibold))
+            .lineLimit(1)
+            .foregroundStyle(text ?? .white.opacity(0.9))
+            .padding(.horizontal, 8)
+            .frame(height: 20)
+            .background(
+                Capsule().fill(
+                    badge.tagStyle.lowercased().contains("filled")
+                        ? (fill ?? .white.opacity(0.14))
+                        : .white.opacity(fill == nil && border == nil ? 0.14 : 0)
+                )
+            )
+            .overlay(Capsule().strokeBorder(border ?? .clear, lineWidth: 1))
+    }
+}
+
 extension Color {
-    /// Badger color strings: "#RRGGBB" / "#AARRGGBB" / bare hex.
+    /// Badger color strings: "#RRGGBB" / "#AARRGGBB" / bare hex. Fully
+    /// transparent values (alpha 0) return nil so callers use their default —
+    /// image-only packs ship "#00000000" everywhere.
     init?(badgeHex raw: String) {
         var hex = raw.trimmingCharacters(in: .whitespaces)
         guard !hex.isEmpty else { return nil }
@@ -330,11 +350,13 @@ extension Color {
                 blue: Double(value & 0xFF) / 255
             )
         case 8:
+            let alpha = Double((value >> 24) & 0xFF) / 255
+            guard alpha > 0.01 else { return nil }
             self.init(
                 red: Double((value >> 16) & 0xFF) / 255,
                 green: Double((value >> 8) & 0xFF) / 255,
                 blue: Double(value & 0xFF) / 255,
-                opacity: Double((value >> 24) & 0xFF) / 255
+                opacity: alpha
             )
         default:
             return nil

@@ -53,6 +53,8 @@ struct PanelRow: View {
     /// Stacked trailing badges: resolution over file size (Sources rows).
     var resolution: String?
     var fileSize: String?
+    /// Badger badge chips (in-player Sources rows).
+    var badges: [StreamBadge] = []
 
     var body: some View {
         HStack(spacing: NuvioSpacing.md) {
@@ -66,6 +68,10 @@ struct PanelRow: View {
                         .font(.system(size: 19))
                         .foregroundStyle(theme.palette.textSecondary)
                         .lineLimit(2)
+                }
+                if !badges.isEmpty {
+                    StreamBadgeChips(badges: badges)
+                        .padding(.top, 2)
                 }
             }
             Spacer()
@@ -242,6 +248,7 @@ private struct EpisodeRow: View {
 
 struct SourcesPanelContent: View {
     @ObservedObject var viewModel: PlayerViewModel
+    @EnvironmentObject private var streamBadges: StreamBadgeStore
     // Land on the source that's currently playing.
     @FocusState private var focused: UUID?
 
@@ -274,7 +281,8 @@ struct SourcesPanelContent: View {
                             subtitle: "\(entry.addonName)\(entry.displayDetail.isEmpty ? "" : " · \(entry.displayDetail)")",
                             selected: entry.id == viewModel.currentEntry.id,
                             resolution: entry.resolutionLabel,
-                            fileSize: entry.fileSizeLabel
+                            fileSize: entry.fileSizeLabel,
+                            badges: streamBadges.badges(for: entry)
                         )
                     }
                     .buttonStyle(PlainCardButtonStyle())

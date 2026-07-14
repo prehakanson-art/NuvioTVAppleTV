@@ -243,7 +243,11 @@ struct DetailView: View {
     }
 
     private func teardownBackdropTrailer() {
+        // Clear the item too, not just pause — otherwise the muted backdrop
+        // player stays the system "Now Playing" item and the tvOS transport
+        // overlay can pop up over Home when Play/Pause is pressed.
         backdropPlayer?.pause()
+        backdropPlayer?.replaceCurrentItem(with: nil)
         backdropPlayer = nil
         showBackdropTrailer = false
     }

@@ -60,7 +60,14 @@ struct TrailerPlayerView: View {
             if let player {
                 VideoPlayer(player: player)
                     .ignoresSafeArea()
-                    .onDisappear { player.pause() }
+                    // Fully release on dismiss: pausing alone leaves the player
+                    // registered as the system "Now Playing" item, so pressing
+                    // Play/Pause later summons the tvOS transport overlay over
+                    // whatever screen you're on. Clearing the item drops it.
+                    .onDisappear {
+                        player.pause()
+                        player.replaceCurrentItem(with: nil)
+                    }
             } else if failed {
                 NuvioEmptyState(
                     icon: "play.slash.fill",

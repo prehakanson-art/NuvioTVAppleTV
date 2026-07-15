@@ -28,6 +28,34 @@ final class PerformanceSettingsStore: ObservableObject {
         var artworkPrefetch = true
         /// Fade posters in as they finish loading.
         var artworkFadeIn = true
+        /// The sidebar's expand/collapse spring + the dim over the content.
+        var sidebarAnimation = true
+        /// Scale/spring on small controls (See All, tab pills, presses).
+        var buttonAnimations = true
+
+        init() {}
+
+        private enum CodingKeys: String, CodingKey {
+            case heroBackdrop, heroCrossfade, cardShadows, focusZoom
+            case rowPinAnimation, artworkPrefetch, artworkFadeIn
+            case sidebarAnimation, buttonAnimations
+        }
+
+        /// Lenient decode: a key missing from an older save keeps its default
+        /// instead of failing the whole decode (which would reset every
+        /// switch each time a new one ships).
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            heroBackdrop = (try? c.decode(Bool.self, forKey: .heroBackdrop)) ?? true
+            heroCrossfade = (try? c.decode(Bool.self, forKey: .heroCrossfade)) ?? true
+            cardShadows = (try? c.decode(Bool.self, forKey: .cardShadows)) ?? true
+            focusZoom = (try? c.decode(Bool.self, forKey: .focusZoom)) ?? true
+            rowPinAnimation = (try? c.decode(Bool.self, forKey: .rowPinAnimation)) ?? true
+            artworkPrefetch = (try? c.decode(Bool.self, forKey: .artworkPrefetch)) ?? true
+            artworkFadeIn = (try? c.decode(Bool.self, forKey: .artworkFadeIn)) ?? true
+            sidebarAnimation = (try? c.decode(Bool.self, forKey: .sidebarAnimation)) ?? true
+            buttonAnimations = (try? c.decode(Bool.self, forKey: .buttonAnimations)) ?? true
+        }
     }
 
     @Published var settings: Settings { didSet { save() } }

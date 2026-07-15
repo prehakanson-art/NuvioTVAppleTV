@@ -63,6 +63,7 @@ enum Route: Hashable {
 
 struct RootView: View {
     @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var perf = PerformanceSettingsStore.shared
     @EnvironmentObject private var addonManager: AddonManager
     @EnvironmentObject private var progressStore: ProgressStore
     @EnvironmentObject private var account: NuvioAccountManager
@@ -317,8 +318,12 @@ struct RootView: View {
         }
         // Matches SidebarNav's own expand spring so the width change, the
         // content reflow, and the dim all move together as one motion.
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: showSidebar)
-        .animation(.spring(response: 0.34, dampingFraction: 0.86), value: sidebarFocus != nil)
+        // (nil when "Sidebar animation" is off in Settings → Performance:
+        // the sidebar and its dim snap instantly.)
+        .animation(perf.settings.sidebarAnimation
+                   ? .spring(response: 0.34, dampingFraction: 0.86) : nil, value: showSidebar)
+        .animation(perf.settings.sidebarAnimation
+                   ? .spring(response: 0.34, dampingFraction: 0.86) : nil, value: sidebarFocus != nil)
         .background(theme.palette.background)
         .fullScreenCover(item: $playback) { request in
             PlayerScreen(

@@ -168,8 +168,9 @@ private struct LibrarySegment: View {
                                : (isFocused ? theme.palette.focusBackground : Color.white.opacity(0.08)))
             )
             .overlay(Capsule().strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3))
-            .scaleEffect(isFocused ? 1.04 : 1)
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isFocused)
+            .scaleEffect(PerformanceSettingsStore.shared.settings.buttonAnimations && isFocused ? 1.04 : 1)
+            .animation(PerformanceSettingsStore.shared.settings.buttonAnimations
+                       ? .spring(response: 0.3, dampingFraction: 0.8) : nil, value: isFocused)
     }
 }
 

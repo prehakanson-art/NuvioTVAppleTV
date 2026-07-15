@@ -796,8 +796,9 @@ struct RetryLabel: View {
         .padding(.vertical, 12)
         .background(Capsule().fill(isFocused ? theme.palette.secondary : Color.white.opacity(0.1)))
         .overlay(Capsule().strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3))
-        .scaleEffect(isFocused ? 1.05 : 1)
-        .animation(.easeInOut(duration: 0.15), value: isFocused)
+        .scaleEffect(PerformanceSettingsStore.shared.settings.buttonAnimations && isFocused ? 1.05 : 1)
+        .animation(PerformanceSettingsStore.shared.settings.buttonAnimations
+                   ? .easeInOut(duration: 0.15) : nil, value: isFocused)
     }
 }
 
@@ -826,8 +827,9 @@ struct SeeAllLabel: View {
             Capsule(style: .continuous)
                 .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
         )
-        .scaleEffect(isFocused ? 1.06 : 1)
-        .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isFocused)
+        .scaleEffect(PerformanceSettingsStore.shared.settings.buttonAnimations && isFocused ? 1.06 : 1)
+        .animation(PerformanceSettingsStore.shared.settings.buttonAnimations
+                   ? .spring(response: 0.3, dampingFraction: 0.8) : nil, value: isFocused)
     }
 }
 

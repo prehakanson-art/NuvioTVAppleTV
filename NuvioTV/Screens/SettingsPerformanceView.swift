@@ -57,6 +57,24 @@ struct PerformanceSettingsDetail: View {
             }
 
             SettingsGroupCard(
+                title: "Animations",
+                subtitle: "Motion across the app's chrome"
+            ) {
+                PerfToggleRow(
+                    icon: "sidebar.left",
+                    title: "Sidebar animation",
+                    subtitle: "The sidebar's expand/collapse spring and the dim it casts over the content — a full-screen fade composited on every open/close. Off: the sidebar and dim appear/disappear instantly.",
+                    isOn: s.sidebarAnimation
+                )
+                PerfToggleRow(
+                    icon: "hand.tap",
+                    title: "Button & pill effects",
+                    subtitle: "Small controls (See All, tab pills, filter chips, button presses) scale and spring when focused or clicked. Off: they highlight instantly with no motion.",
+                    isOn: s.buttonAnimations
+                )
+            }
+
+            SettingsGroupCard(
                 title: "Artwork loading",
                 subtitle: "How poster images arrive on screen"
             ) {

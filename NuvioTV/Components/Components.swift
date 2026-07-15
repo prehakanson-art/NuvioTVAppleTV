@@ -452,9 +452,10 @@ struct PlainCardButtonStyle: ButtonStyle {
     var onPressChanged: ((Bool) -> Void)? = nil
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .scaleEffect(configuration.isPressed ? 0.97 : 1)
-            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+        let anims = PerformanceSettingsStore.shared.settings.buttonAnimations
+        return configuration.label
+            .scaleEffect(anims && configuration.isPressed ? 0.97 : 1)
+            .animation(anims ? .easeOut(duration: 0.12) : nil, value: configuration.isPressed)
             .onChange(of: configuration.isPressed) { _, pressed in
                 onPressChanged?(pressed)
             }

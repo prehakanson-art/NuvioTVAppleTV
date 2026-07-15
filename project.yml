@@ -28,6 +28,9 @@ targets:
       - package: YouTubeKit
       - package: VLCKit
         product: VLCKitSPM
+      # Top Shelf (Continue Watching on the tvOS home screen). Embedded
+      # automatically as an app extension.
+      - target: NuvioTopShelf
     info:
       path: Config/Info.plist
       properties:
@@ -62,6 +65,10 @@ targets:
         # script sandboxing must be off or the phase is denied file access.
         ENABLE_USER_SCRIPT_SANDBOXING: false
         ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
+        # App group shared with the Top Shelf extension (Continue Watching
+        # snapshot). Sideload signers that can't do app groups just leave the
+        # shelf empty — the app itself is unaffected.
+        CODE_SIGN_ENTITLEMENTS: Config/NuvioTV.entitlements
     postBuildScripts:
       # FFmpegKit (pulled in transitively by KSPlayer) ships
       # libshaderc_combined.framework with an underscore in its
@@ -92,6 +99,30 @@ targets:
                 ;;
             esac
           done
+  # Top Shelf extension: renders the app's Continue Watching list on the tvOS
+  # home screen (the Android app's "Watch Next" equivalent). Reads a JSON
+  # snapshot from the shared app group written by TopShelfExporter.
+  NuvioTopShelf:
+    type: app-extension
+    platform: tvOS
+    sources:
+      - NuvioTopShelf
+    info:
+      path: NuvioTopShelf/Info.plist
+      properties:
+        CFBundleDisplayName: NuvioTV
+        CFBundleShortVersionString: "0.7.15"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).TopShelfProvider
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nuvio.tv.appletv.topshelf
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "3"
+        MARKETING_VERSION: "0.7.15"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_ENTITLEMENTS: NuvioTopShelf/NuvioTopShelf.entitlements
 schemes:
   NuvioTV:
     build:

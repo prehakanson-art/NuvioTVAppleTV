@@ -276,9 +276,13 @@ final class ProgressStore: ObservableObject {
         // hiccup (this runs every 30s while a video plays).
         let snapshot = items
         let key = storageKey
+        // Top Shelf mirrors the Continue Watching row — snapshot the entries
+        // here (cheap) and write them in the same background hop.
+        let shelf = TopShelfExporter.entries(from: continueWatching)
         Task.detached(priority: .utility) {
             guard let data = try? JSONEncoder().encode(snapshot) else { return }
             UserDefaults.standard.set(data, forKey: key)
+            TopShelfExporter.write(shelf)
         }
     }
 }

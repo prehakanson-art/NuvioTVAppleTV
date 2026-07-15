@@ -9,7 +9,12 @@ import UIKit
 ///   1080p framebuffer, decoding a 3840px source image is pure waste: the panel
 ///   can't show more than 1920px, so downsampling there is pixel-identical yet
 ///   cuts image memory ~75% (the memory pressure that causes jetsam/stutter on
-///   a 2 GB box). Newer/4K devices are left at full resolution — no change.
+///   a 2 GB box).
+/// - **mid power** — Apple TV 4K 1st gen (AppleTV6,2 · A10X · 3 GB), and any
+///   unknown device under 3.5 GB. Full 4K rendering, but a tighter decoded-
+///   pixel budget: 3 GB shared with tvOS + the player leaves much less
+///   headroom than the 4 GB boxes, and an oversized cache there turns into
+///   jetsam kills instead of speed.
 enum PerformanceProfile {
     /// Machine identifier, e.g. "AppleTV5,3" (HD), "AppleTV6,2" (4K 1st gen).
     static let machine: String = {
@@ -27,14 +32,30 @@ enum PerformanceProfile {
         return ProcessInfo.processInfo.physicalMemory < 2_500_000_000
     }()
 
-    /// Longest decoded image dimension. On the 1080p HD, cap at 1920 (the
-    /// display's own width — imperceptible) instead of decoding full 4K-ish
-    /// TMDB "original" art. `nil` = no downsampling (full res, unchanged).
-    static var maxImagePixelSize: CGFloat? { isLowPower ? 1920 : nil }
+    /// 4K devices with constrained RAM (the 3 GB first-gen 4K).
+    static let isMidPower: Bool = {
+        if isLowPower { return false }
+        if machine.hasPrefix("AppleTV6") { return true }   // 4K 1st gen (3 GB)
+        return ProcessInfo.processInfo.physicalMemory < 3_500_000_000
+    }()
 
-    /// Decoded-pixel memory-cache budget. Smaller on the 2 GB HD so the app
-    /// isn't jetsammed; larger everywhere else. Invisible — evicted images just
-    /// re-decode from the disk cache.
-    static var imageCacheBytes: Int { isLowPower ? 96 << 20 : 256 << 20 }
-    static var imageCacheCount: Int { isLowPower ? 200 : 400 }
+    /// Longest decoded image dimension. 1080p HD caps at 1920 (its own panel
+    /// width); 4K devices cap at 3840 (the framebuffer — art beyond that cannot
+    /// render more detail, so the cap is pixel-identical). Individual views
+    /// pass tighter per-image budgets when they know their rendered size.
+    static var maxImagePixelSize: CGFloat { isLowPower ? 1920 : 3840 }
+
+    /// Decoded-pixel memory-cache budget, sized to what the box can spare.
+    /// Invisible — evicted images just re-decode from the disk cache.
+    static var imageCacheBytes: Int {
+        if isLowPower { return 96 << 20 }
+        if isMidPower { return 160 << 20 }
+        return 256 << 20
+    }
+
+    static var imageCacheCount: Int {
+        if isLowPower { return 200 }
+        if isMidPower { return 300 }
+        return 400
+    }
 }

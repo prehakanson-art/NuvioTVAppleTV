@@ -683,7 +683,7 @@ struct CastChip: View {
 
     var body: some View {
         VStack(spacing: NuvioSpacing.sm) {
-            RemoteImage(url: member.profileURL)
+            RemoteImage(url: member.profileURL, maxDimension: 150)
                 .frame(width: 150, height: 150)
                 .background(theme.palette.backgroundCard)
                 .clipShape(Circle())
@@ -717,7 +717,7 @@ struct CompanyLogo: View {
     let company: TMDBService.Company
 
     var body: some View {
-        RemoteImage(url: company.logoURL, contentMode: .fit)
+        RemoteImage(url: company.logoURL, contentMode: .fit, maxDimension: 180)
             .frame(width: 180, height: 90)
             .padding(.horizontal, NuvioSpacing.md)
             .background(Color.white.opacity(0.9))

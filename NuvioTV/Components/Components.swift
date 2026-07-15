@@ -47,19 +47,31 @@ final class ImageCache: @unchecked Sendable {
         diskURL = caches.appendingPathComponent("nuvio-images", isDirectory: true)
         try? fm.createDirectory(at: diskURL, withIntermediateDirectories: true)
         ioQueue.async { [weak self] in self?.trimDisk() }
+        // Under real memory pressure, decoded pixels are the cheapest thing to
+        // give back (they re-decode from disk on demand) — dropping them here
+        // is what keeps tvOS from jetsamming the whole app instead.
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in self?.memory.removeAllObjects() }
     }
 
-    /// Decode `data` off the render path. On the 1080p Apple TV HD it's
-    /// downsampled (via ImageIO) to the panel's own resolution — pixel-identical
-    /// on that display but a fraction of the memory of a full 4K-ish TMDB
-    /// "original". On 4K devices `maxImagePixelSize` is nil, so this is a plain
-    /// full-resolution decode — unchanged from before.
-    static func decodeDownsampled(_ data: Data) -> UIImage? {
-        // Full-res path (nil budget) or fallback: force the decode now so it
-        // doesn't happen lazily on the render path while a row scrolls.
-        guard let maxDim = PerformanceProfile.maxImagePixelSize,
-              let src = CGImageSourceCreateWithData(data as CFData,
+    /// Decode `data` off the render path, downsampled (via ImageIO) to
+    /// `budget` pixels on the longest side when the source is larger.
+    ///
+    /// Callers that know their rendered size pass a tight budget (a poster
+    /// card never needs a 2000×3000 "original" — decoding it full-size costs
+    /// ~24 MB where ~3 MB carries the identical rendered pixels). With no
+    /// budget the device framebuffer cap applies (1920 on the 1080p HD, 3840
+    /// on 4K devices) — beyond the framebuffer there is nothing more to show,
+    /// so every path stays pixel-identical.
+    static func decodeDownsampled(_ data: Data, budget: CGFloat? = nil) -> UIImage? {
+        let maxDim = min(budget ?? .greatestFiniteMagnitude,
+                         PerformanceProfile.maxImagePixelSize)
+        guard let src = CGImageSourceCreateWithData(data as CFData,
                         [kCGImageSourceShouldCache: false] as CFDictionary) else {
+            // Fallback: force the decode now so it doesn't happen lazily on
+            // the render path while a row scrolls.
             let decoded = UIImage(data: data)
             return decoded?.preparingForDisplay() ?? decoded
         }
@@ -88,8 +100,10 @@ final class ImageCache: @unchecked Sendable {
     func image(for key: String) -> UIImage? { memory.object(forKey: key as NSString) }
 
     /// Off-main disk lookup. On a hit the image is promoted back into memory
-    /// and its file's mtime is touched so it survives LRU trimming.
-    func diskImage(for key: String) async -> UIImage? {
+    /// (under `memoryKey`, which carries the decode-budget bucket) and its
+    /// file's mtime is touched so it survives LRU trimming. Disk always stores
+    /// the original encoded bytes keyed by URL — one file serves every size.
+    func diskImage(for key: String, budget: CGFloat? = nil, memoryKey: String? = nil) async -> UIImage? {
         let fileURL = fileURL(for: key)
         return await withCheckedContinuation { continuation in
             ioQueue.async { [weak self] in
@@ -98,11 +112,11 @@ final class ImageCache: @unchecked Sendable {
                       // Decode HERE (background, downsampled) — otherwise UIKit
                       // decodes lazily on first draw, i.e. on the render path
                       // while a row is scrolling.
-                      let prepared = Self.decodeDownsampled(data) else {
+                      let prepared = Self.decodeDownsampled(data, budget: budget) else {
                     continuation.resume(returning: nil)
                     return
                 }
-                self.insertMemory(prepared, for: key)
+                self.insertMemory(prepared, for: memoryKey ?? key)
                 try? self.fm.setAttributes([.modificationDate: Date()], ofItemAtPath: fileURL.path)
                 continuation.resume(returning: prepared)
             }
@@ -111,8 +125,10 @@ final class ImageCache: @unchecked Sendable {
 
     /// Store in memory now and persist the encoded bytes to disk in the
     /// background. Pass the original downloaded `data` to avoid re-encoding.
-    func insert(_ image: UIImage, for key: String, data: Data? = nil) {
-        insertMemory(image, for: key)
+    /// `memoryKey` (when given) carries the decode-budget bucket; disk is
+    /// always keyed by the plain URL.
+    func insert(_ image: UIImage, for key: String, data: Data? = nil, memoryKey: String? = nil) {
+        insertMemory(image, for: memoryKey ?? key)
         let payload = data ?? image.jpegData(compressionQuality: 0.9)
         guard let payload else { return }
         let fileURL = fileURL(for: key)
@@ -179,6 +195,12 @@ struct RemoteImage: View {
     let url: String?
     var contentMode: ContentMode = .fill
     var alignment: Alignment = .center
+    /// Longest rendered side in POINTS, when the caller knows it (poster and
+    /// episode cards do). Decoding is capped at 1.5× this size in pixels —
+    /// still supersampled relative to what's drawn, so the rendered output is
+    /// identical, but a grid of cards stops decoding full "original" TMDB art
+    /// it can never show. `nil` (heroes/backdrops) = device framebuffer cap.
+    var maxDimension: CGFloat? = nil
 
     @State private var image: UIImage?
     @State private var shownKey: String?
@@ -199,19 +221,33 @@ struct RemoteImage: View {
         .task(id: url) { await load(url) }
     }
 
+    /// Pixel budget for the decode (longest side), from the rendered size.
+    private var pixelBudget: CGFloat? {
+        maxDimension.map { $0 * UIScreen.main.scale * 1.5 }
+    }
+
+    /// Memory-cache key: the URL plus the budget bucket, so a small card decode
+    /// is never handed to a full-screen consumer of the same URL (and vice
+    /// versa). Disk stays keyed by plain URL — encoded bytes fit every size.
+    private func memoryKey(_ value: String) -> String {
+        pixelBudget.map { "\(value)#\(Int($0))" } ?? value
+    }
+
     private func load(_ value: String?) async {
         guard let value, let parsed = URL(string: value) else {
             withAnimation(.easeOut(duration: 0.2)) { image = nil; shownKey = nil }
             return
         }
         if value == shownKey { return }
-        if let cached = ImageCache.shared.image(for: value) {
+        if let cached = ImageCache.shared.image(for: memoryKey(value)) {
             withAnimation(.easeOut(duration: 0.28)) { image = cached; shownKey = value }
             return
         }
         // Disk hit: survives relaunch, so a previously seen poster shows without
         // a network round-trip.
-        if let disk = await ImageCache.shared.diskImage(for: value) {
+        if let disk = await ImageCache.shared.diskImage(
+            for: value, budget: pixelBudget, memoryKey: memoryKey(value)
+        ) {
             if Task.isCancelled { return }
             withAnimation(.easeOut(duration: 0.28)) { image = disk; shownKey = value }
             return
@@ -220,13 +256,15 @@ struct RemoteImage: View {
         guard let (data, _) = try? await ImageCache.downloadSession.data(from: parsed),
               !Task.isCancelled else { return }
         // Decode off the render path (UIKit otherwise decodes lazily on first
-        // draw — a scroll hitch per newly visible poster), downsampled to the
-        // device's pixel budget (a full 3840px backdrop decode wrecks the HD).
+        // draw — a scroll hitch per newly visible poster), downsampled to this
+        // view's own pixel budget (a poster card must not decode a full-res
+        // backdrop-sized original).
+        let budget = pixelBudget
         guard let prepared = await Task.detached(priority: .userInitiated, operation: {
-            ImageCache.decodeDownsampled(data)
+            ImageCache.decodeDownsampled(data, budget: budget)
         }).value else { return }
         if Task.isCancelled { return }
-        ImageCache.shared.insert(prepared, for: value, data: data)
+        ImageCache.shared.insert(prepared, for: value, data: data, memoryKey: memoryKey(value))
         withAnimation(.easeInOut(duration: 0.35)) { image = prepared; shownKey = value }
     }
 
@@ -279,7 +317,7 @@ struct PosterCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
             ZStack(alignment: .bottom) {
-                RemoteImage(url: item.poster)
+                RemoteImage(url: item.poster, maxDimension: cardHeight)
                     .aspectRatio(2 / 3, contentMode: .fill)
                 if let progress = effectiveProgress, progress > 0 {
                     ProgressStrip(fraction: progress)
@@ -347,7 +385,7 @@ struct LandscapeCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
             ZStack(alignment: .bottom) {
-                RemoteImage(url: imageURL)
+                RemoteImage(url: imageURL, maxDimension: width)
                     .aspectRatio(16 / 9, contentMode: .fill)
                     .blur(radius: blurImage && !isFocused ? 28 : 0)
                 if let progress, progress > 0 {

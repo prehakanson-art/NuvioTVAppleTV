@@ -104,7 +104,7 @@ private struct DownloadCardLabel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
             ZStack {
-                RemoteImage(url: item.poster)
+                RemoteImage(url: item.poster, maxDimension: cardHeight)
                     .aspectRatio(2 / 3, contentMode: .fill)
 
                 if item.status != .completed {

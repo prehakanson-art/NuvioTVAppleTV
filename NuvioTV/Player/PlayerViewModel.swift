@@ -126,19 +126,23 @@ final class NuvioPlayerOptions: KSOptions {
     /// the Metal path OUTPUTS HDR10, which isn't true here.
     var nativeDV = false
 
-    /// The dynamic range last requested from the display, so repeat calls
-    /// with identical criteria don't re-hit the HDMI handshake.
+    /// The criteria last requested from the display, so repeat calls with
+    /// identical criteria don't re-hit the HDMI handshake.
     private var lastAppliedDynamicRange: Int32?
+    private var lastAppliedRefreshRate: Float?
 
-    /// Capability-gated, harm-reduced display-mode request. Two mitigations
-    /// over KSPlayer's stock behavior, both aimed at the grey-screen wedge:
+    /// Capability-gated, harm-reduced display-mode request. Mitigations over
+    /// KSPlayer's stock behavior, aimed at the grey-screen wedge:
     ///
-    /// 1. DYNAMIC RANGE ONLY, never refresh rate (refreshRate 0 = "keep
-    ///    current"). Stock KSOptions requests DR *and* frame rate together —
-    ///    a compound HDMI renegotiation. Switching only the dynamic range is
-    ///    a lighter handshake, less likely to hang the TV's receiver. (The
-    ///    cost: 24fps content runs under 60Hz pulldown, so the softened-drop
-    ///    pacing below stays on — pulldown60Hz is always true here.)
+    /// 1. REAL refresh rate, always. An earlier version requested
+    ///    `refreshRate: 0` hoping it meant "keep the current rate" — it
+    ///    doesn't: 0 isn't a mode any display advertises, and asking the HDMI
+    ///    chain to negotiate one is exactly the malformed handshake that
+    ///    wedged real hardware grey. Stock KSPlayer always passes the
+    ///    content's true rate and is field-tested on tvOS; do the same, and
+    ///    refuse to request anything when the rate is unknown. (tvOS itself
+    ///    only *applies* the rate/range parts the user has enabled under
+    ///    Settings → Video and Audio → Match Content.)
     /// 2. DE-DUP. KSPlayer calls this on both the fps and formatDescription
     ///    didSet, so the same criteria arrives 2–3× in a row; re-requesting
     ///    an identical mode is a pointless extra handshake, so we skip it.
@@ -146,15 +150,16 @@ final class NuvioPlayerOptions: KSOptions {
     /// The DR itself is clamped to what the TV actually advertises
     /// (`DynamicRange.availableHDRModes`): DV maps to HDR10 (the Metal path
     /// outputs DV as HDR10), an unsupported HDR flavor falls back to the best
-    /// supported one, and an SDR-only TV is left alone entirely.
-    ///
-    /// None of this can *guarantee* no grey screen — a flaky HDMI link can
-    /// still wedge on any switch — which is why the whole thing is opt-in.
-    override func updateVideo(refreshRate _: Float, isDovi _: Bool, formatDescription: CMFormatDescription?) {
-        // We never request a refresh-rate switch, so a mismatched panel stays
-        // at its home rate (typically 60Hz): keep the pulldown softening on.
+    /// supported one, and an SDR-only TV is left alone entirely. A NATIVE-DV
+    /// session keeps genuine Dolby Vision — and, being its own explicit DV
+    /// opt-in, may request the switch even when the general "match content
+    /// display mode" toggle is off.
+    override func updateVideo(refreshRate: Float, isDovi _: Bool, formatDescription: CMFormatDescription?) {
+        // A mismatched panel (or Match Frame Rate off) stays at its home rate
+        // (typically 60Hz): keep the pulldown softening on.
         pulldown60Hz = true
-        guard matchDisplayCriteria,
+        guard matchDisplayCriteria || nativeDV,
+              refreshRate > 0,
               let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
               displayManager.isDisplayCriteriaMatchingEnabled,
               let formatDescription
@@ -169,11 +174,12 @@ final class NuvioPlayerOptions: KSOptions {
             else if available.contains(.hlg) { target = .hlg }
             else { target = .sdr }
         }
-        guard lastAppliedDynamicRange != target.rawValue else { return }
+        guard lastAppliedDynamicRange != target.rawValue
+            || lastAppliedRefreshRate != refreshRate else { return }
         lastAppliedDynamicRange = target.rawValue
-        // refreshRate 0 → any rate acceptable: vary ONLY the dynamic range.
+        lastAppliedRefreshRate = refreshRate
         displayManager.preferredDisplayCriteria = AVDisplayCriteria(
-            refreshRate: 0, videoDynamicRange: target.rawValue
+            refreshRate: refreshRate, videoDynamicRange: target.rawValue
         )
     }
 
@@ -357,7 +363,10 @@ final class PlayerViewModel: ObservableObject {
     private func maybeStartNativeDV() {
         guard settings.nativeDolbyVision,
               !usingNativeDV, !dvAttempted, dvRemuxer == nil, !isExiting,
-              effectiveEngine == .auto,
+              // Auto or explicit FFmpeg: both decode DV as HDR10-mapped Metal
+              // output, so the native remux is an upgrade for either. (VLC and
+              // explicit-native sessions never reach a KSMEPlayer DV probe.)
+              effectiveEngine == .auto || effectiveEngine == .ffmpeg,
               let player = playerLayer?.player, player is KSMEPlayer,
               let urlString = currentEntry.stream.url,
               !dvFailedURLs.contains(urlString),

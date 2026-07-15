@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Offline downloads: play saved movies/episodes with no network, and manage
-/// (pause / resume / delete) in-progress ones.
+/// Standalone Downloads screen (deep-link / route target). The same content is
+/// embedded directly in the Library "Downloads" tab via `DownloadsContent`.
 struct DownloadsView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var downloads: DownloadManager
@@ -11,6 +11,36 @@ struct DownloadsView: View {
 
     var body: some View {
         DetailScaffold(title: "Downloads", subtitle: downloadsSubtitle) {
+            DownloadsContent(onPlay: onPlay)
+        }
+    }
+
+    private var downloadsSubtitle: String {
+        let done = downloads.items.filter { $0.status == .completed }.count
+        let size = ByteCountFormatter.string(fromByteCount: downloads.totalBytesOnDisk, countStyle: .file)
+        return done > 0 ? "\(done) saved · \(size) on disk" : "Saved for offline viewing"
+    }
+}
+
+/// Storage bar + a poster grid of downloaded titles (cover + info). Shared by
+/// the Library "Downloads" tab and the standalone Downloads screen so both show
+/// the same thing.
+struct DownloadsContent: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var downloads: DownloadManager
+    @EnvironmentObject private var layout: HomeCatalogSettingsStore
+
+    /// Plays a completed download from its local file.
+    let onPlay: (MetaItem, StreamEntry) -> Void
+
+    private var columns: [GridItem] {
+        [GridItem(.adaptive(minimum: layout.posterSize.posterWidth,
+                            maximum: layout.posterSize.posterWidth),
+                  spacing: NuvioSpacing.lg, alignment: .top)]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.xl) {
             StorageBar(info: downloads.storageInfo())
 
             if downloads.items.isEmpty {
@@ -19,21 +49,38 @@ struct DownloadsView: View {
                     title: "No downloads",
                     message: "Pick a source on any title and choose Download to save it here for offline viewing."
                 )
-                .frame(maxWidth: .infinity, minHeight: 300)
+                .frame(maxWidth: .infinity, minHeight: 320)
             } else {
-                LazyVStack(spacing: NuvioSpacing.sm) {
+                LazyVGrid(columns: columns, alignment: .leading, spacing: NuvioSpacing.xl) {
                     ForEach(downloads.items) { item in
-                        DownloadRow(item: item, onPlay: { play(item) })
+                        Button { primaryAction(item) } label: {
+                            DownloadCardLabel(item: item)
+                        }
+                        .buttonStyle(PlainCardButtonStyle())
+                        .contextMenu {
+                            if item.status == .completed {
+                                Button { play(item) } label: { Label("Play", systemImage: "play.fill") }
+                            }
+                            if item.status == .downloading {
+                                Button { downloads.pause(item.id) } label: { Label("Pause", systemImage: "pause.fill") }
+                            }
+                            if item.status == .paused || item.status == .failed {
+                                Button { downloads.resume(item.id) } label: { Label("Resume", systemImage: "arrow.clockwise") }
+                            }
+                            Button(role: .destructive) { downloads.delete(item.id) } label: { Label("Delete", systemImage: "trash") }
+                        }
                     }
                 }
             }
         }
     }
 
-    private var downloadsSubtitle: String {
-        let done = downloads.items.filter { $0.status == .completed }.count
-        let size = ByteCountFormatter.string(fromByteCount: downloads.totalBytesOnDisk, countStyle: .file)
-        return done > 0 ? "\(done) saved · \(size) on disk" : "Saved for offline viewing"
+    private func primaryAction(_ item: DownloadedItem) {
+        switch item.status {
+        case .completed: play(item)
+        case .downloading: downloads.pause(item.id)
+        case .paused, .failed: downloads.resume(item.id)
+        }
     }
 
     private func play(_ item: DownloadedItem) {
@@ -44,6 +91,96 @@ struct DownloadsView: View {
                             description: item.sizeLabel, url: url.absoluteString,
                             infoHash: nil, behaviorHints: nil)
         onPlay(meta, StreamEntry(addonName: "Downloaded", stream: stream))
+    }
+}
+
+/// Poster card for one download: cover art with a status overlay for anything
+/// not finished, plus title/status underneath. Reads `isFocused` here (as the
+/// button's label) so it lights up on focus like the rest of the poster grid.
+private struct DownloadCardLabel: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var layout: HomeCatalogSettingsStore
+    @Environment(\.isFocused) private var isFocused
+    let item: DownloadedItem
+
+    private var cardWidth: CGFloat { layout.posterSize.posterWidth }
+    private var cardHeight: CGFloat { cardWidth * 3 / 2 }
+    private var cornerRadius: CGFloat { CGFloat(layout.posterCornerRadius) }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
+            ZStack {
+                RemoteImage(url: item.poster)
+                    .aspectRatio(2 / 3, contentMode: .fill)
+
+                if item.status != .completed {
+                    Rectangle().fill(Color.black.opacity(0.5))
+                    VStack(spacing: 10) {
+                        Image(systemName: statusIcon)
+                            .font(.system(size: 46))
+                            .foregroundStyle(.white)
+                        if item.status == .downloading || item.status == .paused {
+                            ProgressStrip(fraction: item.fraction)
+                                .frame(width: cardWidth * 0.66)
+                        }
+                    }
+                }
+            }
+            .frame(width: cardWidth, height: cardHeight)
+            .background(theme.palette.backgroundCard)
+            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            .overlay(alignment: .topLeading) {
+                if item.status == .completed {
+                    Image(systemName: "arrow.down.circle.fill")
+                        .font(.system(size: 26))
+                        .foregroundStyle(theme.palette.secondary)
+                        .padding(10)
+                        .shadow(color: .black.opacity(0.6), radius: 4)
+                }
+            }
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
+            )
+            .shadow(color: .black.opacity(isFocused ? 0.7 : 0.35), radius: isFocused ? 24 : 10, y: 10)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 22, weight: .medium))
+                    .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
+                    .lineLimit(1)
+                Text(statusLine)
+                    .font(.system(size: 18))
+                    .foregroundStyle(theme.palette.textTertiary)
+                    .lineLimit(1)
+            }
+            .frame(width: cardWidth, alignment: .leading)
+        }
+        .scaleEffect(isFocused ? 1.08 : 1.0)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
+    }
+
+    private var title: String {
+        if let s = item.season, let e = item.episode { return "\(item.name) · S\(s):E\(e)" }
+        return item.name
+    }
+
+    private var statusIcon: String {
+        switch item.status {
+        case .completed: return "play.circle.fill"
+        case .downloading: return "arrow.down.circle"
+        case .paused: return "pause.circle"
+        case .failed: return "exclamationmark.circle"
+        }
+    }
+
+    private var statusLine: String {
+        switch item.status {
+        case .completed: return item.sizeLabel.map { "Saved · \($0)" } ?? "Saved offline"
+        case .downloading: return "Downloading \(Int(item.fraction * 100))%\(item.sizeLabel.map { " of \($0)" } ?? "")"
+        case .paused: return "Paused \(Int(item.fraction * 100))% — select to resume"
+        case .failed: return "Failed — select to retry"
+        }
     }
 }
 
@@ -99,98 +236,12 @@ private struct StorageBar: View {
             RoundedRectangle(cornerRadius: NuvioRadius.lg, style: .continuous)
                 .fill(theme.palette.background.opacity(0.55))
         )
-        .padding(.bottom, NuvioSpacing.sm)
     }
 
     private func legend(color: Color, text: String) -> some View {
         HStack(spacing: 6) {
             RoundedRectangle(cornerRadius: 3).fill(color).frame(width: 16, height: 16)
             Text(text).font(.system(size: 17)).foregroundStyle(theme.palette.textSecondary)
-        }
-    }
-}
-
-private struct DownloadRow: View {
-    @EnvironmentObject private var theme: ThemeManager
-    @EnvironmentObject private var downloads: DownloadManager
-    @Environment(\.isFocused) private var isFocused
-    let item: DownloadedItem
-    let onPlay: () -> Void
-
-    var body: some View {
-        Button(action: primaryAction) {
-            HStack(spacing: NuvioSpacing.md) {
-                Image(systemName: icon)
-                    .font(.system(size: 30))
-                    .foregroundStyle(isFocused ? theme.palette.secondary : theme.palette.textTertiary)
-                    .frame(width: 40)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 23, weight: .medium))
-                        .foregroundStyle(theme.palette.textPrimary)
-                        .lineLimit(1)
-                    if item.status != .completed {
-                        ProgressView(value: item.fraction)
-                            .tint(theme.palette.secondary)
-                            .frame(maxWidth: 420)
-                    }
-                    Text(statusLine)
-                        .font(.system(size: 17))
-                        .foregroundStyle(theme.palette.textSecondary)
-                }
-                Spacer()
-            }
-            .padding(.horizontal, NuvioSpacing.lg)
-            .frame(minHeight: 78)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
-                    .fill(isFocused ? theme.palette.focusBackground : theme.palette.backgroundCard.opacity(0.5))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
-                    .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
-            )
-        }
-        .buttonStyle(PlainCardButtonStyle())
-        .contextMenu {
-            if item.status == .completed { Button { onPlay() } label: { Label("Play", systemImage: "play.fill") } }
-            if item.status == .downloading { Button { downloads.pause(item.id) } label: { Label("Pause", systemImage: "pause.fill") } }
-            if item.status == .paused || item.status == .failed { Button { downloads.resume(item.id) } label: { Label("Resume", systemImage: "arrow.clockwise") } }
-            Button(role: .destructive) { downloads.delete(item.id) } label: { Label("Delete", systemImage: "trash") }
-        }
-    }
-
-    private func primaryAction() {
-        switch item.status {
-        case .completed: onPlay()
-        case .downloading: downloads.pause(item.id)
-        case .paused, .failed: downloads.resume(item.id)
-        }
-    }
-
-    private var title: String {
-        if let s = item.season, let e = item.episode {
-            return "\(item.name) · S\(s):E\(e)"
-        }
-        return item.name
-    }
-
-    private var icon: String {
-        switch item.status {
-        case .completed: return "play.circle.fill"
-        case .downloading: return "arrow.down.circle"
-        case .paused: return "pause.circle"
-        case .failed: return "exclamationmark.circle"
-        }
-    }
-
-    private var statusLine: String {
-        switch item.status {
-        case .completed: return item.sizeLabel.map { "Saved · \($0)" } ?? "Saved"
-        case .downloading: return "Downloading \(Int(item.fraction * 100))%\(item.sizeLabel.map { " of \($0)" } ?? "")"
-        case .paused: return "Paused \(Int(item.fraction * 100))% — select to resume"
-        case .failed: return "Failed — select to retry"
         }
     }
 }

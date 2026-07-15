@@ -12,8 +12,8 @@ struct LibraryView: View {
     let onSelect: (MetaItem) -> Void
     /// Opens the full Cloud Library screen (debrid cloud files).
     var onOpenCloud: () -> Void = {}
-    /// Opens the full Downloads screen (offline saved titles).
-    var onOpenDownloads: () -> Void = {}
+    /// Plays a completed offline download from its local file.
+    var onPlayDownload: (MetaItem, StreamEntry) -> Void = { _, _ in }
 
     @State private var tab: LibraryTab = .saved
     @State private var typeFilter = "All"          // All / Movies / Series
@@ -56,29 +56,26 @@ struct LibraryView: View {
                 VStack(alignment: .leading, spacing: NuvioSpacing.lg) {
                     header
                     tabs
-                    filters
+                    if tab == .saved { filters }
                     if tab == .cloud {
-                        VStack(spacing: NuvioSpacing.lg) {
+                        VStack(alignment: .leading, spacing: NuvioSpacing.lg) {
                             NuvioEmptyState(icon: "externaldrive.connected.to.line.below",
                                             title: "Debrid cloud files",
                                             message: "Browse and play the files already in your Real-Debrid / Premiumize / TorBox / AllDebrid cloud.")
+                                .frame(maxWidth: .infinity)
+                            // Left-aligned under the tabs so focus drops straight
+                            // down onto it (a centered button forces a sideways hop).
                             Button(action: onOpenCloud) {
                                 SeeAllLabel(text: "Open Cloud Library")
                             }
                             .buttonStyle(PlainCardButtonStyle())
                         }
-                        .frame(maxWidth: .infinity, minHeight: 460)
+                        .frame(maxWidth: .infinity, minHeight: 460, alignment: .leading)
+                        .padding(.horizontal, NuvioSpacing.huge)
                     } else if tab == .downloads {
-                        VStack(spacing: NuvioSpacing.lg) {
-                            NuvioEmptyState(icon: "arrow.down.circle",
-                                            title: downloads.items.isEmpty ? "No downloads yet" : "\(downloads.items.filter { $0.status == .completed }.count) saved offline",
-                                            message: "Save movies and episodes to this Apple TV to watch when the internet's out.")
-                            Button(action: onOpenDownloads) {
-                                SeeAllLabel(text: "Open Downloads")
-                            }
-                            .buttonStyle(PlainCardButtonStyle())
-                        }
-                        .frame(maxWidth: .infinity, minHeight: 460)
+                        DownloadsContent(onPlay: onPlayDownload)
+                            .padding(.horizontal, NuvioSpacing.huge)
+                            .padding(.bottom, NuvioSpacing.huge)
                     } else if filtered.isEmpty {
                         NuvioEmptyState(icon: "bookmark",
                                         title: typeFilter == "All" ? "Nothing saved yet" : "No \(typeFilter.lowercased()) yet",

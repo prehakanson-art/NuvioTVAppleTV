@@ -433,7 +433,12 @@ struct RootView: View {
                 LibraryView(
                     onSelect: { libraryPath.append(Route.detail($0)) },
                     onOpenCloud: { libraryPath.append(Route.cloudLibrary) },
-                    onOpenDownloads: { libraryPath.append(Route.downloads) }
+                    onPlayDownload: { meta, entry in
+                        startPlayback(PlaybackRequest(
+                            meta: meta, video: nil, entry: entry,
+                            allEntries: [entry], resumePosition: nil
+                        ))
+                    }
                 )
                     .onExitCommand { sidebarFocus = 2 }
                     .navigationDestination(for: Route.self) { destination(for: $0, path: $libraryPath) }

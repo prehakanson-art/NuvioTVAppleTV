@@ -233,14 +233,27 @@ struct RemoteImage: View {
         pixelBudget.map { "\(value)#\(Int($0))" } ?? value
     }
 
+    /// Commit a loaded image, fading only when "Artwork fade-in" is on
+    /// (Settings → Performance) — each fade re-renders the cell for its
+    /// duration, which adds up during a fast row scroll on older boxes.
+    private func show(_ newImage: UIImage?, key: String?, duration: Double) {
+        if PerformanceSettingsStore.shared.settings.artworkFadeIn {
+            withAnimation(.easeOut(duration: duration)) { image = newImage; shownKey = key }
+        } else {
+            var t = Transaction()
+            t.disablesAnimations = true
+            withTransaction(t) { image = newImage; shownKey = key }
+        }
+    }
+
     private func load(_ value: String?) async {
         guard let value, let parsed = URL(string: value) else {
-            withAnimation(.easeOut(duration: 0.2)) { image = nil; shownKey = nil }
+            show(nil, key: nil, duration: 0.2)
             return
         }
         if value == shownKey { return }
         if let cached = ImageCache.shared.image(for: memoryKey(value)) {
-            withAnimation(.easeOut(duration: 0.28)) { image = cached; shownKey = value }
+            show(cached, key: value, duration: 0.28)
             return
         }
         // Disk hit: survives relaunch, so a previously seen poster shows without
@@ -249,7 +262,7 @@ struct RemoteImage: View {
             for: value, budget: pixelBudget, memoryKey: memoryKey(value)
         ) {
             if Task.isCancelled { return }
-            withAnimation(.easeOut(duration: 0.28)) { image = disk; shownKey = value }
+            show(disk, key: value, duration: 0.28)
             return
         }
         // Keep the current image visible while the replacement downloads.
@@ -265,7 +278,7 @@ struct RemoteImage: View {
         }).value else { return }
         if Task.isCancelled { return }
         ImageCache.shared.insert(prepared, for: value, data: data, memoryKey: memoryKey(value))
-        withAnimation(.easeInOut(duration: 0.35)) { image = prepared; shownKey = value }
+        show(prepared, key: value, duration: 0.35)
     }
 
     private var placeholder: some View {
@@ -297,6 +310,7 @@ struct PosterCard: View {
     @EnvironmentObject private var watched: WatchedStore
     @EnvironmentObject private var progressStore: ProgressStore
     @EnvironmentObject private var layout: HomeCatalogSettingsStore
+    @ObservedObject private var perf = PerformanceSettingsStore.shared
     @Environment(\.isFocused) private var isFocused
 
     let item: MetaItem
@@ -335,7 +349,8 @@ struct PosterCard: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
             )
-            .shadow(color: .black.opacity(isFocused ? 0.7 : 0.35), radius: isFocused ? 24 : 10, y: 10)
+            .shadow(color: .black.opacity(perf.settings.cardShadows ? (isFocused ? 0.7 : 0.35) : 0),
+                    radius: perf.settings.cardShadows ? (isFocused ? 24 : 10) : 0, y: 10)
 
             if layout.showPosterLabels {
                 Text(item.name)
@@ -345,7 +360,7 @@ struct PosterCard: View {
                     .frame(width: cardWidth, alignment: .leading)
             }
         }
-        .scaleEffect(isFocused ? 1.08 : 1.0)
+        .scaleEffect(perf.settings.focusZoom && isFocused ? 1.08 : 1.0)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
     }
 }
@@ -370,6 +385,7 @@ struct ProgressStrip: View {
 /// Landscape card used for Continue Watching and episode thumbnails.
 struct LandscapeCard: View {
     @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var perf = PerformanceSettingsStore.shared
     @Environment(\.isFocused) private var isFocused
 
     let imageURL: String?
@@ -407,7 +423,8 @@ struct LandscapeCard: View {
                 RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
                     .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
             )
-            .shadow(color: .black.opacity(isFocused ? 0.7 : 0.35), radius: isFocused ? 24 : 10, y: 10)
+            .shadow(color: .black.opacity(perf.settings.cardShadows ? (isFocused ? 0.7 : 0.35) : 0),
+                    radius: perf.settings.cardShadows ? (isFocused ? 24 : 10) : 0, y: 10)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -423,7 +440,7 @@ struct LandscapeCard: View {
             }
             .frame(width: width, alignment: .leading)
         }
-        .scaleEffect(isFocused ? 1.06 : 1.0)
+        .scaleEffect(perf.settings.focusZoom && isFocused ? 1.06 : 1.0)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
     }
 }

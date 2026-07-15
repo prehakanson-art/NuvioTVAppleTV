@@ -9,7 +9,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
     // Matches the live APK rail (Essential mode): no Account/Profiles (those
     // live on the sidebar profile avatar). Only categories whose settings are
     // actually wired up are shown — no stub panes.
-    case account, appearance, layout, contentDiscovery, integration, plugins, playback, trakt, about
+    case account, appearance, layout, contentDiscovery, integration, plugins, playback, performance, trakt, about
 
     var id: String { rawValue }
 
@@ -22,6 +22,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .integration: return "Integrations"
         case .plugins: return "Plugins"
         case .playback: return "Playback"
+        case .performance: return "Performance"
         case .trakt: return "Trakt"
         case .about: return "About"
         }
@@ -36,6 +37,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .integration: return "Manage available integrations"
         case .plugins: return "Scraper repositories and plugins"
         case .playback: return "Auto-play and next-episode behavior"
+        case .performance: return "Turn effects off for a faster UI on older Apple TVs"
         case .trakt: return "Scrobble and sync your watch history"
         case .about: return "App information, updates, and legal links"
         }
@@ -51,6 +53,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .integration: return "link"
         case .plugins: return "puzzlepiece.extension.fill"
         case .playback: return "play.fill"
+        case .performance: return "speedometer"
         case .trakt: return "checkmark.seal.fill"
         case .about: return "info.circle.fill"
         }
@@ -189,6 +192,8 @@ struct SettingsView: View {
             AboutDetail()
         case .playback:
             PlaybackSettingsDetail()
+        case .performance:
+            PerformanceSettingsDetail()
         }
     }
 }

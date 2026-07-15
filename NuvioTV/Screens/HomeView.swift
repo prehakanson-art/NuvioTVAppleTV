@@ -202,7 +202,9 @@ final class HomeViewModel: ObservableObject {
             guard case .catalog(let row) = entry else { return [] }
             return row.items.prefix(12).compactMap(\.poster)
         }
-        if !prefetchURLs.isEmpty { ImageCache.shared.prefetch(urls: Array(prefetchURLs)) }
+        if !prefetchURLs.isEmpty, PerformanceSettingsStore.shared.settings.artworkPrefetch {
+            ImageCache.shared.prefetch(urls: Array(prefetchURLs))
+        }
     }
 
     // MARK: Row builders (shared between the cache-paint and live-fetch paths)
@@ -246,17 +248,37 @@ final class HomeViewModel: ObservableObject {
 @MainActor
 final class HeroFocus: ObservableObject {
     @Published var item: MetaItem?
+    /// Fetches full metadata for a bare item (Continue Watching rows only
+    /// store name + art) — set by HomeView. Successful results are cached.
+    var enrich: ((MetaItem) async -> MetaItem?)?
     private var task: Task<Void, Never>?
+    /// The id the debounce is ABOUT to commit. Guarding only against the
+    /// COMMITTED item had a race: moving X→Y→X inside the debounce window
+    /// passed the guard (item still X) without cancelling the pending Y, so Y
+    /// landed while focus sat on X — the "wrong hero" flash.
+    private var pendingID: String?
+    private var enriched: [String: MetaItem] = [:]
 
     /// Debounced so fast scrolling through a row doesn't thrash the backdrop,
     /// animated for a smooth crossfade.
     func focus(_ newItem: MetaItem) {
-        guard newItem.id != item?.id else { return }
+        guard newItem.id != (pendingID ?? item?.id) else { return }
         task?.cancel()
+        pendingID = newItem.id
         task = Task { @MainActor in
             try? await Task.sleep(nanoseconds: 60_000_000)   // let focus settle
             guard !Task.isCancelled else { return }
-            withAnimation(.easeInOut(duration: 0.4)) { item = newItem }
+            let display = enriched[newItem.id] ?? newItem
+            let fade = PerformanceSettingsStore.shared.settings.heroCrossfade
+            withAnimation(fade ? .easeInOut(duration: 0.4) : nil) { item = display }
+            pendingID = nil
+            // Bare item (no synopsis): fetch the full meta so the billboard
+            // shows description/genres/rating, and swap it in if still current.
+            guard display.description == nil, let enrich else { return }
+            guard let full = await enrich(display), !Task.isCancelled,
+                  self.item?.id == display.id else { return }
+            enriched[display.id] = full
+            withAnimation(fade ? .easeInOut(duration: 0.25) : nil) { self.item = full }
         }
     }
 }
@@ -274,6 +296,7 @@ struct HomeView: View {
     // (empty) model → a "Loading catalogs" spinner with no focusable element →
     // focus falls back to the sidebar, which reopened the panel.
     @ObservedObject var viewModel: HomeViewModel
+    @ObservedObject private var perf = PerformanceSettingsStore.shared
 
     let onSelect: (MetaItem) -> Void
     let onResume: (WatchProgress) -> Void
@@ -313,7 +336,7 @@ struct HomeView: View {
     var body: some View {
         ZStack(alignment: .top) {
             theme.palette.background.ignoresSafeArea()
-            if layout != .grid { HeroBackdropView(hero: hero) }
+            if layout != .grid && perf.settings.heroBackdrop { HeroBackdropView(hero: hero) }
             // The billboard (backdrop + info) is PINNED at the top; only the
             // rows scroll beneath it. That's what keeps the hero locked to the
             // focused title as you move through the 2nd, 3rd… rows (Netflix).
@@ -330,7 +353,28 @@ struct HomeView: View {
                 rowsScroll
             }
         }
-        .task { await reload() }
+        .task {
+            // Continue Watching rows only persist name/art — this fetches the
+            // full meta (synopsis/genres/rating) for the billboard on demand.
+            hero.enrich = { [weak addonManager] bare in
+                guard let addonManager,
+                      let addon = addonManager.metaAddon(for: bare.type, id: bare.id),
+                      let full = try? await StremioAPI.meta(addon: addon, type: bare.type, id: bare.id)
+                else { return nil }
+                // Keep the art the progress row already had when the meta
+                // addon returns none (hero backdrop must never go blank).
+                return MetaItem(
+                    id: full.id, type: full.type, name: full.name,
+                    poster: full.poster ?? bare.poster,
+                    background: full.background ?? bare.background,
+                    logo: full.logo ?? bare.logo,
+                    description: full.description, releaseInfo: full.releaseInfo,
+                    imdbRating: full.imdbRating, runtime: full.runtime,
+                    genres: full.genres, cast: full.cast, videos: full.videos
+                )
+            }
+            await reload()
+        }
         .onChange(of: addonManager.addons) { _, _ in Task { await reload() } }
         .onChange(of: collections.collections) { _, _ in Task { await reload() } }
         .onChange(of: homeCatalogSettings.orderKeys) { _, _ in Task { await reload() } }
@@ -489,7 +533,8 @@ struct HomeView: View {
     /// above rows straight back via the native scroll.
     private func noteRowFocus(id: String) {
         guard layout != .grid, pinnedRowID != id else { return }
-        withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) { pinnedRowID = id }
+        withAnimation(perf.settings.rowPinAnimation
+                      ? .spring(response: 0.25, dampingFraction: 0.9) : nil) { pinnedRowID = id }
     }
 
     /// Row header with a focusable "See All" affordance when the catalog can

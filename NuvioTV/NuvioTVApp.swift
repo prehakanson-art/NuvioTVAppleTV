@@ -310,6 +310,10 @@ struct RootView: View {
                 SidebarNav(selected: $selectedTab, focusBinding: $sidebarFocus,
                            onProfileTap: { showProfileGate = true },
                            onTabSelected: { newTab in selectTab(newTab) })
+                    // Let the rail sit in the leading overscan margin so the
+                    // collapsed icons hug the edge instead of floating in the
+                    // ~90pt safe-area dead space.
+                    .ignoresSafeArea(edges: .leading)
                     .focusSection()
                     .disabled(!sidebarEnabled)
                     // Back while IN the sidebar collapses it into content

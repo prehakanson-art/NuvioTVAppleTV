@@ -749,15 +749,23 @@ private struct ContinueWatchingRow: View {
             .scrollClipDisabled()
             .focusScope(continueScope)
             .onChange(of: focusedCWCard) { oldValue, newValue in
-                guard let newValue else { return }
-                if oldValue == nil,
-                   let last = focusedContinueID, last != newValue,
-                   items.contains(where: { $0.id == last }) {
+                if let newValue {
                     // ENTERING the row on the wrong (geometric) card — snap
-                    // back to the one the user left.
-                    focusedCWCard = last
+                    // back to the one the user left. In-row moves (oldValue
+                    // non-nil) do NOTHING: writing @State on every left/right
+                    // step re-rendered the whole row (every card + its
+                    // progress-strip GeometryReader) each move — the lag.
+                    if oldValue == nil,
+                       let last = focusedContinueID, last != newValue,
+                       items.contains(where: { $0.id == last }) {
+                        focusedCWCard = last
+                    }
                 } else {
-                    focusedContinueID = newValue
+                    // LEAVING the row: record the card we were on so the next
+                    // entry lands back on it. One re-render, off the hot path
+                    // (focus has already left) — and it refreshes the
+                    // prefersDefaultFocus markers for that next entry.
+                    focusedContinueID = oldValue
                 }
             }
         }

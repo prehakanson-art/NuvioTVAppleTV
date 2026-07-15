@@ -154,7 +154,12 @@ final class NuvioPlayerOptions: KSOptions {
         // We never request a refresh-rate switch, so a mismatched panel stays
         // at its home rate (typically 60Hz): keep the pulldown softening on.
         pulldown60Hz = true
-        guard matchDisplayCriteria,
+        // A native-DV session is its own explicit opt-in to Dolby Vision
+        // output, so it drives the display switch even when the general "match
+        // content display mode" toggle is off — otherwise the whole native-DV
+        // path does its work but the display never switches to DV and the
+        // tvOS Dolby Vision badge never appears.
+        guard matchDisplayCriteria || nativeDV,
               let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
               displayManager.isDisplayCriteriaMatchingEnabled,
               let formatDescription
@@ -977,9 +982,11 @@ final class PlayerViewModel: ObservableObject {
     /// on teardown — both already handled by KSPlayer.
     private func applyNativeDisplayCriteria() {
         guard let player = playerLayer?.player, !(player is KSMEPlayer) else { return }
+        // No frame-rate gate: updateVideo ignores the refresh rate (it only
+        // varies dynamic range) and no-ops on a nil formatDescription, so a DV
+        // file that reports rate 0 must still get its DV criteria requested.
         guard let track = player.tracks(mediaType: .video).first(where: \.isEnabled)
-            ?? player.tracks(mediaType: .video).first,
-            track.nominalFrameRate > 0
+            ?? player.tracks(mediaType: .video).first
         else { return }
         currentOptions?.updateVideo(
             refreshRate: track.nominalFrameRate,

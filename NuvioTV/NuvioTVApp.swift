@@ -647,32 +647,14 @@ struct RootView: View {
         Task { await resumeResolved(progress, fromBeginning: fromBeginning) }
     }
 
-    /// Resolve a `tmdb:<n>` meta/episode identity to canonical IMDb `tt` ids so
-    /// Cinemeta/Torrentio can serve it. Returns the pair unchanged when it's
-    /// not a tmdb id or the lookup fails. Shared by every Continue Watching /
-    /// catalog entry point that bypasses DetailView's own resolve.
-    @MainActor
-    private func canonicalIdentity(_ meta: MetaItem, _ video: MetaVideo?) async -> (MetaItem, MetaVideo?) {
-        guard meta.id.hasPrefix("tmdb:"), let n = Int(meta.id.dropFirst("tmdb:".count)),
-              let tt = await TMDBService.imdbID(tmdbID: n, isMovie: meta.type != "series")
-        else { return (meta, video) }
-        let newMeta = MetaItem(
-            id: tt, type: meta.type, name: meta.name,
-            poster: meta.poster, background: meta.background, logo: meta.logo
-        )
-        let newVideo = video.map { v -> MetaVideo in
-            let eid = (v.season != nil && v.episode != nil) ? "\(tt):\(v.season!):\(v.episode!)" : tt
-            return MetaVideo(id: eid, title: v.title, season: v.season, episode: v.episode)
-        }
-        return (newMeta, newVideo)
-    }
 
     /// Route to the Sources page, resolving a tmdb: identity first.
     private func playManually(_ meta: MetaItem, _ video: MetaVideo?) {
-        Task {
-            let (m, v) = await canonicalIdentity(meta, video)
-            homePath.append(Route.streams(m, v))
-        }
+        // Navigate immediately — don't block the transition on a tmdb→tt
+        // lookup. StreamsView canonicalizes the id itself (effectiveStreamID),
+        // so pushing the raw meta opens the Sources screen at once (with its
+        // own loading state) instead of leaving the card on screen for ~2s.
+        homePath.append(Route.streams(meta, video))
     }
 
     /// Continue Watching resume. TMDB-sourced items are stored as `tmdb:<n>`

@@ -1,30 +1,8 @@
 import SwiftUI
 
-/// Standalone Downloads screen (deep-link / route target). The same content is
-/// embedded directly in the Library "Downloads" tab via `DownloadsContent`.
-struct DownloadsView: View {
-    @EnvironmentObject private var theme: ThemeManager
-    @EnvironmentObject private var downloads: DownloadManager
-
-    /// Plays a completed download from its local file.
-    let onPlay: (MetaItem, StreamEntry) -> Void
-
-    var body: some View {
-        DetailScaffold(title: "Downloads", subtitle: downloadsSubtitle) {
-            DownloadsContent(onPlay: onPlay)
-        }
-    }
-
-    private var downloadsSubtitle: String {
-        let done = downloads.items.filter { $0.status == .completed }.count
-        let size = ByteCountFormatter.string(fromByteCount: downloads.totalBytesOnDisk, countStyle: .file)
-        return done > 0 ? "\(done) saved · \(size) on disk" : "Saved for offline viewing"
-    }
-}
-
-/// Storage bar + a poster grid of downloaded titles (cover + info). Shared by
-/// the Library "Downloads" tab and the standalone Downloads screen so both show
-/// the same thing.
+/// Storage bar + poster grids of downloaded titles (cover + info), separated
+/// into Movies and Shows sections like the Search screen. Embedded directly in
+/// the Library "Downloads" tab.
 struct DownloadsContent: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var downloads: DownloadManager
@@ -39,9 +17,16 @@ struct DownloadsContent: View {
                   spacing: NuvioSpacing.lg, alignment: .top)]
     }
 
+    private func isShow(_ item: DownloadedItem) -> Bool {
+        item.season != nil || item.type == "series" || item.type == "tv"
+    }
+    private var movieItems: [DownloadedItem] { downloads.items.filter { !isShow($0) } }
+    private var showItems: [DownloadedItem] { downloads.items.filter(isShow) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.xl) {
             StorageBar(info: downloads.storageInfo())
+                .padding(.horizontal, NuvioSpacing.huge)
 
             if downloads.items.isEmpty {
                 NuvioEmptyState(
@@ -51,25 +36,34 @@ struct DownloadsContent: View {
                 )
                 .frame(maxWidth: .infinity, minHeight: 320)
             } else {
-                LazyVGrid(columns: columns, alignment: .leading, spacing: NuvioSpacing.xl) {
-                    ForEach(downloads.items) { item in
-                        Button { primaryAction(item) } label: {
-                            DownloadCardLabel(item: item)
-                        }
-                        .buttonStyle(PlainCardButtonStyle())
-                        .contextMenu {
-                            if item.status == .completed {
-                                Button { play(item) } label: { Label("Play", systemImage: "play.fill") }
-                            }
-                            if item.status == .downloading {
-                                Button { downloads.pause(item.id) } label: { Label("Pause", systemImage: "pause.fill") }
-                            }
-                            if item.status == .paused || item.status == .failed {
-                                Button { downloads.resume(item.id) } label: { Label("Resume", systemImage: "arrow.clockwise") }
-                            }
-                            Button(role: .destructive) { downloads.delete(item.id) } label: { Label("Delete", systemImage: "trash") }
-                        }
+                if !movieItems.isEmpty {
+                    LibrarySection(title: "Movies") { grid(movieItems) }
+                }
+                if !showItems.isEmpty {
+                    LibrarySection(title: "Shows") { grid(showItems) }
+                }
+            }
+        }
+    }
+
+    private func grid(_ items: [DownloadedItem]) -> some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: NuvioSpacing.xl) {
+            ForEach(items) { item in
+                Button { primaryAction(item) } label: {
+                    DownloadCardLabel(item: item)
+                }
+                .buttonStyle(PlainCardButtonStyle())
+                .contextMenu {
+                    if item.status == .completed {
+                        Button { play(item) } label: { Label("Play", systemImage: "play.fill") }
                     }
+                    if item.status == .downloading {
+                        Button { downloads.pause(item.id) } label: { Label("Pause", systemImage: "pause.fill") }
+                    }
+                    if item.status == .paused || item.status == .failed {
+                        Button { downloads.resume(item.id) } label: { Label("Resume", systemImage: "arrow.clockwise") }
+                    }
+                    Button(role: .destructive) { downloads.delete(item.id) } label: { Label("Delete", systemImage: "trash") }
                 }
             }
         }

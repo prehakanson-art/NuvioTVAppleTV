@@ -18,6 +18,14 @@ struct CloudFile: Identifiable, Hashable {
     var isVideo: Bool {
         CloudFile.videoExtensions.contains((name as NSString).pathExtension.lowercased())
     }
+    /// Best-effort movie/show split from the filename: SxxExx, 1x02, or an
+    /// explicit "Season"/"Episode" marks it as a show.
+    var isSeries: Bool {
+        let patterns = [#"(?i)s\d{1,2}[ ._-]?e\d{1,2}"#,
+                        #"(?i)\b\d{1,2}x\d{1,2}\b"#,
+                        #"(?i)\b(season|episode)\b"#]
+        return patterns.contains { name.range(of: $0, options: .regularExpression) != nil }
+    }
     var sizeLabel: String? {
         size.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) }
     }

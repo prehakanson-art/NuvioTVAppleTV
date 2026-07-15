@@ -16,18 +16,12 @@ struct LibraryView: View {
     var onPlayDownload: (MetaItem, StreamEntry) -> Void = { _, _ in }
 
     @State private var tab: LibraryTab = .saved
-    @State private var typeFilter = "All"          // All / Movies / Series
     @State private var sort = "Added"              // Added / Name / Recently Watched
 
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: posterLayout.posterSize.posterWidth, maximum: posterLayout.posterSize.posterWidth), spacing: NuvioSpacing.lg, alignment: .top)] }
 
-    private var filtered: [SavedLibraryItem] {
+    private var sorted: [SavedLibraryItem] {
         var items = library.sorted
-        switch typeFilter {
-        case "Movies": items = items.filter { $0.metaItem.type == "movie" }
-        case "Series": items = items.filter { $0.metaItem.isSeries }
-        default: break
-        }
         switch sort {
         case "Name":
             items = items.sorted { $0.metaItem.name.lowercased() < $1.metaItem.name.lowercased() }
@@ -48,6 +42,9 @@ struct LibraryView: View {
         }
         return items
     }
+
+    private var savedMovies: [SavedLibraryItem] { sorted.filter { !$0.metaItem.isSeries } }
+    private var savedShows: [SavedLibraryItem] { sorted.filter { $0.metaItem.isSeries } }
 
     var body: some View {
         ZStack {
@@ -74,23 +71,22 @@ struct LibraryView: View {
                         .padding(.horizontal, NuvioSpacing.huge)
                     } else if tab == .downloads {
                         DownloadsContent(onPlay: onPlayDownload)
-                            .padding(.horizontal, NuvioSpacing.huge)
                             .padding(.bottom, NuvioSpacing.huge)
-                    } else if filtered.isEmpty {
+                    } else if sorted.isEmpty {
                         NuvioEmptyState(icon: "bookmark",
-                                        title: typeFilter == "All" ? "Nothing saved yet" : "No \(typeFilter.lowercased()) yet",
+                                        title: "Nothing saved yet",
                                         message: "Start saving your favorites to see them here")
                             .frame(height: 460)
                     } else {
-                        LazyVGrid(columns: columns, alignment: .leading, spacing: NuvioSpacing.xl) {
-                            ForEach(filtered) { item in
-                                Button { onSelect(item.metaItem) } label: {
-                                    PosterCard(item: item.metaItem)
-                                }
-                                .buttonStyle(PlainCardButtonStyle())
+                        // Movies and Shows split into their own sections, like Search.
+                        VStack(alignment: .leading, spacing: NuvioSpacing.xl) {
+                            if !savedMovies.isEmpty {
+                                LibrarySection(title: "Movies") { savedGrid(savedMovies) }
+                            }
+                            if !savedShows.isEmpty {
+                                LibrarySection(title: "Shows") { savedGrid(savedShows) }
                             }
                         }
-                        .padding(.horizontal, NuvioSpacing.huge)
                         .padding(.bottom, NuvioSpacing.huge)
                     }
                 }
@@ -129,12 +125,6 @@ struct LibraryView: View {
     private var filters: some View {
         HStack(spacing: NuvioSpacing.lg) {
             NuvioDropdown(
-                title: "Type",
-                selection: typeFilter,
-                options: [NuvioDropdownOption("All"), NuvioDropdownOption("Movies"), NuvioDropdownOption("Series")],
-                triggerWidth: 460
-            ) { typeFilter = $0 }
-            NuvioDropdown(
                 title: "Sort",
                 selection: sort,
                 options: [
@@ -146,6 +136,17 @@ struct LibraryView: View {
             ) { sort = $0 }
         }
         .padding(.horizontal, NuvioSpacing.huge)
+    }
+
+    private func savedGrid(_ items: [SavedLibraryItem]) -> some View {
+        LazyVGrid(columns: columns, alignment: .leading, spacing: NuvioSpacing.xl) {
+            ForEach(items) { item in
+                Button { onSelect(item.metaItem) } label: {
+                    PosterCard(item: item.metaItem)
+                }
+                .buttonStyle(PlainCardButtonStyle())
+            }
+        }
     }
 }
 

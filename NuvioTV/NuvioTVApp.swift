@@ -59,7 +59,6 @@ enum Route: Hashable {
     case catalogSeeAll(addon: InstalledAddon, catalog: ManifestCatalog, title: String)
     case discover
     case cloudLibrary
-    case downloads
 }
 
 struct RootView: View {
@@ -511,13 +510,6 @@ struct RootView: View {
             DiscoverView { path.wrappedValue.append(Route.detail($0)) }
         case .cloudLibrary:
             CloudLibraryView { meta, entry in
-                startPlayback(PlaybackRequest(
-                    meta: meta, video: nil, entry: entry,
-                    allEntries: [entry], resumePosition: nil
-                ))
-            }
-        case .downloads:
-            DownloadsView { meta, entry in
                 startPlayback(PlaybackRequest(
                     meta: meta, video: nil, entry: entry,
                     allEntries: [entry], resumePosition: nil

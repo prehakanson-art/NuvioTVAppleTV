@@ -555,6 +555,24 @@ struct RowHeader: View {
     }
 }
 
+/// A titled group (header + content) that separates a labelled grid/list, the
+/// same Movies/Shows split the Search screen uses. Owns its horizontal padding
+/// so the content lines up under the header, and is its own focus section so
+/// up/down moves cleanly between groups.
+struct LibrarySection<Content: View>: View {
+    let title: String
+    @ViewBuilder var content: Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
+            RowHeader(title: title)
+            content
+                .padding(.horizontal, NuvioSpacing.huge)
+        }
+        .focusSection()
+    }
+}
+
 // MARK: - Hero gradients (ported from Nuvio's ModernHeroGradientLayer)
 
 struct HeroGradient: View {

@@ -71,14 +71,29 @@ struct CloudLibraryView: View {
             )
             .frame(maxWidth: .infinity, minHeight: 300)
         } else {
-            LazyVStack(spacing: NuvioSpacing.sm) {
-                ForEach(files) { file in
-                    Button { play(file) } label: {
-                        CloudFileRow(file: file)
-                    }
-                    .buttonStyle(PlainCardButtonStyle())
-                    .focused($focused, equals: file.id)
+            // Movies and Shows separated into their own sections, like Search.
+            VStack(alignment: .leading, spacing: NuvioSpacing.xl) {
+                if !movieFiles.isEmpty {
+                    LibrarySection(title: "Movies") { fileList(movieFiles) }
                 }
+                if !showFiles.isEmpty {
+                    LibrarySection(title: "Shows") { fileList(showFiles) }
+                }
+            }
+        }
+    }
+
+    private var movieFiles: [CloudFile] { files.filter { !$0.isSeries } }
+    private var showFiles: [CloudFile] { files.filter(\.isSeries) }
+
+    private func fileList(_ list: [CloudFile]) -> some View {
+        LazyVStack(spacing: NuvioSpacing.sm) {
+            ForEach(list) { file in
+                Button { play(file) } label: {
+                    CloudFileRow(file: file)
+                }
+                .buttonStyle(PlainCardButtonStyle())
+                .focused($focused, equals: file.id)
             }
         }
     }

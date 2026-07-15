@@ -914,7 +914,7 @@ final class PlayerViewModel: ObservableObject {
         // background cache, not the start delay). If a huge remux stutters in
         // the first seconds on the A10X, reintroduce a small hold for .large.
         let tier = SizeTier(bytes: entry.stream.behaviorHints?.videoSize)
-        let socketBuffer: Int
+        var socketBuffer: Int
         cacheTargetSeconds = 0               // start on first keyframe, no hold
         switch tier {
         case .small:
@@ -926,6 +926,18 @@ final class PlayerViewModel: ObservableObject {
         case .large:
             options.maxBufferDuration = 24    // refill burst ≈ 12s of data
             socketBuffer = 8 << 20            // fewer, bigger reads
+        }
+        // User buffer profile (Settings → Playback) scales the tier defaults:
+        // Conservative halves the cap (smaller refill bursts), Large doubles
+        // it (deeper cushion). Floors/caps keep either extreme sane.
+        switch settings.bufferProfile {
+        case .auto: break
+        case .conservative:
+            options.maxBufferDuration = max(options.maxBufferDuration / 2, 12)
+            socketBuffer = max(socketBuffer / 2, 1 << 20)
+        case .large:
+            options.maxBufferDuration = min(options.maxBufferDuration * 2, 180)
+            socketBuffer = min(socketBuffer * 2, 16 << 20)
         }
 
         // Native path: preferredForwardBufferDuration maps STRAIGHT into

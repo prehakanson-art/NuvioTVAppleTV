@@ -7,6 +7,23 @@ enum NextEpisodeThresholdMode: String, Codable, CaseIterable {
     case minutesBeforeEnd  // fire when (duration - position) ≤ minutes
 }
 
+/// User-facing playback buffer sizing (the Android app's "Nuvio Engine" play
+/// buffer settings). Scales the size-adaptive defaults in PlayerViewModel:
+/// Conservative halves the buffer cap (smaller, gentler refill bursts — for
+/// boxes/networks that stutter on the periodic refill), Large doubles it
+/// (deeper cushion for flaky connections at the cost of bigger bursts).
+enum BufferProfile: String, Codable, CaseIterable {
+    case auto, conservative, large
+
+    var label: String {
+        switch self {
+        case .auto: return "Auto (recommended)"
+        case .conservative: return "Conservative (smaller bursts)"
+        case .large: return "Large (deeper cushion)"
+        }
+    }
+}
+
 /// Which playback engine opens a stream first.
 /// - auto: route by container — Apple's hardware AVPlayer for native formats
 ///   (MP4/HLS), FFmpeg (VideoToolbox-accelerated) for MKV & friends. The
@@ -132,6 +149,8 @@ struct PlayerSettings: Codable, Equatable {
     var preferredAudioLanguage: String = ""
     /// Playback engine selection (see PlayerEngine).
     var playerEngine: PlayerEngine = .auto
+    /// Playback buffer sizing (see BufferProfile).
+    var bufferProfile: BufferProfile = .auto
     /// Which external player app receives streams when playerEngine is
     /// .external (id from ExternalPlayers.catalog).
     var externalPlayerID: String = "infuse"
@@ -312,6 +331,7 @@ struct PlayerSettings: Codable, Equatable {
         subtitleVerticalOffset = (try? c.decode(Int.self, forKey: .subtitleVerticalOffset)) ?? d.subtitleVerticalOffset
         preferredAudioLanguage = (try? c.decode(String.self, forKey: .preferredAudioLanguage)) ?? d.preferredAudioLanguage
         playerEngine = (try? c.decode(PlayerEngine.self, forKey: .playerEngine)) ?? d.playerEngine
+        bufferProfile = (try? c.decode(BufferProfile.self, forKey: .bufferProfile)) ?? d.bufferProfile
         externalPlayerID = (try? c.decode(String.self, forKey: .externalPlayerID)) ?? d.externalPlayerID
         externalPlayerForwardSubtitles = (try? c.decode(Bool.self, forKey: .externalPlayerForwardSubtitles)) ?? d.externalPlayerForwardSubtitles
         audioRendererEnabled = (try? c.decode(Bool.self, forKey: .audioRendererEnabled)) ?? d.audioRendererEnabled

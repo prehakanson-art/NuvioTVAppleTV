@@ -204,6 +204,14 @@ struct PlaybackSettingsDetail: View {
                     options: PlayerEngine.allCases.map { NuvioDropdownOption($0.rawValue, $0.label) }
                 ) { store.settings.playerEngine = PlayerEngine(rawValue: $0) ?? .auto }
 
+                NuvioDropdown(
+                    title: "Playback buffer",
+                    subtitle: "Auto sizes the buffer to the file. Conservative = smaller, gentler refill bursts (try if playback nicks periodically). Large = deeper cushion for flaky connections.",
+                    icon: "gauge.with.dots.needle.50percent",
+                    selection: store.settings.bufferProfile.rawValue,
+                    options: BufferProfile.allCases.map { NuvioDropdownOption($0.rawValue, $0.label) }
+                ) { store.settings.bufferProfile = BufferProfile(rawValue: $0) ?? .auto }
+
                 // External engine: pick WHICH installed app receives streams.
                 // canOpenURL only sees apps actually on this Apple TV, so the
                 // list is exactly what's installed — and when nothing is, the

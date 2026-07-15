@@ -85,6 +85,7 @@
 		D80260DF602808C85646CA6F /* ParentalGuideService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E6B87A80D6B01D3A58DD6B /* ParentalGuideService.swift */; };
 		D93146472B6B7BF5F92096A7 /* AnimeSkipService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33630A3CF4A4B769A36A3404 /* AnimeSkipService.swift */; };
 		DE74561D221C4C25B60C7E41 /* CloudLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB57AA419192D7276E5E56DC /* CloudLibraryService.swift */; };
+		E443BC9DF49F9CC79A5971CD /* AddonCatalogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C3CC132C8AA81FEAD97A0F /* AddonCatalogService.swift */; };
 		E5B79A409AAB47A1AC1155D8 /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243ACB41C793BA410B49B210 /* DetailView.swift */; };
 		E70E13C52AD92FE35CBC2E4C /* CatalogSeeAllView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */; };
 		E7D11030D6A9778E46F942EB /* PerformanceSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 378BD17D8C6352257471571D /* PerformanceSettingsStore.swift */; };
@@ -107,6 +108,7 @@
 		11754AD2FDC70C869EC871BC /* ProfileStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfileStore.swift; sourceTree = "<group>"; };
 		142717F90563AF0BC845136D /* SettingsLayoutView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsLayoutView.swift; sourceTree = "<group>"; };
 		164DA27F63B762F8EB81BBD6 /* libdovi.xcframework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.xcframework; name = libdovi.xcframework; path = Vendor/libdovi.xcframework; sourceTree = "<group>"; };
+		16C3CC132C8AA81FEAD97A0F /* AddonCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddonCatalogService.swift; sourceTree = "<group>"; };
 		17D137BCE0827FF5B9EBCA42 /* ExternalPlayers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPlayers.swift; sourceTree = "<group>"; };
 		1EC4C10B5219C8C94F5868AA /* SettingsTraktView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTraktView.swift; sourceTree = "<group>"; };
 		23BB59F8EC142A8F67E0D28F /* SettingsPerformanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPerformanceView.swift; sourceTree = "<group>"; };
@@ -166,7 +168,7 @@
 		D65C4F9D6EA30C04E99A1C3E /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		DF61804404FEAD1E3E5E4FD6 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		E07F3565C7E5BB417A83893E /* TrailerPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrailerPlayer.swift; sourceTree = "<group>"; };
-		E082ACA18B306E4D2DFC76F4 /* NuvioTV.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = NuvioTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E082ACA18B306E4D2DFC76F4 /* NuvioTV.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NuvioTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E1B7D256E3B5029E76D7C03D /* ProfilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilesView.swift; sourceTree = "<group>"; };
 		E2B5622602D0586649B04485 /* PauseOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PauseOverlayView.swift; sourceTree = "<group>"; };
 		E2E52DF7CD06E99777E79CD5 /* LiveTVView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVView.swift; sourceTree = "<group>"; };
@@ -273,6 +275,7 @@
 		6E33D55BCD10F8E46FCC8DB6 /* Core */ = {
 			isa = PBXGroup;
 			children = (
+				16C3CC132C8AA81FEAD97A0F /* AddonCatalogService.swift */,
 				EDBD5D6D83637232496C5D02 /* AddonManager.swift */,
 				33630A3CF4A4B769A36A3404 /* AnimeSkipService.swift */,
 				7F886347A1FAA3C2686A4A49 /* AppGroupResolver.swift */,
@@ -404,6 +407,8 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+				};
 			};
 			buildConfigurationList = 3C2ADD7ADAB90D8E239624CD /* Build configuration list for PBXProject "NuvioTV" */;
 			developmentRegion = en;
@@ -468,6 +473,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BAFA27E5E9E52210E0D89DA5 /* AccountView.swift in Sources */,
+				E443BC9DF49F9CC79A5971CD /* AddonCatalogService.swift in Sources */,
 				8E628727D4B4241A39973930 /* AddonDiscoverView.swift in Sources */,
 				14C76B28C6CFAB66591F7FEB /* AddonManager.swift in Sources */,
 				D93146472B6B7BF5F92096A7 /* AnimeSkipService.swift in Sources */,
@@ -561,7 +567,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = CYCSPZ5MTR;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
@@ -705,7 +710,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = "App Icon & Top Shelf Image";
 				ASSETCATALOG_COMPILER_LAUNCHIMAGE_NAME = LaunchImage;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = CYCSPZ5MTR;
 				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",

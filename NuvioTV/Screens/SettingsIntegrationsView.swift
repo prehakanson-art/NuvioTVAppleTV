@@ -18,9 +18,9 @@ struct IntegrationsDetail: View {
         DetailScaffold(title: SettingsCategory.integration.title, subtitle: SettingsCategory.integration.subtitle) {
             SettingsGroupCard(title: "") {
                 // Nuvio account moved to Settings → Account.
-                integrationRow(title: "TMDB", subtitle: "Metadata enrichment controls") { sheet = .tmdb }
-                integrationRow(title: "MDBList", subtitle: "External ratings providers") { sheet = .mdblist }
-                integrationRow(title: "Debrid", subtitle: "Cached torrent sources as direct streams") { sheet = .debrid }
+                integrationRow(title: "TMDB", subtitle: "Metadata enrichment controls", icon: "film.stack") { sheet = .tmdb }
+                integrationRow(title: "MDBList", subtitle: "External ratings providers", icon: "star.circle.fill") { sheet = .mdblist }
+                integrationRow(title: "Debrid", subtitle: "Cached torrent sources as direct streams", icon: "bolt.horizontal.circle.fill") { sheet = .debrid }
                 // P2P (TorrServer) hidden for now — the .p2p sheet + engine stay
                 // wired; re-add this row to surface it again.
                 // integrationRow(title: "P2P (TorrServer)", subtitle: "Stream torrents peer-to-peer via a TorrServer") { sheet = .p2p }
@@ -40,9 +40,9 @@ struct IntegrationsDetail: View {
         }
     }
 
-    private func integrationRow(title: String, subtitle: String, action: @escaping () -> Void) -> some View {
+    private func integrationRow(title: String, subtitle: String, icon: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
-            SettingsValueCard(title: title, subtitle: subtitle, value: "")
+            SettingsValueCard(title: title, subtitle: subtitle, value: "", icon: icon)
         }
         .buttonStyle(PlainCardButtonStyle())
     }

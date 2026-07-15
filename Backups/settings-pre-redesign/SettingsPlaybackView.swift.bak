@@ -555,7 +555,11 @@ private struct PlaybackToggleLabel: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: NuvioSpacing.md) {
-            SettingsIconTile(symbol: icon)
+            Image(systemName: icon)
+                .font(.system(size: 22))
+                .foregroundStyle(theme.palette.secondary)
+                .frame(width: 32)
+                .padding(.top, 2)
             VStack(alignment: .leading, spacing: 5) {
                 Text(title)
                     .font(.system(size: 25, weight: .semibold))
@@ -569,13 +573,20 @@ private struct PlaybackToggleLabel: View {
             }
             Spacer(minLength: NuvioSpacing.lg)
             NuvioSwitch(isOn: isOn)
-                .padding(.top, 4)
+                .padding(.top, 2)
         }
-        .padding(.horizontal, NuvioSpacing.md)
+        .padding(.horizontal, NuvioSpacing.lg)
         .padding(.vertical, NuvioSpacing.md)
-        .frame(minHeight: 76)
+        .frame(minHeight: 74)
         .frame(maxWidth: .infinity)
-        .background(SettingsRowBackground(isFocused: isFocused))
+        .background(
+            RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
+                .fill(isFocused ? theme.palette.focusBackground : theme.palette.backgroundCard.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
+                .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 4)
+        )
     }
 }
 

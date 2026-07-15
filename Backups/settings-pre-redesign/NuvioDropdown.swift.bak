@@ -66,7 +66,11 @@ private struct DropdownTrigger: View {
     var body: some View {
         HStack(alignment: compact ? .center : .top, spacing: NuvioSpacing.md) {
             if let icon, !compact {
-                SettingsIconTile(symbol: icon)
+                Image(systemName: icon)
+                    .font(.system(size: 22))
+                    .foregroundStyle(theme.palette.secondary)
+                    .frame(width: 32)
+                    .padding(.top, 2)
             }
             VStack(alignment: .leading, spacing: compact ? 3 : 5) {
                 if compact {
@@ -102,29 +106,19 @@ private struct DropdownTrigger: View {
                 .foregroundStyle(theme.palette.textSecondary)
                 .padding(.top, compact ? 0 : 2)
         }
-        .padding(.horizontal, compact ? NuvioSpacing.lg : NuvioSpacing.md)
+        .padding(.horizontal, NuvioSpacing.lg)
         .padding(.vertical, compact ? 0 : NuvioSpacing.md)
         .frame(width: width, height: compact ? 84 : nil)
-        .frame(minHeight: compact ? nil : 74)
+        .frame(minHeight: compact ? nil : 72)
         .frame(maxWidth: width == nil ? .infinity : nil)
-        .background(dropdownBackground)
-    }
-
-    // Compact (player panels / Discover / Library) keeps a solid pill fill so it
-    // reads as a control on its own. In Settings the trigger is flat inside a
-    // group card and only lights up on focus, matching the other rows.
-    @ViewBuilder
-    private var dropdownBackground: some View {
-        if compact {
+        .background(
             RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
                 .fill(isFocused ? theme.palette.focusBackground : theme.palette.backgroundCard.opacity(0.6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
-                        .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 4)
-                )
-        } else {
-            SettingsRowBackground(isFocused: isFocused)
-        }
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 4)
+        )
     }
 }
 

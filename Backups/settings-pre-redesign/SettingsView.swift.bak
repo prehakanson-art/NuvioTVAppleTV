@@ -217,42 +217,38 @@ private struct SettingsRailButton: View {
 
     private var active: Bool { isFocused || selected }
 
-    // Selected pill = solid accent fill with dark text (a real "you are here"
-    // marker); focused-but-not-selected = accent ring on a faint fill; idle =
-    // fully transparent so the rail reads as a clean list, not a stack of boxes.
-    private var textColor: Color {
-        if selected { return theme.palette.onSecondary }
-        return isFocused ? theme.palette.textPrimary : theme.palette.textSecondary
-    }
-
     var body: some View {
         HStack(spacing: NuvioSpacing.sm) {
             Image(systemName: category.icon)
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(textColor)
-                .frame(width: 24)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(active ? theme.palette.textPrimary : theme.palette.textSecondary)
+                .frame(width: 22)
             Text(category.railTitle)
-                .font(.system(size: 21, weight: active ? .bold : .medium))
-                .foregroundStyle(textColor)
+                .font(.system(size: 21, weight: active ? .semibold : .medium))
+                .foregroundStyle(active ? theme.palette.textPrimary : theme.palette.textSecondary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
             Spacer(minLength: NuvioSpacing.xs)
+            Image(systemName: "chevron.right")
+                .font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(theme.palette.textTertiary)
         }
-        .padding(.horizontal, 20)
-        .frame(height: 58)
+        .padding(.horizontal, 18)
+        // 56dp capsule pills. Every pill has a dark fill (BackgroundCard);
+        // focused/selected read slightly brighter.
+        .frame(height: 56)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(
-                    selected ? theme.palette.secondary
-                    : (isFocused ? theme.palette.backgroundCard.opacity(0.6) : Color.clear)
-                )
+            Capsule(style: .continuous)
+                .fill(active ? theme.palette.backgroundCard : theme.palette.background)
         )
+        // Focus/selection outline = the current accent's focusRing (thick on
+        // focus, hairline when selected-but-not-focused). NO scale on focus.
         .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
+            Capsule(style: .continuous)
                 .strokeBorder(
-                    isFocused && !selected ? theme.palette.focusRing : .clear,
-                    lineWidth: 3
+                    isFocused ? theme.palette.focusRing : (selected ? theme.palette.focusRing.opacity(0.6) : .clear),
+                    lineWidth: isFocused ? 3 : (selected ? 1 : 0)
                 )
         )
         .animation(.easeInOut(duration: 0.15), value: isFocused)
@@ -262,57 +258,19 @@ private struct SettingsRailButton: View {
 
 // MARK: - Detail scaffolding
 
-/// A rounded, accent-tinted tile holding an SF Symbol. Gives every settings row
-/// a consistent, scannable icon "chip" (iOS-Settings style) — the core visual
-/// motif of the redesigned panes.
-struct SettingsIconTile: View {
-    @EnvironmentObject private var theme: ThemeManager
-    let symbol: String
-    var size: CGFloat = 48
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-            .fill(
-                LinearGradient(
-                    colors: [theme.palette.secondary.opacity(0.32), theme.palette.secondary.opacity(0.16)],
-                    startPoint: .topLeading, endPoint: .bottomTrailing
-                )
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: size * 0.28, style: .continuous)
-                    .strokeBorder(theme.palette.secondary.opacity(0.35), lineWidth: 1)
-            )
-            .overlay(
-                Image(systemName: symbol)
-                    .font(.system(size: size * 0.46, weight: .semibold))
-                    .foregroundStyle(theme.palette.secondary)
-            )
-            .frame(width: size, height: size)
-    }
-}
-
 struct SettingsDetailHeader: View {
     @EnvironmentObject private var theme: ThemeManager
     let title: String
     let subtitle: String
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: NuvioSpacing.md) {
-                // Accent spine — a bold vertical bar that anchors the title and
-                // sets the new, more editorial header rhythm.
-                RoundedRectangle(cornerRadius: 3, style: .continuous)
-                    .fill(theme.palette.secondary)
-                    .frame(width: 6, height: 44)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(title)
-                        .font(.system(size: 40, weight: .heavy))
-                        .foregroundStyle(theme.palette.textPrimary)
-                    Text(subtitle)
-                        .font(.system(size: 21))
-                        .foregroundStyle(theme.palette.textSecondary)
-                }
-            }
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.system(size: 34, weight: .bold))
+                .foregroundStyle(theme.palette.textPrimary)
+            Text(subtitle)
+                .font(.system(size: 20))
+                .foregroundStyle(theme.palette.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -327,45 +285,33 @@ struct SettingsGroupCard<Content: View>: View {
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
-            // Section label sits ABOVE the card (grouped-list style) — the
-            // accent-tinted, letter-spaced title reads as a real section break
-            // instead of another boxed header stacked inside the card.
+        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             if !title.isEmpty || (subtitle?.isEmpty == false) {
                 VStack(alignment: .leading, spacing: 3) {
                     if !title.isEmpty {
-                        Text(title.uppercased())
-                            .font(.system(size: 18, weight: .bold))
-                            .tracking(1.6)
-                            .foregroundStyle(theme.palette.secondary)
+                        Text(title)
+                            .font(.system(size: 26, weight: .bold))
+                            .foregroundStyle(theme.palette.textPrimary)
                     }
                     if let subtitle, !subtitle.isEmpty {
                         Text(subtitle)
                             .font(.system(size: 19))
-                            .foregroundStyle(theme.palette.textTertiary)
-                            .fixedSize(horizontal: false, vertical: true)
+                            .foregroundStyle(theme.palette.textSecondary)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.bottom, 2)
             }
-            // The rows live in one shared surface; each row is flat until
-            // focused, so the card groups them like a single list.
-            VStack(spacing: 4) {
-                content
-            }
-            .padding(NuvioSpacing.sm)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: theme.settingsCardRadius, style: .continuous)
-                    .fill(theme.palette.backgroundCard.opacity(0.32))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: theme.settingsCardRadius, style: .continuous)
-                    .strokeBorder(NuvioPrimitives.neutral750.opacity(0.55), lineWidth: 1)
-            )
+            content
         }
+        .padding(NuvioSpacing.lg)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: theme.settingsCardRadius, style: .continuous)
+                .fill(theme.palette.background.opacity(0.55))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: theme.settingsCardRadius, style: .continuous)
+                .strokeBorder(NuvioPrimitives.neutral750.opacity(0.6), lineWidth: 1)
+        )
     }
 }
 
@@ -379,9 +325,12 @@ struct SettingsActionRow: View {
     var leadingIcon: String?
 
     var body: some View {
-        HStack(spacing: NuvioSpacing.md) {
+        HStack(spacing: NuvioSpacing.lg) {
             if let leadingIcon {
-                SettingsIconTile(symbol: leadingIcon)
+                Image(systemName: leadingIcon)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(theme.palette.textPrimary)
+                    .frame(width: 34)
             }
             VStack(alignment: .leading, spacing: 5) {
                 Text(title)
@@ -400,36 +349,27 @@ struct SettingsActionRow: View {
             Spacer(minLength: NuvioSpacing.lg)
             if let value, !value.isEmpty {
                 Text(value)
-                    .font(.system(size: 21, weight: .semibold))
-                    .foregroundStyle(theme.palette.secondary)
+                    .font(.system(size: 21, weight: .medium))
+                    .foregroundStyle(theme.palette.textSecondary)
             }
             Image(systemName: "chevron.right")
                 .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(isFocused ? theme.palette.textSecondary : theme.palette.textTertiary)
+                .foregroundStyle(theme.palette.textTertiary)
         }
-        .padding(.horizontal, NuvioSpacing.md)
+        .padding(.horizontal, NuvioSpacing.lg)
         .padding(.vertical, NuvioSpacing.md)
-        .frame(minHeight: 72)
+        .frame(minHeight: 68)
         .frame(maxWidth: .infinity)
-        .background(SettingsRowBackground(isFocused: isFocused))
+        .background(
+            RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                .fill(isFocused ? theme.palette.focusBackground : theme.palette.backgroundCard.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 4)
+        )
+        .scaleEffect(isFocused ? 1.02 : 1)
         .animation(.spring(response: 0.28, dampingFraction: 0.85), value: isFocused)
-    }
-}
-
-/// Shared row backdrop for the redesigned settings: transparent when idle so
-/// rows read as one grouped list, and an accent-tinted, ringed highlight when
-/// focused. No per-row scale — the fill/ring alone carries focus.
-struct SettingsRowBackground: View {
-    @EnvironmentObject private var theme: ThemeManager
-    let isFocused: Bool
-
-    var body: some View {
-        RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
-            .fill(isFocused ? theme.palette.focusBackground : Color.clear)
-            .overlay(
-                RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
-                    .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
-            )
     }
 }
 
@@ -441,9 +381,8 @@ struct DetailScaffold<Content: View>: View {
 
     var body: some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: NuvioSpacing.xl) {
+            VStack(alignment: .leading, spacing: NuvioSpacing.lg) {
                 SettingsDetailHeader(title: title, subtitle: subtitle)
-                    .padding(.bottom, NuvioSpacing.xs)
                 content
             }
             .padding(.horizontal, NuvioSpacing.xl)
@@ -671,28 +610,32 @@ struct SettingsValueCard: View {
     let title: String
     let subtitle: String
     let value: String
-    var icon: String = "puzzlepiece.extension.fill"
 
     var body: some View {
-        HStack(spacing: NuvioSpacing.md) {
-            SettingsIconTile(symbol: icon)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title).font(.system(size: 25, weight: .semibold))
+        HStack {
+            VStack(alignment: .leading, spacing: 3) {
+                Text(title).font(.system(size: 24, weight: .medium))
                     .foregroundStyle(theme.palette.textPrimary)
-                Text(subtitle).font(.system(size: 20))
+                Text(subtitle).font(.system(size: 18))
                     .foregroundStyle(theme.palette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
             }
-            Spacer(minLength: NuvioSpacing.lg)
-            Text(value).font(.system(size: 24, weight: .bold))
+            Spacer()
+            Text(value).font(.system(size: 22, weight: .medium))
                 .foregroundStyle(theme.palette.secondary)
-            Image(systemName: "chevron.right").font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(isFocused ? theme.palette.textSecondary : theme.palette.textTertiary)
+            Image(systemName: "chevron.right").font(.system(size: 16, weight: .semibold))
+                .foregroundStyle(theme.palette.textTertiary)
         }
-        .padding(.horizontal, NuvioSpacing.md)
-        .padding(.vertical, NuvioSpacing.md)
-        .frame(minHeight: 72)
-        .background(SettingsRowBackground(isFocused: isFocused))
+        .padding(.horizontal, NuvioSpacing.lg)
+        .frame(minHeight: 64)
+        .background(
+            RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
+                .fill(isFocused ? theme.palette.focusBackground : theme.palette.backgroundCard.opacity(0.5))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
+                .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 4)
+        )
+        .scaleEffect(isFocused ? 1.01 : 1)
         .animation(.easeInOut(duration: 0.15), value: isFocused)
     }
 }
@@ -1252,19 +1195,19 @@ private struct AboutDetail: View {
                 .padding(.vertical, NuvioSpacing.md)
 
                 Button { info = .privacy } label: {
-                    SettingsValueCard(title: "Privacy Policy", subtitle: "View our privacy policy", value: "", icon: "hand.raised.fill")
+                    SettingsValueCard(title: "Privacy Policy", subtitle: "View our privacy policy", value: "")
                 }.buttonStyle(PlainCardButtonStyle())
                 Button { info = .supporters } label: {
-                    SettingsValueCard(title: "Supporters & Contributors", subtitle: "Open recognition and project credits", value: "", icon: "heart.fill")
+                    SettingsValueCard(title: "Supporters & Contributors", subtitle: "Open recognition and project credits", value: "")
                 }.buttonStyle(PlainCardButtonStyle())
                 Button { info = .licenses } label: {
-                    SettingsValueCard(title: "Licenses & Attributions", subtitle: "Open-source components used in this app", value: "", icon: "doc.text.fill")
+                    SettingsValueCard(title: "Licenses & Attributions", subtitle: "Open-source components used in this app", value: "")
                 }.buttonStyle(PlainCardButtonStyle())
             }
 
             SettingsGroupCard(title: "Diagnostics", subtitle: "Build information and storage") {
-                SettingsValueCard(title: "Version", subtitle: "App build", value: DiagnosticsService.appVersion, icon: "number")
-                SettingsValueCard(title: "System", subtitle: DiagnosticsService.deviceModel, value: DiagnosticsService.systemVersion, icon: "appletv.fill")
+                SettingsValueCard(title: "Version", subtitle: "App build", value: DiagnosticsService.appVersion)
+                SettingsValueCard(title: "System", subtitle: DiagnosticsService.deviceModel, value: DiagnosticsService.systemVersion)
                 Button {
                     guard !clearing else { return }
                     clearing = true
@@ -1275,8 +1218,7 @@ private struct AboutDetail: View {
                     SettingsValueCard(
                         title: "Clear cache",
                         subtitle: "Remove cached source lists, metadata and images",
-                        value: clearing ? "…" : cacheLabel,
-                        icon: "trash.fill"
+                        value: clearing ? "…" : cacheLabel
                     )
                 }.buttonStyle(PlainCardButtonStyle())
             }

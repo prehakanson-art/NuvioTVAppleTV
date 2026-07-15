@@ -66,7 +66,7 @@ struct PluginsSettingsDetail: View {
                             )
                         }
                         Button { plugins.removeRepository(repo.id) } label: {
-                            SettingsValueCard(title: "Remove repository", subtitle: "Delete this repo and its scrapers", value: "")
+                            SettingsValueCard(title: "Remove repository", subtitle: "Delete this repo and its scrapers", value: "", icon: "trash.fill")
                         }
                         .buttonStyle(PlainCardButtonStyle())
                     }

@@ -250,6 +250,13 @@ struct PlaybackSettingsDetail: View {
                     isOn: s.matchContentDisplayMode
                 )
 
+                PlaybackToggleRow(
+                    icon: "timer",
+                    title: "Match frame rate",
+                    subtitle: "Also switch the TV's refresh rate to the video's (e.g. 60→24Hz for film) for judder-free motion. OFF by default: a refresh-rate switch is a heavier HDMI handshake, and reverting it when you EXIT a video is what makes some TVs flicker or turn off. Leave off if exiting Dolby Vision/HDR videos disturbs your TV; 24fps content still plays smoothly under pulldown.",
+                    isOn: s.matchFrameRate
+                )
+
                 NuvioDropdown(
                     title: "Video scaling",
                     subtitle: "Default zoom for the video. Cycle it live in the player with the aspect button.",

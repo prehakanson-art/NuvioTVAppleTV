@@ -225,6 +225,15 @@ struct PlayerSettings: Codable, Equatable {
     /// content's native mode — some TVs mis-handshake the switch back and
     /// wedge on a grey screen until power-cycled, hence the default.
     var matchContentDisplayMode: Bool = false
+    /// Also switch the panel's REFRESH RATE to the content's (e.g. 60→23.976
+    /// for film) when matching display mode / playing native DV. OFF by
+    /// default: a rate switch is a much heavier HDMI renegotiation than a
+    /// dynamic-range switch, and reverting it on exit is what makes some TVs
+    /// drop to standby / turn off. Off keeps the panel at its current rate
+    /// (24p content runs under softened 3:2 pulldown) while still switching
+    /// dynamic range for HDR/DV. Turn ON only if your TV handles 24p mode
+    /// switches cleanly.
+    var matchFrameRate: Bool = false
     /// Native Dolby Vision output (experimental). When a Dolby Vision file
     /// (profile 5/8) plays on a DV-capable TV, the stream is remuxed on-device
     /// into a DV-tagged fMP4 playlist and handed to Apple's video pipeline —
@@ -361,6 +370,7 @@ struct PlayerSettings: Codable, Equatable {
         reuseLastLinkEnabled = (try? c.decode(Bool.self, forKey: .reuseLastLinkEnabled)) ?? d.reuseLastLinkEnabled
         reuseLastLinkCacheHours = (try? c.decode(Int.self, forKey: .reuseLastLinkCacheHours)) ?? d.reuseLastLinkCacheHours
         matchContentDisplayMode = (try? c.decode(Bool.self, forKey: .matchContentDisplayMode)) ?? d.matchContentDisplayMode
+        matchFrameRate = (try? c.decode(Bool.self, forKey: .matchFrameRate)) ?? d.matchFrameRate
         nativeDolbyVision = (try? c.decode(Bool.self, forKey: .nativeDolbyVision)) ?? d.nativeDolbyVision
     }
 }

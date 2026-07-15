@@ -134,6 +134,11 @@ final class NuvioPlayerOptions: KSOptions {
     /// can (see updateVideo) to lower the odds of a wedge.
     var matchDisplayCriteria = false
 
+    /// Also switch the panel refresh rate to the content's (off = keep the
+    /// current rate, only vary dynamic range). Off avoids the heavy rate
+    /// switch whose exit revert power-cycles some TVs.
+    var matchFrameRate = false
+
     /// True for a native-DV session (playing the DV-tagged local playlist):
     /// don't clamp DV→HDR10 in the display request — the clamp exists because
     /// the Metal path OUTPUTS HDR10, which isn't true here.
@@ -187,13 +192,18 @@ final class NuvioPlayerOptions: KSOptions {
             else if available.contains(.hlg) { target = .hlg }
             else { target = .sdr }
         }
-        // 23.976 AFR bias (Android parity): FFmpeg reports film content
-        // variously as 23.97/23.98/24.0, but virtually all "24fps" releases
-        // are really 24000/1001. Requesting 24.000 on a display with distinct
-        // 23.976/24.000 modes yields a frame drop every ~41s — bias anything
-        // near 24 to 23.976 so the panel locks the right mode.
-        var rate = refreshRate
-        if (23.5...24.2).contains(rate) { rate = 23.976 }
+        // Refresh rate. By default we DON'T switch it — keep the panel at its
+        // current rate so the only thing that changes is dynamic range. A rate
+        // switch is a heavier HDMI renegotiation, and reverting it on exit is
+        // what drops some TVs to standby / turns them off. `matchFrameRate`
+        // (Settings → Playback) opts into the real rate switch (with the
+        // 23.976 AFR bias: FFmpeg reports film as 23.97/23.98/24.0 but nearly
+        // all "24fps" releases are 24000/1001, so bias near-24 to 23.976).
+        var rate = Float(UIScreen.main.maximumFramesPerSecond)   // current, no switch
+        if matchFrameRate {
+            rate = refreshRate
+            if (23.5...24.2).contains(rate) { rate = 23.976 }
+        }
         guard lastAppliedDynamicRange != target.rawValue
             || lastAppliedRefreshRate != rate else { return }
         lastAppliedDynamicRange = target.rawValue
@@ -843,6 +853,7 @@ final class PlayerViewModel: ObservableObject {
         // the panel stays at its home rate and the softened-drop pacing is
         // always the right policy for 24fps content.
         options.matchDisplayCriteria = settings.matchContentDisplayMode
+        options.matchFrameRate = settings.matchFrameRate
         options.pulldown60Hz = true
         // Native-DV session: if the user also enabled display matching, let
         // updateVideo request the real Dolby Vision mode instead of clamping

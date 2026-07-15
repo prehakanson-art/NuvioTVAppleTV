@@ -311,6 +311,22 @@ struct HomeView: View {
 
     private var layout: HomeLayout { homeCatalogSettings.homeLayout }
 
+    /// The big title/logo/synopsis hero panel is a MODERN-only affordance.
+    /// Classic keeps the focus-following backdrop but drops the panel (that's
+    /// the whole point of Classic — a lighter, rows-first home), and Grid has
+    /// no billboard at all.
+    private var showsHeroPanel: Bool { layout == .modern }
+
+    /// How far the row scroll starts below the top. Modern reserves room for the
+    /// hero panel; Classic shows just a sliver of backdrop; Grid starts flush.
+    private var rowsTopInset: CGFloat {
+        switch layout {
+        case .grid: return 0
+        case .modern: return 130
+        case .classic: return 60
+        }
+    }
+
     // The focused row pins to the top of the scroll (just under the billboard),
     // so rows ABOVE it scroll off behind the billboard and out the clipped top
     // edge — hidden until you move back up, where the native scroll brings them
@@ -330,7 +346,7 @@ struct HomeView: View {
             // rows scroll beneath it. That's what keeps the hero locked to the
             // focused title as you move through the 2nd, 3rd… rows (Netflix).
             VStack(alignment: .leading, spacing: 0) {
-                if layout != .grid {
+                if showsHeroPanel {
                     HeroInfoView(hero: hero)
                         .padding(.top, 56)
                         .padding(.leading, NuvioSpacing.huge)
@@ -398,27 +414,40 @@ struct HomeView: View {
         onContentReady()
     }
 
+    @ViewBuilder
+    private var rowsContent: some View {
+        if viewModel.isLoading && viewModel.entries.isEmpty {
+            HomeLoadingBackdrop(step: viewModel.loadingStep)
+                .frame(maxWidth: .infinity)
+                .frame(height: 460)
+        } else if let error = viewModel.loadError, viewModel.entries.isEmpty {
+            VStack(spacing: NuvioSpacing.lg) {
+                NuvioEmptyState(icon: "antenna.radiowaves.left.and.right.slash", title: "Nothing to show", message: error)
+                Button {
+                    Task { await reload() }
+                } label: {
+                    RetryLabel()
+                }
+                .buttonStyle(PlainCardButtonStyle())
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 460)
+        } else {
+            rowsList
+        }
+    }
+
     private var rowsScroll: some View {
         ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: NuvioSpacing.xl) {
-                if viewModel.isLoading && viewModel.entries.isEmpty {
-                    HomeLoadingBackdrop(step: viewModel.loadingStep)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 460)
-                } else if let error = viewModel.loadError, viewModel.entries.isEmpty {
-                    VStack(spacing: NuvioSpacing.lg) {
-                        NuvioEmptyState(icon: "antenna.radiowaves.left.and.right.slash", title: "Nothing to show", message: error)
-                        Button {
-                            Task { await reload() }
-                        } label: {
-                            RetryLabel()
-                        }
-                        .buttonStyle(PlainCardButtonStyle())
-                    }
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 460)
+            // Grid stacks many tall poster grids; a LazyVStack keeps off-screen
+            // catalogs from all rendering at once (the source of the grid lag).
+            // Non-grid layouts keep the eager VStack so every row exists for the
+            // pin-to-top focus behavior.
+            Group {
+                if layout == .grid {
+                    LazyVStack(alignment: .leading, spacing: NuvioSpacing.xl) { rowsContent }
                 } else {
-                    rowsList
+                    VStack(alignment: .leading, spacing: NuvioSpacing.xl) { rowsContent }
                 }
             }
             .padding(.top, layout == .grid ? 40 : NuvioSpacing.md)
@@ -435,7 +464,7 @@ struct HomeView: View {
         // letting the focus engine leave earlier rows half-visible above it.
         .scrollPosition(id: $pinnedRowID, anchor: .top)
         // Start the pinned row lower so more of the billboard art shows.
-        .padding(.top, layout == .grid ? 0 : 130)
+        .padding(.top, rowsTopInset)
     }
 
     @ViewBuilder
@@ -587,15 +616,17 @@ struct HomeView: View {
                     Button {
                         onSelect(item)
                     } label: {
+                        // Grid shows no billboard, so we deliberately do NOT
+                        // drive the hero here — that per-focus enrich fetch was
+                        // firing a network request on every D-pad move and is
+                        // what made grid navigation lag.
                         PosterCard(item: item)
-                            // Inside the label: `\.isFocused` only resolves
-                            // within the focusable Button, not around it.
-                            .onFocusChange { focused in
-                                if focused { hero.focus(item) }
-                            }
                     }
                     .buttonStyle(PlainCardButtonStyle())
                     .contextMenu { posterMenu(item) }
+                    // ⏯ parity with the horizontal rows: skip Detail, go
+                    // straight to the source picker.
+                    .onPlayPauseCommand { onPlayManually(item, nil) }
                 }
             }
             .padding(.horizontal, NuvioSpacing.huge)

@@ -52,11 +52,16 @@ final class DVRemuxer {
     private let inputURLString: String
     private let startAtSeconds: Double
     private let preferredAudioLanguage: String
+    /// Convert Profile 7 (dual-layer) → 8.1 via libdovi so DV7 also gets
+    /// native output. Off = P7 is ineligible and falls back to HDR10.
+    private let convertProfile7: Bool
 
-    init(input: String, startAt: Double, preferredAudioLanguage: String = "") {
+    init(input: String, startAt: Double, preferredAudioLanguage: String = "",
+         convertProfile7: Bool = false) {
         inputURLString = input
         startAtSeconds = max(startAt, 0)
         self.preferredAudioLanguage = preferredAudioLanguage
+        self.convertProfile7 = convertProfile7
         directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("dv-remux-\(UUID().uuidString)", isDirectory: true)
     }
@@ -203,7 +208,10 @@ final class DVRemuxer {
             report { self.onIneligible?("no Dolby Vision video stream") }
             return
         }
-        guard dvProfile == 5 || dvProfile == 8 else {
+        // Profile 7 (dual-layer) is convertible to 8.1 via libdovi when the
+        // experimental toggle is on; otherwise it's ineligible → HDR10 path.
+        let needsProfile7Conversion = (dvProfile == 7) && convertProfile7
+        guard dvProfile == 5 || dvProfile == 8 || needsProfile7Conversion else {
             report { self.onIneligible?("Dolby Vision profile \(dvProfile) (only 5/8 supported)") }
             return
         }
@@ -252,7 +260,8 @@ final class DVRemuxer {
         avcodec_parameters_copy(outAudio.pointee.codecpar, inAudio.pointee.codecpar)
         outAudio.pointee.codecpar.pointee.codec_tag = 0
         // Sample entry: P5 has no cross-compatible base layer → dvh1 (DV-only
-        // brand). P8 is HDR10-backward-compatible → hvc1, movenc adds dvvC.
+        // brand). P8 (and converted-from-P7 8.1) is HDR10-backward-compatible
+        // → hvc1, movenc adds dvvC.
         outVideo.pointee.codecpar.pointee.codec_tag = dvProfile == 5
             ? fourCC("d", "v", "h", "1")
             : fourCC("h", "v", "c", "1")
@@ -262,6 +271,27 @@ final class DVRemuxer {
         copyStreamSideData(from: inVideo, to: outVideo, type: AV_PKT_DATA_DOVI_CONF)
         copyStreamSideData(from: inVideo, to: outVideo, type: AV_PKT_DATA_MASTERING_DISPLAY_METADATA)
         copyStreamSideData(from: inVideo, to: outVideo, type: AV_PKT_DATA_CONTENT_LIGHT_LEVEL)
+
+        // Rewrite the copied DV config to single-layer 8.1: profile 8, no
+        // enhancement layer, HDR10-compatible base (bl_signal_compatibility 1)
+        // — matching the RPUs we convert per-packet below. movenc emits the
+        // corresponding dvvC box from this.
+        if needsProfile7Conversion {
+            var outSize = 0
+            // AV_PKT_DATA_DOVI_CONF side data is the raw
+            // AVDOVIDecoderConfigurationRecord: 8 contiguous uint8_t fields
+            // (version_major, version_minor, dv_profile, dv_level,
+            // rpu_present, el_present, bl_present, bl_signal_compat_id).
+            // Write the bytes directly — the struct view is const-imported.
+            if let outSide = av_stream_get_side_data(outVideo, AV_PKT_DATA_DOVI_CONF, &outSize),
+               outSize >= 8 {
+                outSide[2] = 8   // dv_profile → 8
+                outSide[4] = 1   // rpu_present_flag
+                outSide[5] = 0   // el_present_flag → single-layer
+                outSide[6] = 1   // bl_present_flag
+                outSide[7] = 1   // dv_bl_signal_compatibility_id → HDR10-compatible (8.1)
+            }
+        }
 
         var muxOpts: OpaquePointer?
         av_dict_set(&muxOpts, "movflags", "+frag_keyframe+empty_moov+default_base_moof", 0)
@@ -280,6 +310,15 @@ final class DVRemuxer {
         let inVideoTB = inVideo.pointee.time_base
         let inAudioTB = inAudio.pointee.time_base
         var packetsSinceProgress = 0
+
+        // NAL length-prefix size for RPU conversion (hvcC byte 21, low 2 bits).
+        // MP4/MKV HEVC is always length-prefixed; default 4 if unreadable.
+        var nalLengthSize = 4
+        if needsProfile7Conversion,
+           let extra = inVideo.pointee.codecpar.pointee.extradata,
+           inVideo.pointee.codecpar.pointee.extradata_size > 22 {
+            nalLengthSize = Int(extra[21] & 0x03) + 1
+        }
 
         while !cancelled {
             let readResult = av_read_frame(ictx, packet)
@@ -304,11 +343,37 @@ final class DVRemuxer {
             }
 
             let outStream = isVideo ? outVideo : outAudio
-            packet.pointee.stream_index = outStream.pointee.index
-            av_packet_rescale_ts(packet, inTB, outStream.pointee.time_base)
-            packet.pointee.pos = -1
 
-            writeResult = av_interleaved_write_frame(octx, packet)
+            // Profile 7 → 8.1: if this video access unit's RPU NAL(s) convert,
+            // mux a scratch packet carrying the rewritten bytes (props copied
+            // from the original) instead of the source packet. On any
+            // malformed/failed conversion `convertedAccessUnit` returns nil and
+            // we mux the untouched packet — a bad frame degrades to the
+            // original rather than corrupting the stream.
+            var converted: [UInt8]?
+            if needsProfile7Conversion, isVideo {
+                converted = convertedAccessUnit(packet, nalLengthSize: nalLengthSize)
+            }
+
+            if let converted {
+                let outPkt = av_packet_alloc()
+                defer { var p = outPkt; av_packet_free(&p) }
+                if let outPkt, av_new_packet(outPkt, Int32(converted.count)) >= 0 {
+                    converted.withUnsafeBufferPointer { memcpy(outPkt.pointee.data, $0.baseAddress, converted.count) }
+                    av_packet_copy_props(outPkt, packet)
+                    outPkt.pointee.stream_index = outStream.pointee.index
+                    av_packet_rescale_ts(outPkt, inTB, outStream.pointee.time_base)
+                    outPkt.pointee.pos = -1
+                    writeResult = av_interleaved_write_frame(octx, outPkt)
+                } else {
+                    writeResult = -1
+                }
+            } else {
+                packet.pointee.stream_index = outStream.pointee.index
+                av_packet_rescale_ts(packet, inTB, outStream.pointee.time_base)
+                packet.pointee.pos = -1
+                writeResult = av_interleaved_write_frame(octx, packet)
+            }
             if writeResult < 0 {
                 report { self.onError?("mux write failed (\(writeResult))") }
                 return
@@ -445,6 +510,55 @@ final class DVRemuxer {
         let start = firstWrittenPTS.isNaN ? startAtSeconds : firstWrittenPTS
         let url = playlistURL
         report { self.onReady?(url, start) }
+    }
+
+    // MARK: - Dolby Vision Profile 7 → 8.1
+
+    /// Walk the packet's length-prefixed HEVC NAL units; convert any Dolby
+    /// Vision RPU NAL (type 62) from Profile 7 to 8.1 via libdovi and re-emit
+    /// the access unit. Returns the rewritten bytes, or nil when nothing was
+    /// converted (mux the original) or the bitstream looks malformed (bail —
+    /// keep the original). Enhancement-layer handling: single-track DV7 keeps
+    /// only the base layer here; a separate EL track is never selected as the
+    /// video stream, so it's naturally dropped.
+    private func convertedAccessUnit(
+        _ packet: UnsafeMutablePointer<AVPacket>, nalLengthSize: Int
+    ) -> [UInt8]? {
+        guard let data = packet.pointee.data, packet.pointee.size > 0 else { return nil }
+        let size = Int(packet.pointee.size)
+        let buf = UnsafeBufferPointer(start: data, count: size)
+        var out = [UInt8]()
+        out.reserveCapacity(size + 16)
+        var i = 0
+        var converted = false
+        while i + nalLengthSize <= size {
+            var nalLen = 0
+            for k in 0 ..< nalLengthSize { nalLen = (nalLen << 8) | Int(buf[i + k]) }
+            i += nalLengthSize
+            guard nalLen > 0, i + nalLen <= size else {
+                // Malformed length → don't risk a corrupt AU; keep original.
+                return converted ? out : nil
+            }
+            let nal = Array(buf[i ..< i + nalLen])
+            i += nalLen
+            // HEVC NAL type = bits 1..6 of the first header byte.
+            let nalType = (nal[0] >> 1) & 0x3F
+            if nalType == 62, let newNal = DoviConverter.convertRPU7to81(Data(nal)) {
+                appendLengthPrefixed(&out, [UInt8](newNal), nalLengthSize)
+                converted = true
+            } else {
+                appendLengthPrefixed(&out, nal, nalLengthSize)
+            }
+        }
+        return converted ? out : nil
+    }
+
+    private func appendLengthPrefixed(_ out: inout [UInt8], _ nal: [UInt8], _ lengthSize: Int) {
+        let len = nal.count
+        for shift in stride(from: (lengthSize - 1) * 8, through: 0, by: -8) {
+            out.append(UInt8((len >> shift) & 0xFF))
+        }
+        out.append(contentsOf: nal)
     }
 
     // MARK: - Helpers

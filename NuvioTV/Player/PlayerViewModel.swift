@@ -414,7 +414,11 @@ final class PlayerViewModel: ObservableObject {
         else { return }
         let track = player.tracks(mediaType: .video).first(where: \.isEnabled)
             ?? player.tracks(mediaType: .video).first
-        guard let profile = track?.dovi?.dv_profile, profile == 5 || profile == 8 else { return }
+        // Profile 5/8 always; Profile 7 only with the experimental libdovi
+        // 7→8.1 conversion enabled (DVRemuxer rewrites its RPUs).
+        let p7ok = settings.dolbyVisionProfile7
+        guard let profile = track?.dovi?.dv_profile,
+              profile == 5 || profile == 8 || (profile == 7 && p7ok) else { return }
 
         dvAttempted = true
         NSLog("[NuvioDV] DV profile %d detected — starting background remux", Int(profile))
@@ -429,7 +433,8 @@ final class PlayerViewModel: ObservableObject {
         }
         let remuxer = DVRemuxer(
             input: urlString, startAt: startAt,
-            preferredAudioLanguage: settings.preferredAudioLanguage
+            preferredAudioLanguage: settings.preferredAudioLanguage,
+            convertProfile7: settings.dolbyVisionProfile7
         )
         dvRemuxer = remuxer
         remuxer.onIneligible = { [weak self] reason in

@@ -243,6 +243,15 @@ struct PlaybackSettingsDetail: View {
                     isOn: s.nativeDolbyVision
                 )
 
+                if s.nativeDolbyVision.wrappedValue {
+                    PlaybackToggleRow(
+                        icon: "square.stack.3d.up.fill",
+                        title: "Dolby Vision Profile 7 (experimental)",
+                        subtitle: "Also handle dual-layer Profile 7 files (UHD Blu-ray remuxes) by converting them to Profile 8.1 on the fly, for native DV instead of the HDR10 tone-map. Experimental — verify on your DV TV; if a P7 title looks wrong, turn this off and it reverts to HDR10. Needs Native Dolby Vision on.",
+                        isOn: s.dolbyVisionProfile7
+                    )
+                }
+
                 PlaybackToggleRow(
                     icon: "tv.fill",
                     title: "Match content display mode",

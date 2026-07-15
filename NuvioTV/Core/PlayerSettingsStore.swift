@@ -241,6 +241,13 @@ struct PlayerSettings: Codable, Equatable {
     /// to the standard engine automatically. Off = always use the standard
     /// HDR10 path.
     var nativeDolbyVision: Bool = true
+    /// EXPERIMENTAL: convert Dolby Vision Profile 7 (dual-layer) → 8.1 via
+    /// libdovi so DV7 files also get native DV output (the base layer is kept,
+    /// the enhancement layer dropped, each RPU rewritten 7→8.1). Off by
+    /// default — needs a DV-capable TV to verify, and any conversion glitch is
+    /// safer to opt into than to ship on. Off = DV7 tone-maps to HDR10 (the
+    /// standard engine), exactly as before. Requires Native Dolby Vision on.
+    var dolbyVisionProfile7: Bool = false
 
     /// Selectable subtitle sizes.
     static let subtitleSizeValues: [Int] = [28, 32, 36, 42, 48, 56]
@@ -372,6 +379,7 @@ struct PlayerSettings: Codable, Equatable {
         matchContentDisplayMode = (try? c.decode(Bool.self, forKey: .matchContentDisplayMode)) ?? d.matchContentDisplayMode
         matchFrameRate = (try? c.decode(Bool.self, forKey: .matchFrameRate)) ?? d.matchFrameRate
         nativeDolbyVision = (try? c.decode(Bool.self, forKey: .nativeDolbyVision)) ?? d.nativeDolbyVision
+        dolbyVisionProfile7 = (try? c.decode(Bool.self, forKey: .dolbyVisionProfile7)) ?? d.dolbyVisionProfile7
     }
 }
 

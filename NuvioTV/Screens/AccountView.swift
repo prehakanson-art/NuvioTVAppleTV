@@ -129,12 +129,22 @@ struct AccountView: View {
                 .foregroundStyle(theme.palette.textSecondary)
 
             AccountPrimaryButton(title: "Sign Out", systemImage: "rectangle.portrait.and.arrow.right", filled: false) {
-                account.signOut()
+                confirmSignOut = true
             }
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Signing out drops local account state — confirm so a stray click
+        // can't log the account out (matches the Android app's dialog).
+        .alert("Sign Out?", isPresented: $confirmSignOut) {
+            Button("Sign Out", role: .destructive) { account.signOut() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Your watch progress, library and add-ons stay on this device, but they'll stop syncing until you sign in again.")
+        }
     }
+
+    @State private var confirmSignOut = false
 
     private func errorLabel(_ text: String) -> some View {
         Text(text)

@@ -305,7 +305,13 @@ final class CollectionsStore: ObservableObject {
         // Lenient element decode so one malformed collection (from another
         // platform / newer version) can't drop every other custom catalog.
         guard let lenient = try? JSONDecoder().decode([Lenient<NuvioCollection>].self, from: data) else { return false }
-        let remote = lenient.compactMap(\.value)
+        return applyRemote(collections: lenient.compactMap(\.value))
+    }
+
+    /// Apply already-decoded remote collections (from the tvOS preferences
+    /// blob). Same empty-preserve / no-op-on-identical rules as the JSON path.
+    @discardableResult
+    func applyRemote(collections remote: [NuvioCollection]) -> Bool {
         if remote.isEmpty && !collections.isEmpty { return false }
         guard remote != collections else { return false }
         suppressChange = true

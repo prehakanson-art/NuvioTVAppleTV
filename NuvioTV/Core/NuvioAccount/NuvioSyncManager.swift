@@ -158,6 +158,11 @@ final class NuvioSyncManager: ObservableObject {
         profileStore.onLocalChange = { [weak self] in self?.scheduleProfilePush() }
         profileStore.onSwitch = { [weak self] id in self?.handleProfileSwitch(id) }
         collectionsStore.onLocalChange = { [weak self] in
+            // Collections sync through the tvOS-preferences blob (the dedicated
+            // sync_*_collections RPCs aren't on the shared backend). The
+            // legacy dedicated push is kept as a best-effort no-op in case the
+            // backend ever gains it.
+            self?.scheduleAppPreferencesPush()
             self?.scheduleCollectionsPush()
             // Collections appear as home rows, so their add/remove also
             // changes the catalog-settings payload.
@@ -229,16 +234,19 @@ final class NuvioSyncManager: ObservableObject {
             try await pullWatchProgress()
             try await pullLibrary()
             try await pullWatchedItems()
-            try await pullCollections()
+            // Collections ride the tvOS-preferences blob (pullAppPreferences).
+            // The dedicated RPC is best-effort — if the backend lacks it a
+            // throw here must NOT abort the rest of the sync.
+            try? await pullCollections()
             try await pullHomeCatalogSettings()
             await pullBadgeSettings()   // best-effort; badge chips are cosmetic
-            await pullAppPreferences()  // best-effort; player/TMDB/theme prefs
+            await pullAppPreferences()  // player/TMDB/theme prefs + collections
             try await pushProfiles()
             try await pushAddons()
             try await pushWatchProgressAll()
             try await pushLibrary()
             try await pushWatchedItems()
-            try await pushCollections()
+            try? await pushCollections()   // best-effort; see pull note above
             try await pushHomeCatalogSettings()
             await pushAppPreferences()
         } catch {
@@ -645,10 +653,10 @@ final class NuvioSyncManager: ObservableObject {
                 try await pullWatchProgress()
                 try await pullLibrary()
                 try await pullWatchedItems()
-                try await pullCollections()
+                try? await pullCollections()   // collections via the blob below
                 try await pullHomeCatalogSettings()
                 await pullBadgeSettings()
-                await pullAppPreferences()
+                await pullAppPreferences()      // includes collections
             } catch {
                 lastSyncError = describe(error)
             }
@@ -946,6 +954,12 @@ final class NuvioSyncManager: ObservableObject {
         var plugins: PluginStore.PluginSyncSnapshot?
         /// P2P / TorrServer settings. Optional for backward-compat.
         var torrent: TorrentSettings?
+        /// Custom collections (grouped catalog home rows). Synced HERE (not via
+        /// the dedicated sync_*_collections RPCs, which the shared backend
+        /// doesn't provide) so they round-trip through the same reliable
+        /// tvOS-preferences feature the rest of the port-only data uses.
+        /// Optional for backward-compat.
+        var collections: [NuvioCollection]?
     }
 
     private func scheduleAppPreferencesPush() {
@@ -983,6 +997,9 @@ final class NuvioSyncManager: ObservableObject {
             Task { await pluginStore.applyRemote(plugins) }
         }
         if let torrent = snapshot.torrent { torrentSettings?.applyRemote(torrent) }
+        if let collections = snapshot.collections {
+            collectionsStore.applyRemote(collections: collections)
+        }
     }
 
     /// READ-MERGE-WRITE: fetch the blob, replace only our own feature key, push
@@ -997,7 +1014,8 @@ final class NuvioSyncManager: ObservableObject {
             home: homeCatalogSettings.presentationSnapshot,
             debrid: debridStore?.snapshot,
             plugins: pluginStore?.snapshot,
-            torrent: torrentSettings?.settings
+            torrent: torrentSettings?.settings,
+            collections: collectionsStore.collections
         )
         guard let data = try? JSONEncoder().encode(snapshot),
               let json = String(data: data, encoding: .utf8) else { return }

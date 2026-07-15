@@ -451,10 +451,11 @@ struct HomeView: View {
                 }
             }
             .padding(.top, layout == .grid ? 40 : NuvioSpacing.md)
-            // Deep bottom padding (non-grid) so even the LAST row can pin to
-            // the top slot — otherwise the scroll clamps and the hidden rows
-            // above it fill the viewport as blank space.
-            .padding(.bottom, layout == .grid ? NuvioSpacing.huge : 700)
+            // Deep bottom padding (Modern only) so even the LAST row can pin
+            // to the top slot — otherwise the scroll clamps and the hidden
+            // rows above it fill the viewport as blank space. Classic and Grid
+            // scroll naturally, so they just need normal end padding.
+            .padding(.bottom, layout == .modern ? 700 : NuvioSpacing.huge)
             .scrollTargetLayout()
         }
         // Vertically CLIPPED on purpose (no scrollClipDisabled): rows scrolled
@@ -523,8 +524,13 @@ struct HomeView: View {
     /// Pins the focused row to the top of the scroll so rows above it slide off
     /// behind the billboard. Rows below stay visible; moving up brings the
     /// above rows straight back via the native scroll.
+    ///
+    /// MODERN ONLY: the pin exists so rows tuck under the billboard. Classic
+    /// has no billboard panel, and asserting the pin there fought the focus
+    /// engine's own scroll-to-visible — every sideways move dipped the row
+    /// down and sprang it back. Classic and Grid scroll naturally.
     private func noteRowFocus(id: String) {
-        guard layout != .grid, pinnedRowID != id else { return }
+        guard layout == .modern, pinnedRowID != id else { return }
         withAnimation(perf.settings.rowPinAnimation
                       ? .spring(response: 0.25, dampingFraction: 0.9) : nil) { pinnedRowID = id }
     }

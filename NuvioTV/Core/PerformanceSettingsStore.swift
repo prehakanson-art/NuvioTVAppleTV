@@ -1,10 +1,10 @@
 import Foundation
 import SwiftUI
 
-/// User-tunable performance switches (Settings → Performance). Everything
-/// defaults ON — the app's full look. Each OFF removes one specific GPU/CPU
-/// cost so lower-end Apple TVs (HD, 4K 1st gen) can trade polish for speed,
-/// piece by piece, instead of the app guessing.
+/// User-tunable performance switches (Settings → Performance). On 4K gen-2+
+/// hardware everything defaults ON — the app's full look. Older boxes start
+/// with the costly effects OFF (see `tierDefaults()`); every switch remains
+/// user-tunable either way, so the tier default is a starting point, not a cap.
 ///
 /// Persisted per-device in UserDefaults and deliberately NOT synced to the
 /// account: a setting tuned for the living-room 4K gen 1 shouldn't downgrade
@@ -62,12 +62,36 @@ final class PerformanceSettingsStore: ObservableObject {
 
     private static let key = "nuvio.performance.v1"
 
+    /// First-run defaults tuned to the hardware tier. Users who never open
+    /// Settings → Performance shouldn't pay full-eye-candy jank on an A8/A10X:
+    /// the costly effects start OFF there and can be re-enabled per switch.
+    /// Anything the user has ever saved wins over these (see init).
+    static func tierDefaults() -> Settings {
+        var s = Settings()
+        if PerformanceProfile.isLowPower {
+            // Apple TV HD (A8 / 2 GB): keep the core feel (hero backdrop,
+            // focus zoom) but drop every recurring animation/composite cost.
+            s.cardShadows = false
+            s.heroCrossfade = false
+            s.artworkFadeIn = false
+            s.rowPinAnimation = false
+            s.sidebarAnimation = false
+            s.buttonAnimations = false
+        } else if PerformanceProfile.isMidPower {
+            // 4K gen 1 (A10X / 3 GB): shadows and per-cell fades are the two
+            // that visibly cost during row scrolls; the rest it handles fine.
+            s.cardShadows = false
+            s.artworkFadeIn = false
+        }
+        return s
+    }
+
     private init() {
         if let data = UserDefaults.standard.data(forKey: Self.key),
            let decoded = try? JSONDecoder().decode(Settings.self, from: data) {
             settings = decoded
         } else {
-            settings = Settings()
+            settings = Self.tierDefaults()
         }
     }
 

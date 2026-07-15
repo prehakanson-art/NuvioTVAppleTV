@@ -433,8 +433,12 @@ struct PosterCard: View {
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                     .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
             )
-            .shadow(color: .black.opacity(perf.settings.cardShadows ? (isFocused ? 0.7 : 0.35) : 0),
-                    radius: perf.settings.cardShadows ? (isFocused ? 24 : 10) : 0, y: 10)
+            // FOCUSED card only. A drop shadow is an offscreen render pass per
+            // card; with the old always-on ambient shadow every visible poster
+            // paid one, which is a large share of the scroll cost on the
+            // A8/A10X boxes. One shadow (the focused pop) keeps the depth cue.
+            .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused ? 0.65 : 0),
+                    radius: perf.settings.cardShadows && isFocused ? 22 : 0, y: 10)
 
             if layout.showPosterLabels {
                 MarqueeText(
@@ -518,8 +522,9 @@ struct LandscapeCard: View {
                 RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
                     .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
             )
-            .shadow(color: .black.opacity(perf.settings.cardShadows ? (isFocused ? 0.7 : 0.35) : 0),
-                    radius: perf.settings.cardShadows ? (isFocused ? 24 : 10) : 0, y: 10)
+            // Focused card only — same offscreen-pass reasoning as PosterCard.
+            .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused ? 0.65 : 0),
+                    radius: perf.settings.cardShadows && isFocused ? 22 : 0, y: 10)
 
             VStack(alignment: .leading, spacing: 2) {
                 MarqueeText(
@@ -646,8 +651,9 @@ struct WatchedBadge: View {
             .foregroundStyle(.white)
             .padding(9)
             .background(Circle().fill(NuvioPrimitives.success))
+            // The white ring provides the contrast; no shadow — each shadow is
+            // an offscreen pass, and one rides on EVERY watched card in a row.
             .overlay(Circle().strokeBorder(.white.opacity(0.9), lineWidth: 2))
-            .shadow(color: .black.opacity(0.5), radius: 4, y: 2)
     }
 }
 

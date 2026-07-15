@@ -62,6 +62,11 @@ struct AddonDiscoverView: View {
     let onDone: () -> Void
 
     @State private var installingID: String?
+    // A bare DetailScaffold of buttons doesn't self-establish focus on tvOS the
+    // way SettingsView does (it has an explicit rail defaultFocus). Without
+    // this, the page presented with NOTHING focused — the "can't select
+    // anything" bug. Drive initial focus onto the first row.
+    @FocusState private var focusedID: String?
 
     var body: some View {
         ZStack {
@@ -75,12 +80,21 @@ struct AddonDiscoverView: View {
                     if !items.isEmpty {
                         SettingsGroupCard(title: category.rawValue) {
                             ForEach(items) { entry in
-                                AddonDiscoverRow(
-                                    entry: entry,
-                                    installed: isInstalled(entry),
-                                    installing: installingID == entry.id,
-                                    onInstall: { install(entry) }
-                                )
+                                let installed = isInstalled(entry)
+                                Button {
+                                    if !installed { install(entry) }
+                                } label: {
+                                    // The label reads \.isFocused, so it must be
+                                    // INSIDE the Button (not a wrapper around it)
+                                    // or the focus ring never shows.
+                                    AddonDiscoverRowLabel(
+                                        entry: entry,
+                                        installed: installed,
+                                        installing: installingID == entry.id
+                                    )
+                                }
+                                .buttonStyle(PlainCardButtonStyle())
+                                .focused($focusedID, equals: entry.id)
                             }
                         }
                     } else if category == .liveTV {
@@ -101,6 +115,12 @@ struct AddonDiscoverView: View {
             }
         }
         .onExitCommand { onDone() }
+        .task {
+            // Land focus on the first add-on once the list exists (a beat after
+            // present, so the cover's own focus settle doesn't override it).
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            if focusedID == nil { focusedID = AddonDirectory.entries.first?.id }
+        }
     }
 
     private func isInstalled(_ entry: AddonCatalogEntry) -> Bool {
@@ -120,50 +140,49 @@ struct AddonDiscoverView: View {
     }
 }
 
-private struct AddonDiscoverRow: View {
+/// The row VISUAL only — used as a Button's `label`, so `@Environment(\.isFocused)`
+/// here reflects that button's own focus and the ring/highlight actually shows.
+/// (The Button and `.focused` live in the parent; a Button is never disabled —
+/// installed rows just no-op — so every row stays focusable.)
+private struct AddonDiscoverRowLabel: View {
     @EnvironmentObject private var theme: ThemeManager
     @Environment(\.isFocused) private var isFocused
     let entry: AddonCatalogEntry
     let installed: Bool
     let installing: Bool
-    let onInstall: () -> Void
 
     var body: some View {
-        Button(action: { if !installed { onInstall() } }) {
-            HStack(alignment: .top, spacing: NuvioSpacing.md) {
-                SettingsIconTile(symbol: entry.category.icon)
-                VStack(alignment: .leading, spacing: 5) {
-                    HStack(spacing: NuvioSpacing.sm) {
-                        Text(entry.name)
-                            .font(.system(size: 25, weight: .semibold))
-                            .foregroundStyle(theme.palette.textPrimary)
-                        if entry.needsSetup {
-                            Text("Needs setup")
-                                .font(.system(size: 15, weight: .semibold))
-                                .foregroundStyle(theme.palette.secondary)
-                                .padding(.horizontal, 8).padding(.vertical, 2)
-                                .background(Capsule().fill(theme.palette.secondary.opacity(0.18)))
-                        }
+        HStack(alignment: .top, spacing: NuvioSpacing.md) {
+            SettingsIconTile(symbol: entry.category.icon)
+            VStack(alignment: .leading, spacing: 5) {
+                HStack(spacing: NuvioSpacing.sm) {
+                    Text(entry.name)
+                        .font(.system(size: 25, weight: .semibold))
+                        .foregroundStyle(theme.palette.textPrimary)
+                    if entry.needsSetup {
+                        Text("Needs setup")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(theme.palette.secondary)
+                            .padding(.horizontal, 8).padding(.vertical, 2)
+                            .background(Capsule().fill(theme.palette.secondary.opacity(0.18)))
                     }
-                    Text(entry.tagline)
-                        .font(.system(size: 20))
-                        .foregroundStyle(theme.palette.textSecondary)
-                        .lineSpacing(3)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .frame(maxWidth: 900, alignment: .leading)
                 }
-                Spacer(minLength: NuvioSpacing.lg)
-                accessory
-                    .padding(.top, 2)
+                Text(entry.tagline)
+                    .font(.system(size: 20))
+                    .foregroundStyle(theme.palette.textSecondary)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 900, alignment: .leading)
             }
-            .padding(.horizontal, NuvioSpacing.md)
-            .padding(.vertical, NuvioSpacing.md)
-            .frame(minHeight: 76)
-            .frame(maxWidth: .infinity)
-            .background(SettingsRowBackground(isFocused: isFocused))
+            Spacer(minLength: NuvioSpacing.lg)
+            accessory
+                .padding(.top, 2)
         }
-        .buttonStyle(PlainCardButtonStyle())
-        .disabled(installed)
+        .padding(.horizontal, NuvioSpacing.md)
+        .padding(.vertical, NuvioSpacing.md)
+        .frame(minHeight: 76)
+        .frame(maxWidth: .infinity)
+        .background(SettingsRowBackground(isFocused: isFocused))
     }
 
     @ViewBuilder

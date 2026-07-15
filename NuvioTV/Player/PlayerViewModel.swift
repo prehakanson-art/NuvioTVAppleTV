@@ -174,12 +174,19 @@ final class NuvioPlayerOptions: KSOptions {
             else if available.contains(.hlg) { target = .hlg }
             else { target = .sdr }
         }
+        // 23.976 AFR bias (Android parity): FFmpeg reports film content
+        // variously as 23.97/23.98/24.0, but virtually all "24fps" releases
+        // are really 24000/1001. Requesting 24.000 on a display with distinct
+        // 23.976/24.000 modes yields a frame drop every ~41s — bias anything
+        // near 24 to 23.976 so the panel locks the right mode.
+        var rate = refreshRate
+        if (23.5...24.2).contains(rate) { rate = 23.976 }
         guard lastAppliedDynamicRange != target.rawValue
-            || lastAppliedRefreshRate != refreshRate else { return }
+            || lastAppliedRefreshRate != rate else { return }
         lastAppliedDynamicRange = target.rawValue
-        lastAppliedRefreshRate = refreshRate
+        lastAppliedRefreshRate = rate
         displayManager.preferredDisplayCriteria = AVDisplayCriteria(
-            refreshRate: refreshRate, videoDynamicRange: target.rawValue
+            refreshRate: rate, videoDynamicRange: target.rawValue
         )
         // The exit sequencing needs to know a real switch was requested this
         // SESSION (not just whether the toggle is on — native-DV sessions

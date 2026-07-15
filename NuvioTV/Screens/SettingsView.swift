@@ -904,6 +904,7 @@ private struct AddonsManagementView: View {
     @State private var installMessage: String?
     @State private var showCollections = false
     @State private var showCatalogOrder = false
+    @State private var showDiscover = false
     @State private var refreshing = false
     @State private var showExport = false
     @State private var pendingRemoval: InstalledAddon?
@@ -938,6 +939,16 @@ private struct AddonsManagementView: View {
                         .foregroundStyle(installMessage.hasPrefix("Installed") ? NuvioPrimitives.success : NuvioPrimitives.error)
                 }
             }
+
+            // Discover: curated one-tap-install directory.
+            Button { showDiscover = true } label: {
+                SettingsActionRow(
+                    title: "Discover Add-ons",
+                    subtitle: "Browse and install popular add-ons — no manifest URL needed",
+                    leadingIcon: "sparkle.magnifyingglass"
+                )
+            }
+            .buttonStyle(PlainCardButtonStyle())
 
             // Catalog Order (APK files this under Add-ons)
             Button { showCatalogOrder = true } label: {
@@ -1016,6 +1027,11 @@ private struct AddonsManagementView: View {
                 .environmentObject(addonManager)
                 .environmentObject(collections)
                 .environmentObject(homeCatalogSettings)
+        }
+        .fullScreenCover(isPresented: $showDiscover) {
+            AddonDiscoverView { showDiscover = false }
+                .environmentObject(theme)
+                .environmentObject(addonManager)
         }
         .alert("Remove Add-on?",
                isPresented: Binding(get: { pendingRemoval != nil },

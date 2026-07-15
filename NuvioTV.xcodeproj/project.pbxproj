@@ -55,6 +55,7 @@
 		8BEFD722640C2C3DCF9F0E71 /* StremioAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7D954FA6B8F52309A05490 /* StremioAPI.swift */; };
 		8C3C2D551DB191D562E74637 /* CastDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 260D75DAB36C83E9C3ABC4C6 /* CastDetailView.swift */; };
 		8D638E0114249DD36A1B140E /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C01CCB128223FD098404765 /* DiscoverView.swift */; };
+		8E628727D4B4241A39973930 /* AddonDiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D424F88952AF98F3DB682E76 /* AddonDiscoverView.swift */; };
 		8EEF224B9573AA3722E84B1D /* NuvioConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC76C716994706B4C8031E57 /* NuvioConfig.swift */; };
 		93AB0F8D7406FDE418FD0158 /* TraktService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4EA353DABA76B77A9FCA728 /* TraktService.swift */; };
 		93E54350111ACD546EF3AA86 /* TMDBService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3BA0288809B5DD6BEFC91DE /* TMDBService.swift */; };
@@ -160,6 +161,7 @@
 		C34BF835101EA7DC519880C9 /* SettingsIntegrationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsIntegrationsView.swift; sourceTree = "<group>"; };
 		CB57AA419192D7276E5E56DC /* CloudLibraryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudLibraryService.swift; sourceTree = "<group>"; };
 		CB84CD5358005AFCBA81FA25 /* QRCode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRCode.swift; sourceTree = "<group>"; };
+		D424F88952AF98F3DB682E76 /* AddonDiscoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddonDiscoverView.swift; sourceTree = "<group>"; };
 		D5A881246C6166C28BCD7C8B /* SidebarNav.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarNav.swift; sourceTree = "<group>"; };
 		D65C4F9D6EA30C04E99A1C3E /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
 		DF61804404FEAD1E3E5E4FD6 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
@@ -241,6 +243,7 @@
 			isa = PBXGroup;
 			children = (
 				4581D56301494EB1525328EA /* AccountView.swift */,
+				D424F88952AF98F3DB682E76 /* AddonDiscoverView.swift */,
 				260D75DAB36C83E9C3ABC4C6 /* CastDetailView.swift */,
 				09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */,
 				0427A6C91DE30C948C8A38BF /* CloudLibraryView.swift */,
@@ -467,6 +470,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				BAFA27E5E9E52210E0D89DA5 /* AccountView.swift in Sources */,
+				8E628727D4B4241A39973930 /* AddonDiscoverView.swift in Sources */,
 				14C76B28C6CFAB66591F7FEB /* AddonManager.swift in Sources */,
 				D93146472B6B7BF5F92096A7 /* AnimeSkipService.swift in Sources */,
 				E9F427CC46D1D7C9E4D65EBE /* AppGroupResolver.swift in Sources */,

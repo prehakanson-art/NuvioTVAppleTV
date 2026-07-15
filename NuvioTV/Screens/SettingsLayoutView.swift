@@ -381,6 +381,12 @@ private struct LayoutRowView: View {
     let onToggle: () -> Void
     let onRename: () -> Void
 
+    // Highlight the WHOLE catalog row while any of its controls is focused —
+    // the row is a group of small buttons, so without this only the tiny
+    // circular control lit up and the catalog itself never highlighted.
+    @State private var focusCount = 0
+    private var focused: Bool { focusCount > 0 }
+
     var body: some View {
         HStack(spacing: NuvioSpacing.lg) {
             Image(systemName: row.isCollection ? "rectangle.stack.fill" : "square.grid.2x2.fill")
@@ -417,8 +423,14 @@ private struct LayoutRowView: View {
         .frame(minHeight: 76)
         .background(
             RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
-                .fill(theme.palette.backgroundCard.opacity(enabled ? 0.5 : 0.25))
+                .fill(focused ? theme.palette.focusBackground
+                      : theme.palette.backgroundCard.opacity(enabled ? 0.5 : 0.25))
         )
+        .overlay(
+            RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                .strokeBorder(focused ? theme.palette.focusRing : .clear, lineWidth: 3)
+        )
+        .animation(.easeInOut(duration: 0.15), value: focused)
     }
 
     private func controlButton(icon: String, action: @escaping () -> Void) -> some View {
@@ -426,6 +438,9 @@ private struct LayoutRowView: View {
             RowControlIcon(icon: icon)
         }
         .buttonStyle(PlainCardButtonStyle())
+        // Count focus across the row's controls so the row stays highlighted
+        // as focus moves between them (no flicker on the hand-off).
+        .onFocusChange { f in focusCount = max(0, focusCount + (f ? 1 : -1)) }
     }
 }
 

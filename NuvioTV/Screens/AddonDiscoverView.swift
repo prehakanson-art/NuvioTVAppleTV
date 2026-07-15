@@ -144,6 +144,14 @@ struct AddonDiscoverView: View {
                 }
                 .buttonStyle(PlainCardButtonStyle())
                 .focused($focusedID, equals: item.url)
+                // Hold Select on an installed add-on to remove it right here.
+                .contextMenu {
+                    if installed {
+                        Button(role: .destructive) { uninstall(item.url) } label: {
+                            Label("Remove Add-on", systemImage: "trash")
+                        }
+                    }
+                }
             }
         }
     }
@@ -209,6 +217,13 @@ struct AddonDiscoverView: View {
         Task {
             try? await addonManager.install(manifestURL: url)
             installingID = nil
+        }
+    }
+
+    private func uninstall(_ url: String) {
+        let base = Self.base(url)
+        if let addon = addonManager.addons.first(where: { $0.baseURL == base }) {
+            addonManager.remove(addon)
         }
     }
 }

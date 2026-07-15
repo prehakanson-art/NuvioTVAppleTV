@@ -518,7 +518,8 @@ struct RootView: View {
         case 4:
             NavigationStack(path: $liveTVPath) {
                 LiveTVView(
-                    onSelectChannel: { channel in liveTVPath.append(Route.streams(channel, nil)) }
+                    onSelectChannel: { channel in liveTVPath.append(Route.streams(channel, nil)) },
+                    onPlayDirect: { channel in playLiveChannel(channel) }
                 )
                 .onExitCommand { sidebarFocus = 4 }
                 .navigationDestination(for: Route.self) { destination(for: $0, path: $liveTVPath) }
@@ -665,6 +666,20 @@ struct RootView: View {
     /// the stream straight to the chosen player (Infuse etc.) instead of
     /// opening Nuvio's own player; if the chosen app was uninstalled, any
     /// other installed one is used; none installed → play internally.
+    /// Play a direct Live TV channel (M3U): wrap its URL in a one-off stream and
+    /// go straight to the player — no source picker, no debrid.
+    private func playLiveChannel(_ channel: LiveChannel) {
+        guard let url = channel.directURL else { return }
+        let stream = Stream(name: "Live", title: channel.name, description: nil,
+                            url: url, infoHash: nil, behaviorHints: nil)
+        let entry = StreamEntry(addonName: "Live TV", stream: stream)
+        let meta = MetaItem(id: channel.id, type: "tv", name: channel.name,
+                            poster: channel.logo, background: channel.logo, logo: channel.logo)
+        startPlayback(PlaybackRequest(
+            meta: meta, video: nil, entry: entry, allEntries: [entry], resumePosition: nil
+        ))
+    }
+
     private func startPlayback(_ request: PlaybackRequest) {
         if playerSettings.settings.playerEngine == .external,
            let urlString = request.entry.stream.url {

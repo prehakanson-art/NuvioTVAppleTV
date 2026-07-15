@@ -1,19 +1,32 @@
 import SwiftUI
 
-/// Live TV / IPTV tab. Surfaces every `tv`-type catalog from the installed
-/// addons (IPTV/live addons declare their channel lists as `type: "tv"`) and
-/// plays a chosen channel through the normal source picker → player pipeline,
-/// so a channel's direct m3u8/HLS stream just plays. No debrid, no Detail page.
+/// A channel in the Live TV grid. Either a direct M3U stream (plays straight
+/// away) or an add-on catalog entry (resolved through the source picker).
+struct LiveChannel: Identifiable, Hashable {
+    let id: String
+    let name: String
+    let logo: String?
+    let group: String
+    /// Direct stream URL (from the embedded M3U). nil → resolve via `meta`.
+    let directURL: String?
+    let meta: MetaItem?
+}
+
+/// Live TV / IPTV tab. Merges two sources: `tv`-type catalogs from installed
+/// add-ons AND an embedded iptv-org playlist, so there are channels out of the
+/// box. Direct (M3U) channels play immediately; add-on channels go through the
+/// normal source picker.
 @MainActor
 final class LiveTVViewModel: ObservableObject {
     struct Section: Identifiable {
         let id: String
         let title: String
-        let channels: [MetaItem]
+        let channels: [LiveChannel]
     }
 
     @Published var sections: [Section] = []
     @Published var isLoading = false
+    @Published var loadingIPTV = false
     private var loaded = false
 
     func loadIfNeeded(addonManager: AddonManager) async {
@@ -25,7 +38,20 @@ final class LiveTVViewModel: ObservableObject {
     func load(addonManager: AddonManager) async {
         isLoading = sections.isEmpty
 
-        // Every plain (no required-extra) tv catalog across enabled addons.
+        // 1) Add-on tv catalogs (fast) — show these first.
+        let addonSections = await addonSections(addonManager)
+        sections = addonSections
+        if !addonSections.isEmpty { isLoading = false }
+
+        // 2) Embedded iptv-org playlist (larger; appends when ready).
+        loadingIPTV = true
+        let m3u = await M3UService.channels(from: M3UService.iptvOrgURL)
+        sections = addonSections + m3uSections(m3u)
+        loadingIPTV = false
+        isLoading = false
+    }
+
+    private func addonSections(_ addonManager: AddonManager) async -> [Section] {
         var requests: [(addon: InstalledAddon, catalog: ManifestCatalog)] = []
         for addon in addonManager.catalogAddons {
             for catalog in (addon.manifest.catalogs ?? [])
@@ -33,26 +59,40 @@ final class LiveTVViewModel: ObservableObject {
                 requests.append((addon, catalog))
             }
         }
-        guard !requests.isEmpty else {
-            sections = []
-            isLoading = false
-            return
-        }
+        guard !requests.isEmpty else { return [] }
 
         var built: [(Int, Section)] = []
         await withTaskGroup(of: (Int, Section?).self) { group in
             for (i, req) in requests.enumerated() {
                 group.addTask {
-                    let channels = (try? await StremioAPI.catalog(addon: req.addon, catalog: req.catalog)) ?? []
-                    guard !channels.isEmpty else { return (i, nil) }
+                    let metas = (try? await StremioAPI.catalog(addon: req.addon, catalog: req.catalog)) ?? []
+                    guard !metas.isEmpty else { return (i, nil) }
                     let title = req.catalog.name ?? req.catalog.id.capitalized
-                    return (i, Section(id: "\(req.addon.id)|\(req.catalog.id)", title: title, channels: channels))
+                    let channels = metas.map {
+                        LiveChannel(id: $0.id, name: $0.name,
+                                    logo: $0.logo ?? $0.poster ?? $0.background,
+                                    group: title, directURL: nil, meta: $0)
+                    }
+                    return (i, Section(id: "addon|\(req.addon.id)|\(req.catalog.id)", title: title, channels: channels))
                 }
             }
             for await (i, section) in group { if let section { built.append((i, section)) } }
         }
-        sections = built.sorted { $0.0 < $1.0 }.map(\.1)
-        isLoading = false
+        return built.sorted { $0.0 < $1.0 }.map(\.1)
+    }
+
+    private func m3uSections(_ channels: [M3UChannel]) -> [Section] {
+        guard !channels.isEmpty else { return [] }
+        // Preserve first-seen group order.
+        var order: [String] = []
+        var byGroup: [String: [LiveChannel]] = [:]
+        for c in channels {
+            if byGroup[c.group] == nil { order.append(c.group) }
+            byGroup[c.group, default: []].append(
+                LiveChannel(id: c.id, name: c.name, logo: c.logo, group: c.group, directURL: c.url, meta: nil)
+            )
+        }
+        return order.map { g in Section(id: "iptv|\(g)", title: g, channels: byGroup[g] ?? []) }
     }
 }
 
@@ -68,8 +108,10 @@ struct LiveTVView: View {
     @EnvironmentObject private var addonManager: AddonManager
     @StateObject private var viewModel = LiveTVViewModel()
 
-    /// Push the channel into the shared streams flow (fetch → pick → play).
+    /// Add-on channel → source picker.
     let onSelectChannel: (MetaItem) -> Void
+    /// Direct (M3U) channel → play its URL immediately.
+    let onPlayDirect: (LiveChannel) -> Void
 
     @State private var searchText = ""
     @State private var sortMode: ChannelSort = .defaultOrder
@@ -83,13 +125,16 @@ struct LiveTVView: View {
         .task { await viewModel.loadIfNeeded(addonManager: addonManager) }
     }
 
-    /// Any control that switches from the grouped rows to a flat, filtered grid.
+    private func play(_ channel: LiveChannel) {
+        if channel.directURL != nil { onPlayDirect(channel) }
+        else if let meta = channel.meta { onSelectChannel(meta) }
+    }
+
     private var filtering: Bool {
         !searchText.isEmpty || sortMode != .defaultOrder || !selectedGroup.isEmpty
     }
 
-    /// Channels for the flat view: pick the group, de-dup, search, then sort.
-    private var displayChannels: [MetaItem] {
+    private var displayChannels: [LiveChannel] {
         var pool = selectedGroup.isEmpty
             ? viewModel.sections.flatMap(\.channels)
             : (viewModel.sections.first { $0.title == selectedGroup }?.channels ?? [])
@@ -113,12 +158,12 @@ struct LiveTVView: View {
         } else if viewModel.sections.isEmpty {
             NuvioEmptyState(
                 icon: "tv",
-                title: "No Live TV yet",
-                message: "Install a Live TV or IPTV add-on (one that provides “tv” catalogs) from Settings → Add-ons, and its channels appear here."
+                title: "No channels",
+                message: "Couldn't load channels. Check your connection, or install a Live TV / IPTV add-on from Add-ons → Discover."
             )
         } else {
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: NuvioSpacing.xl) {
+                LazyVStack(alignment: .leading, spacing: NuvioSpacing.xl) {
                     header
                     controls
                     if filtering {
@@ -140,14 +185,15 @@ struct LiveTVView: View {
             Text("Live TV")
                 .font(.system(size: 40, weight: .heavy))
                 .foregroundStyle(theme.palette.textPrimary)
-            Text("Channels from your installed add-ons")
+            Text(viewModel.loadingIPTV
+                 ? "Loading the IPTV channel list…"
+                 : "Channels from your add-ons and the built-in IPTV list")
                 .font(.system(size: 21))
                 .foregroundStyle(theme.palette.textSecondary)
         }
         .padding(.leading, NuvioSpacing.huge)
     }
 
-    /// Search field + sort + group filter.
     private var controls: some View {
         HStack(spacing: NuvioSpacing.lg) {
             HStack(spacing: NuvioSpacing.sm) {
@@ -166,7 +212,7 @@ struct LiveTVView: View {
                 title: "Sort",
                 selection: sortMode.rawValue,
                 options: ChannelSort.allCases.map { NuvioDropdownOption($0.rawValue) },
-                triggerWidth: 260
+                triggerWidth: 240
             ) { sortMode = ChannelSort(rawValue: $0) ?? .defaultOrder }
 
             if viewModel.sections.count > 1 {
@@ -186,7 +232,7 @@ struct LiveTVView: View {
     private var filteredGrid: some View {
         Group {
             if displayChannels.isEmpty {
-                Text("No channels match “\(searchText)”.")
+                Text(searchText.isEmpty ? "No channels in this group." : "No channels match “\(searchText)”.")
                     .font(.system(size: 22))
                     .foregroundStyle(theme.palette.textSecondary)
                     .padding(.horizontal, NuvioSpacing.huge)
@@ -198,11 +244,11 @@ struct LiveTVView: View {
                     spacing: NuvioSpacing.xl
                 ) {
                     ForEach(displayChannels) { channel in
-                        Button { onSelectChannel(channel) } label: {
+                        Button { play(channel) } label: {
                             ChannelCard(channel: channel)
                         }
                         .buttonStyle(PlainCardButtonStyle())
-                        .onPlayPauseCommand { onSelectChannel(channel) }
+                        .onPlayPauseCommand { play(channel) }
                     }
                 }
                 .padding(.horizontal, NuvioSpacing.huge)
@@ -215,15 +261,12 @@ struct LiveTVView: View {
             RowHeader(title: section.title)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
-                    ForEach(section.channels) { channel in
-                        Button {
-                            onSelectChannel(channel)
-                        } label: {
+                    ForEach(section.channels.prefix(40)) { channel in
+                        Button { play(channel) } label: {
                             ChannelCard(channel: channel)
                         }
                         .buttonStyle(PlainCardButtonStyle())
-                        // ⏯ plays a channel too.
-                        .onPlayPauseCommand { onSelectChannel(channel) }
+                        .onPlayPauseCommand { play(channel) }
                     }
                 }
                 .padding(.horizontal, NuvioSpacing.huge)
@@ -234,13 +277,12 @@ struct LiveTVView: View {
     }
 }
 
-/// A landscape channel tile — channel logo/poster on a dark plate with the name
-/// underneath. Focus ring + optional zoom, matching the rest of the app.
+/// A landscape channel tile — logo on a dark plate with the name underneath.
 private struct ChannelCard: View {
     @EnvironmentObject private var theme: ThemeManager
     @ObservedObject private var perf = PerformanceSettingsStore.shared
     @Environment(\.isFocused) private var isFocused
-    let channel: MetaItem
+    let channel: LiveChannel
 
     private let width: CGFloat = 300
 
@@ -248,12 +290,14 @@ private struct ChannelCard: View {
         VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
             ZStack {
                 theme.palette.backgroundCard
-                RemoteImage(
-                    url: channel.logo ?? channel.poster ?? channel.background,
-                    contentMode: .fit,
-                    maxDimension: width
-                )
-                .padding(NuvioSpacing.md)
+                if let logo = channel.logo {
+                    RemoteImage(url: logo, contentMode: .fit, maxDimension: width)
+                        .padding(NuvioSpacing.md)
+                } else {
+                    Image(systemName: "tv")
+                        .font(.system(size: 46))
+                        .foregroundStyle(theme.palette.textTertiary)
+                }
             }
             .frame(width: width, height: width * 9 / 16)
             .clipShape(RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous))

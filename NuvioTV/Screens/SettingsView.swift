@@ -774,7 +774,6 @@ private struct ContentDiscoveryDetail: View {
     @EnvironmentObject private var homeCatalogSettings: HomeCatalogSettingsStore
     @EnvironmentObject private var streamBadges: StreamBadgeStore
     @State private var showAddons = false
-    @State private var showCommunityCatalogs = false
     @State private var badgeURLInput = ""
     @State private var badgeImporting = false
 
@@ -791,15 +790,6 @@ private struct ContentDiscoveryDetail: View {
                 .buttonStyle(PlainCardButtonStyle())
             }
             SettingsGroupCard(title: "Catalogs") {
-                Button { showCommunityCatalogs = true } label: {
-                    SettingsActionRow(
-                        title: "Community Catalogs",
-                        subtitle: "Browse and add catalog add-ons from the Stremio community — their rows show up on Home",
-                        leadingIcon: "square.grid.3x3.fill.square"
-                    )
-                }
-                .buttonStyle(PlainCardButtonStyle())
-
                 NuvioDropdown(
                     title: "Auto-refresh",
                     subtitle: "Re-fetch Home catalogs on a timer while the app is open, so new releases appear without relaunching",
@@ -827,11 +817,6 @@ private struct ContentDiscoveryDetail: View {
             .environmentObject(collections)
             .environmentObject(homeCatalogSettings)
             .onExitCommand { showAddons = false }
-        }
-        .fullScreenCover(isPresented: $showCommunityCatalogs) {
-            AddonDiscoverView(onDone: { showCommunityCatalogs = false }, catalogsOnly: true)
-                .environmentObject(theme)
-                .environmentObject(addonManager)
         }
     }
 
@@ -920,6 +905,8 @@ private struct AddonsManagementView: View {
     @State private var showCollections = false
     @State private var showCatalogOrder = false
     @State private var showDiscover = false
+    @State private var showCommunityCatalogs = false
+    @State private var showCommunityCollections = false
     @State private var refreshing = false
     @State private var showExport = false
     @State private var pendingRemoval: InstalledAddon?
@@ -975,6 +962,16 @@ private struct AddonsManagementView: View {
             }
             .buttonStyle(PlainCardButtonStyle())
 
+            // Community Catalogs — add catalog add-ons from the live directory.
+            Button { showCommunityCatalogs = true } label: {
+                SettingsActionRow(
+                    title: "Community Catalogs",
+                    subtitle: "Browse and add catalog add-ons from the Stremio community — their rows appear on Home",
+                    leadingIcon: "square.grid.3x3.fill.square"
+                )
+            }
+            .buttonStyle(PlainCardButtonStyle())
+
             // Collections
             Button { showCollections = true } label: {
                 SettingsActionRow(
@@ -982,6 +979,16 @@ private struct AddonsManagementView: View {
                     subtitle: "Group catalogs into custom home rows",
                     value: collections.collections.isEmpty ? nil : "\(collections.collections.count)",
                     leadingIcon: "rectangle.stack.fill"
+                )
+            }
+            .buttonStyle(PlainCardButtonStyle())
+
+            // Community Collections — ready-made collections you can add.
+            Button { showCommunityCollections = true } label: {
+                SettingsActionRow(
+                    title: "Community Collections",
+                    subtitle: "Add ready-made collections that bundle popular catalogs into one Home row",
+                    leadingIcon: "square.stack.3d.up.fill"
                 )
             }
             .buttonStyle(PlainCardButtonStyle())
@@ -1047,6 +1054,17 @@ private struct AddonsManagementView: View {
             AddonDiscoverView { showDiscover = false }
                 .environmentObject(theme)
                 .environmentObject(addonManager)
+        }
+        .fullScreenCover(isPresented: $showCommunityCatalogs) {
+            AddonDiscoverView(onDone: { showCommunityCatalogs = false }, catalogsOnly: true)
+                .environmentObject(theme)
+                .environmentObject(addonManager)
+        }
+        .fullScreenCover(isPresented: $showCommunityCollections) {
+            CommunityCollectionsView(onDone: { showCommunityCollections = false })
+                .environmentObject(theme)
+                .environmentObject(addonManager)
+                .environmentObject(collections)
         }
         .alert("Remove Add-on?",
                isPresented: Binding(get: { pendingRemoval != nil },

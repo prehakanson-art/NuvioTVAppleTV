@@ -329,11 +329,9 @@ struct DetailView: View {
             }
 
             if let description = viewModel.meta.description {
-                Text(description)
-                    .font(.system(size: 25))
-                    .foregroundStyle(theme.palette.textSecondary)
-                    .lineLimit(4)
-                    .frame(maxWidth: 1000, alignment: .leading)
+                // Clickable teaser → full-description overlay (the Android
+                // app's scrollable hero-description feature).
+                DescriptionTeaser(text: description, title: viewModel.meta.name)
             }
 
             // Meta line 1: Genres • Full release date • IMDb.
@@ -985,5 +983,116 @@ private struct ParentalGuideRow: View {
         case .moderate: return NuvioPrimitives.amber500
         case .severe: return NuvioPrimitives.error
         }
+    }
+}
+
+// MARK: - Full description overlay
+
+/// The truncated synopsis on the hero, clickable: opens a full-screen
+/// overlay with the complete text (the Android app's scrollable
+/// hero-description). Brightens on focus so it reads as selectable.
+private struct DescriptionTeaser: View {
+    @EnvironmentObject private var theme: ThemeManager
+    let text: String
+    let title: String
+    @State private var showFull = false
+
+    var body: some View {
+        Button { showFull = true } label: {
+            TeaserLabel(text: text)
+        }
+        .buttonStyle(PlainCardButtonStyle())
+        .fullScreenCover(isPresented: $showFull) {
+            DescriptionOverlay(title: title, text: text) { showFull = false }
+                .environmentObject(theme)
+        }
+    }
+}
+
+private struct TeaserLabel: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.isFocused) private var isFocused
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 25))
+            .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
+            .lineLimit(4)
+            .frame(maxWidth: 1000, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(
+                RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                    .fill(isFocused ? theme.palette.focusBackground : .clear)
+            )
+            .padding(.horizontal, -14)   // keep the resting text aligned as before
+    }
+}
+
+/// Full synopsis, arrow-scrollable. A full-screen invisible button holds
+/// focus (the player's remote-catcher pattern): up/down scroll by a step,
+/// Select or Back closes.
+private struct DescriptionOverlay: View {
+    @EnvironmentObject private var theme: ThemeManager
+    let title: String
+    let text: String
+    let onClose: () -> Void
+
+    @State private var offset: CGFloat = 0
+    @State private var contentHeight: CGFloat = 0
+    @State private var viewportHeight: CGFloat = 0
+
+    private var maxOffset: CGFloat { max(contentHeight - viewportHeight, 0) }
+
+    var body: some View {
+        ZStack {
+            theme.palette.background.ignoresSafeArea()
+
+            VStack(alignment: .leading, spacing: NuvioSpacing.xl) {
+                Text(title)
+                    .font(.system(size: 46, weight: .bold))
+                    .foregroundStyle(theme.palette.textPrimary)
+
+                GeometryReader { viewport in
+                    Text(text)
+                        .font(.system(size: 28))
+                        .foregroundStyle(theme.palette.textSecondary)
+                        .lineSpacing(8)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(
+                            GeometryReader { geo in
+                                Color.clear.onAppear { contentHeight = geo.size.height }
+                            }
+                        )
+                        .offset(y: -offset)
+                        .onAppear { viewportHeight = viewport.size.height }
+                }
+                .clipped()
+
+                Text(maxOffset > 0 ? "Swipe up/down to scroll · press Back to close"
+                                   : "Press Back to close")
+                    .font(.system(size: 18))
+                    .foregroundStyle(theme.palette.textTertiary)
+            }
+            .padding(.horizontal, 220)
+            .padding(.vertical, 90)
+
+            // Invisible focus holder: Select closes, moves scroll.
+            Button(action: onClose) { Color.clear }
+                .buttonStyle(PlainCardButtonStyle())
+        }
+        .onMoveCommand { direction in
+            let step: CGFloat = 340
+            withAnimation(.easeOut(duration: 0.25)) {
+                switch direction {
+                case .down: offset = min(offset + step, maxOffset)
+                case .up: offset = max(offset - step, 0)
+                default: break
+                }
+            }
+        }
+        .onExitCommand { onClose() }
+        .onPlayPauseCommand { onClose() }
     }
 }

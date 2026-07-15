@@ -48,12 +48,6 @@ struct PerformanceSettingsDetail: View {
                     subtitle: "The focused card springs slightly larger. Off: only the highlight ring marks focus — the cheapest possible focus effect.",
                     isOn: s.focusZoom
                 )
-                PerfToggleRow(
-                    icon: "arrow.up.to.line",
-                    title: "Smooth row scrolling",
-                    subtitle: "Animates the focused row sliding up under the billboard. Off: rows snap into place instantly instead of gliding.",
-                    isOn: s.rowPinAnimation
-                )
             }
 
             SettingsGroupCard(

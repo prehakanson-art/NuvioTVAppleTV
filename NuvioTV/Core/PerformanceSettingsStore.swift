@@ -22,8 +22,6 @@ final class PerformanceSettingsStore: ObservableObject {
         var cardShadows = true
         /// Cards spring slightly larger when focused.
         var focusZoom = true
-        /// Animated pin of the focused row under the billboard.
-        var rowPinAnimation = true
         /// Background download of below-the-fold row artwork.
         var artworkPrefetch = true
         /// Fade posters in as they finish loading.
@@ -37,7 +35,7 @@ final class PerformanceSettingsStore: ObservableObject {
 
         private enum CodingKeys: String, CodingKey {
             case heroBackdrop, heroCrossfade, cardShadows, focusZoom
-            case rowPinAnimation, artworkPrefetch, artworkFadeIn
+            case artworkPrefetch, artworkFadeIn
             case sidebarAnimation, buttonAnimations
         }
 
@@ -50,7 +48,6 @@ final class PerformanceSettingsStore: ObservableObject {
             heroCrossfade = (try? c.decode(Bool.self, forKey: .heroCrossfade)) ?? true
             cardShadows = (try? c.decode(Bool.self, forKey: .cardShadows)) ?? true
             focusZoom = (try? c.decode(Bool.self, forKey: .focusZoom)) ?? true
-            rowPinAnimation = (try? c.decode(Bool.self, forKey: .rowPinAnimation)) ?? true
             artworkPrefetch = (try? c.decode(Bool.self, forKey: .artworkPrefetch)) ?? true
             artworkFadeIn = (try? c.decode(Bool.self, forKey: .artworkFadeIn)) ?? true
             sidebarAnimation = (try? c.decode(Bool.self, forKey: .sidebarAnimation)) ?? true
@@ -74,7 +71,6 @@ final class PerformanceSettingsStore: ObservableObject {
             s.cardShadows = false
             s.heroCrossfade = false
             s.artworkFadeIn = false
-            s.rowPinAnimation = false
             s.sidebarAnimation = false
             s.buttonAnimations = false
         } else if PerformanceProfile.isMidPower {

@@ -327,16 +327,9 @@ struct HomeView: View {
         }
     }
 
-    // The focused row pins to the top of the scroll (just under the billboard),
-    // so rows ABOVE it scroll off behind the billboard and out the clipped top
-    // edge — hidden until you move back up, where the native scroll brings them
-    // right back. Rows BELOW stay visible; there is deliberately NO idle-hide
-    // (that caused rows to vanish in too many edge cases).
-    @State private var pinnedRowID: String?
     // Owned via @State (NOT @StateObject) so HomeView does NOT observe it —
     // hero changes must re-render only the billboard subviews, never the rows.
     @State private var hero = HeroFocus()
-    private static let continueRowID = "continue-watching"
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -441,8 +434,8 @@ struct HomeView: View {
         ScrollView(.vertical) {
             // Grid stacks many tall poster grids; a LazyVStack keeps off-screen
             // catalogs from all rendering at once (the source of the grid lag).
-            // Non-grid layouts keep the eager VStack so every row exists for the
-            // pin-to-top focus behavior.
+            // Row layouts keep the eager VStack (its LazyHStack children stay
+            // lazy) so vertical focus moves never wait on row creation.
             Group {
                 if layout == .grid {
                     LazyVStack(alignment: .leading, spacing: NuvioSpacing.xl) { rowsContent }
@@ -451,20 +444,14 @@ struct HomeView: View {
                 }
             }
             .padding(.top, layout == .grid ? 40 : NuvioSpacing.md)
-            // Deep bottom padding (Modern only) so even the LAST row can pin
-            // to the top slot — otherwise the scroll clamps and the hidden
-            // rows above it fill the viewport as blank space. Classic and Grid
-            // scroll naturally, so they just need normal end padding.
-            .padding(.bottom, layout == .modern ? 700 : NuvioSpacing.huge)
-            .scrollTargetLayout()
+            .padding(.bottom, NuvioSpacing.huge)
         }
         // Vertically CLIPPED on purpose (no scrollClipDisabled): rows scrolled
         // up past the viewport are hard-cut below the billboard, so they can
-        // never render over the background art.
-        // Keep the focused row pinned right under the billboard instead of
-        // letting the focus engine leave earlier rows half-visible above it.
-        .scrollPosition(id: $pinnedRowID, anchor: .top)
-        // Start the pinned row lower so more of the billboard art shows.
+        // never render over the background art. Scrolling is fully native —
+        // the old scrollPosition pin (forcing the focused row to the top slot)
+        // double-drove the scroll against the focus engine and made every row
+        // change a whole-content jump; the focus engine alone is smooth.
         .padding(.top, rowsTopInset)
     }
 
@@ -473,7 +460,6 @@ struct HomeView: View {
         let continueItems = progressStore.continueWatching(sortMode: homeCatalogSettings.continueWatchingSortMode)
         if !continueItems.isEmpty {
             continueRow(continueItems)
-                .id(Self.continueRowID)
         }
 
         ForEach(viewModel.entries) { entry in
@@ -488,17 +474,14 @@ struct HomeView: View {
             if layout == .grid {
                 posterGrid(row)
             } else {
-                horizontalRow(row, rowID: entry.id)
+                horizontalRow(row)
             }
         case .collection(let collection):
             let key = HomeCatalogSettingsStore.collectionKey(collection.id)
             CollectionRowSection(
                 collection: collection,
                 title: homeCatalogSettings.customTitle(for: key) ?? collection.title,
-                onOpen: { onOpenCollection(collection) },
-                onCardFocus: { focused in
-                    if focused { noteRowFocus(id: entry.id) }
-                }
+                onOpen: { onOpenCollection(collection) }
             )
         }
     }
@@ -514,31 +497,16 @@ struct HomeView: View {
             },
             heroItemFor: heroItem(from:),
             onResume: onResume,
-            onRowFocus: { noteRowFocus(id: Self.continueRowID) },
             menuFor: { progress in AnyView(continueMenu(progress)) }
         )
     }
 
-    // MARK: Row focus
-
-    /// Pins the focused row to the top of the scroll so rows above it slide off
-    /// behind the billboard. Rows below stay visible; moving up brings the
-    /// above rows straight back via the native scroll.
-    ///
-    /// MODERN ONLY: the pin exists so rows tuck under the billboard. Classic
-    /// has no billboard panel, and asserting the pin there fought the focus
-    /// engine's own scroll-to-visible — every sideways move dipped the row
-    /// down and sprang it back. Classic and Grid scroll naturally.
-    private func noteRowFocus(id: String) {
-        guard layout == .modern, pinnedRowID != id else { return }
-        withAnimation(perf.settings.rowPinAnimation
-                      ? .spring(response: 0.25, dampingFraction: 0.9) : nil) { pinnedRowID = id }
-    }
+    // MARK: Rows
 
     /// Row header with a focusable "See All" affordance when the catalog can
     /// be paginated.
     @ViewBuilder
-    private func catalogHeader(_ row: HomeRow, onFocus: @escaping (Bool) -> Void = { _ in }) -> some View {
+    private func catalogHeader(_ row: HomeRow) -> some View {
         HStack(alignment: .firstTextBaseline) {
             RowHeader(title: row.title)
             if let addon = row.addon, let catalog = row.catalog {
@@ -546,11 +514,7 @@ struct HomeView: View {
                 Button {
                     onSeeAll(addon, catalog, row.title)
                 } label: {
-                    // "See All" is part of the row: focusing it must reveal the
-                    // row like focusing a card does, or focus can sit on an
-                    // invisible pill.
                     SeeAllLabel()
-                        .onFocusChange { onFocus($0) }
                 }
                 .buttonStyle(PlainCardButtonStyle())
                 .padding(.trailing, NuvioSpacing.huge)
@@ -564,11 +528,9 @@ struct HomeView: View {
         layout == .modern && homeCatalogSettings.landscapePosters
     }
 
-    private func horizontalRow(_ row: HomeRow, rowID: String) -> some View {
+    private func horizontalRow(_ row: HomeRow) -> some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
-            catalogHeader(row, onFocus: { focused in
-                if focused { noteRowFocus(id: rowID) }
-            })
+            catalogHeader(row)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
                     ForEach(row.items) { item in
@@ -588,10 +550,7 @@ struct HomeView: View {
                                 }
                             }
                             .onFocusChange { focused in
-                                if focused {
-                                    hero.focus(item)
-                                    noteRowFocus(id: rowID)
-                                }
+                                if focused { hero.focus(item) }
                             }
                         }
                         .buttonStyle(PlainCardButtonStyle())
@@ -745,15 +704,13 @@ private struct ContinueWatchingRow: View {
     let blurFor: (WatchProgress) -> Bool
     let heroItemFor: (WatchProgress) -> MetaItem
     let onResume: (WatchProgress) -> Void
-    let onRowFocus: () -> Void
     let menuFor: (WatchProgress) -> AnyView
 
-    // Last-focused card. Coming back UP into the row, the pinning scroll has
-    // displaced it off its natural position, so the focus engine picks a
-    // geometrically-wrong card (the "jumps to the 5th" bug). Two defenses:
-    // prefersDefaultFocus marks the remembered card, and a FocusState
-    // snap-back forcibly returns focus to it when the row is ENTERED on a
-    // different one.
+    // Last-focused card. Coming back UP into the row after its horizontal
+    // scroll moved, the focus engine can pick a geometrically-wrong card (the
+    // "jumps to the 5th" bug). Two defenses: prefersDefaultFocus marks the
+    // remembered card, and a FocusState snap-back forcibly returns focus to
+    // it when the row is ENTERED on a different one.
     @State private var focusedContinueID: String?
     @FocusState private var focusedCWCard: String?
     @Namespace private var continueScope
@@ -781,10 +738,7 @@ private struct ContinueWatchingRow: View {
                             // onChange below — NOT here, or the wrong entry card
                             // would overwrite it before the snap-back runs.)
                             .onFocusChange { focused in
-                                if focused {
-                                    hero.focus(heroItemFor(progress))
-                                    onRowFocus()
-                                }
+                                if focused { hero.focus(heroItemFor(progress)) }
                             }
                         }
                         .buttonStyle(PlainCardButtonStyle())

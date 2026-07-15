@@ -7,19 +7,42 @@ enum NextEpisodeThresholdMode: String, Codable, CaseIterable {
     case minutesBeforeEnd  // fire when (duration - position) ≤ minutes
 }
 
-/// User-facing playback buffer sizing (the Android app's "Nuvio Engine" play
-/// buffer settings). Scales the size-adaptive defaults in PlayerViewModel:
-/// Conservative halves the buffer cap (smaller, gentler refill bursts — for
-/// boxes/networks that stutter on the periodic refill), Large doubles it
-/// (deeper cushion for flaky connections at the cost of bigger bursts).
+/// How much of the stream to buffer AHEAD (read-ahead cache), so a slow or
+/// bursty connection doesn't cause mid-playback rebuffering.
+///
+/// `auto` keeps the size-adaptive default (a modest seconds-based cache scaled
+/// to the file's bitrate). `conservative` shrinks it (smaller, gentler network
+/// refill bursts — for boxes/networks that hitch on the periodic refill). The
+/// SIZE options (500 MB … 2 GB) pre-buffer roughly that many bytes ahead — the
+/// player converts the target to seconds from the stream's real bitrate — so a
+/// whole scene downloads before it's needed. `max` uses as much as the device
+/// can spare. All sizes are CAPPED to a per-device RAM budget
+/// (PerformanceProfile.maxBufferBytes): the buffer lives in memory (tvOS has no
+/// working disk cache), so an oversized one would jetsam the app. On a 3 GB
+/// Apple TV, "2 GB" therefore effectively caps around 600 MB.
 enum BufferProfile: String, Codable, CaseIterable {
-    case auto, conservative, large
+    case auto, conservative, mb500, gb1, gb2, max
 
     var label: String {
         switch self {
         case .auto: return "Auto (recommended)"
-        case .conservative: return "Conservative (smaller bursts)"
-        case .large: return "Large (deeper cushion)"
+        case .conservative: return "Conservative (smaller)"
+        case .mb500: return "500 MB ahead"
+        case .gb1: return "1 GB ahead"
+        case .gb2: return "2 GB ahead"
+        case .max: return "Maximum (fills available memory)"
+        }
+    }
+
+    /// Target read-ahead bytes for the size options; nil for auto/conservative
+    /// (which stay seconds-based). The player clamps this to the device budget.
+    var targetBytes: Int? {
+        switch self {
+        case .auto, .conservative: return nil
+        case .mb500: return 500 << 20
+        case .gb1: return 1000 << 20
+        case .gb2: return 2000 << 20
+        case .max: return .max
         }
     }
 }

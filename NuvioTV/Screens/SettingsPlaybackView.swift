@@ -205,8 +205,8 @@ struct PlaybackSettingsDetail: View {
                 ) { store.settings.playerEngine = PlayerEngine(rawValue: $0) ?? .auto }
 
                 NuvioDropdown(
-                    title: "Playback buffer",
-                    subtitle: "Auto sizes the buffer to the file. Conservative = smaller, gentler refill bursts (try if playback nicks periodically). Large = deeper cushion for flaky connections.",
+                    title: "Buffer ahead",
+                    subtitle: "How much of the video to download ahead so a slow/bursty connection doesn't rebuffer. Auto sizes to the file. The MB/GB options pre-load roughly that much of the movie before it's needed. Capped to what your Apple TV's memory can hold (no disk cache on tvOS), so on a 3 GB model the big options top out ~600 MB.",
                     icon: "gauge.with.dots.needle.50percent",
                     selection: store.settings.bufferProfile.rawValue,
                     options: BufferProfile.allCases.map { NuvioDropdownOption($0.rawValue, $0.label) }

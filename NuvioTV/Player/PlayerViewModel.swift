@@ -985,16 +985,19 @@ final class PlayerViewModel: ObservableObject {
             options.maxBufferDuration = 24    // refill burst ≈ 12s of data
             socketBuffer = 8 << 20            // fewer, bigger reads
         }
-        // User buffer profile (Settings → Playback) scales the tier defaults:
-        // Conservative halves the cap (smaller refill bursts), Large doubles
-        // it (deeper cushion). Floors/caps keep either extreme sane.
+        // User buffer profile (Settings → Playback). Conservative shrinks the
+        // seconds-based cap here. The SIZE options can't be sized until the
+        // bitrate is known, so they keep the tier default for a smooth start
+        // and get their real (byte-target → seconds) value applied at
+        // readyToPlay (applyBufferSizeTarget). A bigger socket buffer helps
+        // the size profiles sustain the deeper fill.
         switch settings.bufferProfile {
-        case .auto: break
+        case .auto:
+            break
         case .conservative:
             options.maxBufferDuration = max(options.maxBufferDuration / 2, 12)
             socketBuffer = max(socketBuffer / 2, 1 << 20)
-        case .large:
-            options.maxBufferDuration = min(options.maxBufferDuration * 2, 180)
+        case .mb500, .gb1, .gb2, .max:
             socketBuffer = min(socketBuffer * 2, 16 << 20)
         }
 
@@ -1082,6 +1085,43 @@ final class PlayerViewModel: ObservableObject {
     private func refreshEngineName() {
         guard let player = playerLayer?.player else { return }
         engineName = player is KSMEPlayer ? "FFmpeg" : "Native"
+    }
+
+    /// Apply a byte-target read-ahead cache for the size buffer profiles. The
+    /// buffer is measured in SECONDS (KSPlayer holds that many seconds of
+    /// packets in RAM), so convert the byte target to seconds via the stream's
+    /// real bitrate — and clamp to the device RAM budget so a huge remux can't
+    /// jetsam the app. Only the FFmpeg engine has this seconds-based cache;
+    /// the native AVPlayer path manages its own buffer. `currentOptions` is
+    /// read live by KSPlayer, so updating it here takes effect immediately.
+    private func applyBufferSizeTarget(player: some MediaPlayerProtocol) {
+        guard let target = settings.bufferProfile.targetBytes,
+              let options = currentOptions,
+              player is KSMEPlayer else { return }
+
+        // Bitrate (bits/s): prefer file size ÷ duration; fall back to the sum
+        // of the track bitrates. Guard against unknowns so we never divide by
+        // a garbage rate.
+        var bitsPerSecond = 0.0
+        if let bytes = currentEntry.stream.behaviorHints?.videoSize, bytes > 0, duration > 1 {
+            bitsPerSecond = Double(bytes) * 8 / duration
+        }
+        if bitsPerSecond < 1_000_000 {   // implausibly low → use track rates
+            let trackBits = (player.tracks(mediaType: .video) + player.tracks(mediaType: .audio))
+                .reduce(0.0) { $0 + Double(max($1.bitRate, 0)) }
+            if trackBits > 0 { bitsPerSecond = trackBits }
+        }
+        guard bitsPerSecond >= 1_000_000 else { return }   // still unknown → leave Auto
+
+        let budgetBytes = Double(min(target, PerformanceProfile.maxBufferBytes))
+        let seconds = budgetBytes * 8 / bitsPerSecond
+        // Sane bounds: never below the tier default we started with, never a
+        // runaway (30 min is plenty even for a very low-bitrate stream).
+        let clamped = min(max(seconds, options.maxBufferDuration), 1800)
+        options.maxBufferDuration = clamped
+        NSLog("[NuvioBuffer] size target %d MB @ %.1f Mbps → %.0fs cache (cap %d MB)",
+              target / (1 << 20), bitsPerSecond / 1_000_000, clamped,
+              PerformanceProfile.maxBufferBytes / (1 << 20))
     }
 
     /// Match Frame Rate / Match Dynamic Range for the NATIVE engine. On the
@@ -3123,6 +3163,8 @@ extension PlayerViewModel: KSPlayerLayerDelegate {
             // session's chapters (the playlist has none).
             if usingNativeDV, dvFullDuration > 0 { duration = dvFullDuration }
             clock.duration = duration
+            // Now the bitrate is knowable, size a byte-target read-ahead cache.
+            applyBufferSizeTarget(player: layer.player)
             // Engine always letterboxes (aspect-fit); zoom/stretch happen as a
             // SwiftUI transform driven by the natural size published here.
             layer.player.contentMode = .scaleAspectFit

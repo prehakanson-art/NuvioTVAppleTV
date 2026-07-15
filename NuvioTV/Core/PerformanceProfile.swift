@@ -58,4 +58,16 @@ enum PerformanceProfile {
         if isMidPower { return 300 }
         return 400
     }
+
+    /// Hard ceiling on the video read-ahead cache (compressed packets held in
+    /// RAM by KSPlayer). tvOS has no working disk cache (FFmpeg's cache:
+    /// protocol can't open a temp file in the sandbox), so the buffer lives in
+    /// memory and an oversized one jetsams the app. These are the most a box
+    /// can safely spare on top of decode + Metal render + the rest of the app.
+    /// Apple TV HD (2 GB), 4K gen-1 (3 GB), 4K gen-2/3 (4 GB+).
+    static var maxBufferBytes: Int {
+        if isLowPower { return 300 << 20 }   // ~300 MB
+        if isMidPower { return 600 << 20 }   // ~600 MB
+        return 1200 << 20                    // ~1.2 GB
+    }
 }

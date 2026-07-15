@@ -716,6 +716,20 @@ private struct ContentDiscoveryDetail: View {
                 }
                 .buttonStyle(PlainCardButtonStyle())
             }
+            SettingsGroupCard(title: "Catalogs") {
+                NuvioDropdown(
+                    title: "Auto-refresh",
+                    subtitle: "Re-fetch Home catalogs on a timer while the app is open, so new releases appear without relaunching",
+                    icon: "arrow.triangle.2.circlepath",
+                    selection: String(homeCatalogSettings.autoRefreshMinutes),
+                    options: [
+                        NuvioDropdownOption("0", "Off"),
+                        NuvioDropdownOption("15", "Every 15 minutes"),
+                        NuvioDropdownOption("30", "Every 30 minutes"),
+                        NuvioDropdownOption("60", "Every hour")
+                    ]
+                ) { homeCatalogSettings.autoRefreshMinutes = Int($0) ?? 0 }
+            }
         }
         .fullScreenCover(isPresented: $showAddons) {
             ZStack {

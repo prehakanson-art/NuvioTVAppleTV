@@ -364,6 +364,23 @@ struct HomeView: View {
             }
             await reload()
         }
+        // Periodic catalog auto-refresh (Settings → Content & Discovery).
+        // Restarts whenever the cadence changes; 0 = off. Uses the FORCED
+        // load (not loadIfNeeded — the fingerprint wouldn't have changed) so
+        // new releases appear without relaunching.
+        .task(id: homeCatalogSettings.autoRefreshMinutes) {
+            let minutes = homeCatalogSettings.autoRefreshMinutes
+            guard minutes > 0 else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(minutes) * 60_000_000_000)
+                guard !Task.isCancelled else { return }
+                await viewModel.load(
+                    addonManager: addonManager,
+                    collections: collections,
+                    settings: homeCatalogSettings
+                )
+            }
+        }
         .onChange(of: addonManager.addons) { _, _ in Task { await reload() } }
         .onChange(of: collections.collections) { _, _ in Task { await reload() } }
         .onChange(of: homeCatalogSettings.orderKeys) { _, _ in Task { await reload() } }

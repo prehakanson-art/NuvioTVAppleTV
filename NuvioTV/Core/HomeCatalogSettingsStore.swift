@@ -228,6 +228,15 @@ final class HomeCatalogSettingsStore: ObservableObject {
     @Published var blurUnwatchedEpisodes: Bool = false {
         didSet { guard blurUnwatchedEpisodes != oldValue else { return }; save(); notifyPresentationChange() }
     }
+    /// Minutes between automatic Home catalog re-fetches while the app is
+    /// open (0 = off). Per-device (plain UserDefaults, not in the synced
+    /// snapshot): a refresh cadence tuned for one box shouldn't sync.
+    @Published var autoRefreshMinutes: Int = UserDefaults.standard.integer(forKey: "nuvio.home.autorefresh.v1") {
+        didSet {
+            guard autoRefreshMinutes != oldValue else { return }
+            UserDefaults.standard.set(autoRefreshMinutes, forKey: "nuvio.home.autorefresh.v1")
+        }
+    }
     /// Spoiler-blur Continue Watching art for barely-started next-up episodes.
     @Published var blurContinueWatchingNextUp: Bool = false {
         didSet { guard blurContinueWatchingNextUp != oldValue else { return }; save(); notifyPresentationChange() }

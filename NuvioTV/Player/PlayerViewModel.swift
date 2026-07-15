@@ -181,7 +181,16 @@ final class NuvioPlayerOptions: KSOptions {
         displayManager.preferredDisplayCriteria = AVDisplayCriteria(
             refreshRate: refreshRate, videoDynamicRange: target.rawValue
         )
+        // The exit sequencing needs to know a real switch was requested this
+        // SESSION (not just whether the toggle is on — native-DV sessions
+        // switch with the toggle off), so it can wait out the switch-back
+        // before tearing the cover down.
+        onDisplayCriteriaApplied?()
     }
+
+    /// Fired when a display-mode switch is actually requested. Set by
+    /// PlayerViewModel.load(); hops to main there.
+    var onDisplayCriteriaApplied: (() -> Void)?
 
     /// Counts softened drops so every 3rd still drops (catch-up pressure).
     private var softenCount = 0
@@ -803,6 +812,12 @@ final class PlayerViewModel: ObservableObject {
         vlcEngine = nil
 
         let options = NuvioPlayerOptions()
+        // Sticky per-session record that a display-mode switch really was
+        // requested (survives options replacement on failover/DV swap) — the
+        // exit path waits out the switch-back only when one could be pending.
+        options.onDisplayCriteriaApplied = { [weak self] in
+            DispatchQueue.main.async { self?.displayCriteriaApplied = true }
+        }
         // Display-mode switching is opt-in (see matchDisplayCriteria doc); and
         // even when on it only varies dynamic range, never refresh rate — so
         // the panel stays at its home rate and the softened-drop pacing is
@@ -2593,6 +2608,9 @@ final class PlayerViewModel: ObservableObject {
     /// re-open overlays or re-enter the exit flow (the "loop while trying to
     /// close the player").
     private(set) var isExiting = false
+    /// True once ANY display-mode switch was requested this session (match
+    /// content toggle or native DV). The exit sequencing keys off this.
+    private(set) var displayCriteriaApplied = false
 
     /// Called when the exit sequence starts. Persists progress, halts
     /// playback, and — crucially — releases the HDR display criteria NOW,

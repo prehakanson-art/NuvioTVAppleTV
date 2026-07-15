@@ -354,8 +354,25 @@ struct PlayerScreen: View {
         viewModel.prepareForExit()
         Task { @MainActor in
             let manager = UIApplication.shared.windows.first?.avDisplayManager
+            // Did THIS session actually request a display switch? Keying off
+            // the match-content toggle alone missed native-DV sessions (they
+            // switch with the toggle OFF) — exiting DV then dismissed
+            // mid-switch-back: stuck green/black screen.
+            let switched = viewModel.displayCriteriaApplied
+                || viewModel.settings.matchContentDisplayMode
             // Give the just-released criteria a beat to start the switch.
             try? await Task.sleep(nanoseconds: 150_000_000)
+            if switched {
+                // The switch-back can LAG the criteria release (rate+range
+                // renegotiations start slowly) — if it hasn't begun yet, wait
+                // for it to actually START, or the completion loop below
+                // falls straight through and we dismiss mid-switch.
+                let waitStart = Date()
+                while manager?.isDisplayModeSwitchInProgress != true,
+                      Date().timeIntervalSince(waitStart) < 1.0 {
+                    try? await Task.sleep(nanoseconds: 100_000_000)
+                }
+            }
             let started = Date()
             while manager?.isDisplayModeSwitchInProgress == true,
                   Date().timeIntervalSince(started) < 3 {
@@ -363,10 +380,10 @@ struct PlayerScreen: View {
             }
             // Trailing settle: even once tvOS reports the switch "done", the
             // TV's HDMI receiver needs a moment to lock the new mode. Tearing
-            // the cover down the instant the flag clears can land mid-lock and
-            // leave the panel grey. Only pay it when switching is on (off = no
-            // switch ever happened, so exit stays snappy).
-            if viewModel.settings.matchContentDisplayMode {
+            // the cover down the instant the flag clears can land mid-lock
+            // and leave the panel wedged. Only pay it when a switch was
+            // actually in play (otherwise exit stays snappy).
+            if switched {
                 try? await Task.sleep(nanoseconds: 500_000_000)
             }
             var transaction = Transaction()

@@ -150,8 +150,8 @@ private struct SearchBarIcon: View {
             .frame(width: 74, height: 74)
             .background(Circle().fill(isFocused ? theme.palette.focusBackground : theme.palette.backgroundCard.opacity(0.7)))
             .overlay(Circle().strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3))
-            .scaleEffect(PerformanceSettingsStore.shared.settings.buttonAnimations && isFocused ? 1.05 : 1)
-            .animation(PerformanceSettingsStore.shared.settings.buttonAnimations
+            .scaleEffect(PerformanceSettingsStore.shared.buttonAnimationsEffective && isFocused ? 1.05 : 1)
+            .animation(PerformanceSettingsStore.shared.buttonAnimationsEffective
                        ? .easeInOut(duration: 0.15) : nil, value: isFocused)
     }
 }

@@ -92,6 +92,7 @@ struct SettingsView: View {
         if args.contains("-paneContent") { return .contentDiscovery }
         if args.contains("-paneIntegration") { return .integration }
         if args.contains("-panePlayback") { return .playback }
+        if args.contains("-panePerformance") { return .performance }
         if args.contains("-paneAbout") { return .about }
         return .appearance
     }()

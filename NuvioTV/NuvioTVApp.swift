@@ -378,11 +378,15 @@ struct RootView: View {
         // content reflow, and the dim all move together as one motion.
         // (nil when "Sidebar animation" is off in Settings → Performance:
         // the sidebar and its dim snap instantly.)
-        .animation(perf.settings.sidebarAnimation
+        .animation(perf.sidebarAnimationEffective
                    ? .spring(response: 0.34, dampingFraction: 0.86) : nil, value: showSidebar)
-        .animation(perf.settings.sidebarAnimation
+        .animation(perf.sidebarAnimationEffective
                    ? .spring(response: 0.34, dampingFraction: 0.86) : nil, value: sidebarFocus != nil)
         .background(theme.palette.background)
+        // Developer FPS read-out over the whole UI (Settings → Performance).
+        .overlay {
+            if perf.settings.showFPSOverlay { FPSOverlay() }
+        }
         .fullScreenCover(item: $playback) { request in
             PlayerScreen(
                 request: request,

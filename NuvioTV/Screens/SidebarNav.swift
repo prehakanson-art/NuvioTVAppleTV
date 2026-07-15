@@ -107,7 +107,7 @@ struct SidebarNav: View {
         .background(
             (expanded ? theme.palette.backgroundElevated : Color.clear).ignoresSafeArea()
         )
-        .animation(PerformanceSettingsStore.shared.settings.sidebarAnimation
+        .animation(PerformanceSettingsStore.shared.sidebarAnimationEffective
                    ? .spring(response: 0.34, dampingFraction: 0.86) : nil, value: expanded)
         // On ENTRY (collapsed → expanded), snap focus to the current tab —
         // tvOS otherwise lands on the geometrically nearest row, which feels

@@ -39,6 +39,15 @@ enum PerformanceProfile {
         return ProcessInfo.processInfo.physicalMemory < 3_500_000_000
     }()
 
+    /// Friendly hardware-tier name for the "Reset to recommended" affordance.
+    static var tierLabel: String {
+        if machine.hasPrefix("AppleTV5") { return "Apple TV HD" }
+        if machine.hasPrefix("AppleTV6") { return "Apple TV 4K (1st gen)" }
+        if isLowPower { return "this Apple TV" }
+        if isMidPower { return "this Apple TV 4K" }
+        return "Apple TV 4K"
+    }
+
     /// Longest decoded image dimension. 1080p HD caps at 1920 (its own panel
     /// width); 4K devices cap at 3840 (the framebuffer — art beyond that cannot
     /// render more detail, so the cap is pixel-identical). Individual views

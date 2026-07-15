@@ -11,9 +11,35 @@ struct PerformanceSettingsDetail: View {
         Binding(get: { store.settings }, set: { store.settings = $0 })
     }
 
+    /// Master switch: ON = every effect off (lightest), OFF = full look.
+    private var maxPerformance: Binding<Bool> {
+        Binding(get: { store.isMaxPerformance }, set: { store.setMaxPerformance($0) })
+    }
+
     var body: some View {
         DetailScaffold(title: SettingsCategory.performance.title,
                        subtitle: SettingsCategory.performance.subtitle) {
+
+            if store.reduceMotion { reduceMotionBanner }
+
+            SettingsGroupCard(
+                title: "Quick setup",
+                subtitle: "One-tap tuning for this Apple TV"
+            ) {
+                PerfToggleRow(
+                    icon: "bolt.fill",
+                    title: "Performance mode",
+                    subtitle: "Turns every visual effect below OFF at once for the smoothest, lightest experience — best on older Apple TVs. Turn it off to restore the full look. You can still fine-tune individual effects afterward.",
+                    isOn: maxPerformance
+                )
+                PerfActionRow(
+                    icon: "arrow.counterclockwise",
+                    title: "Reset to recommended",
+                    subtitle: "Restore the tuned defaults for \(PerformanceProfile.tierLabel).",
+                    action: { store.resetToRecommended() }
+                )
+            }
+
             SettingsGroupCard(
                 title: "Home billboard",
                 subtitle: "The hero area at the top of the Home screen"
@@ -86,16 +112,55 @@ struct PerformanceSettingsDetail: View {
                 )
             }
 
+            SettingsGroupCard(
+                title: "Developer",
+                subtitle: "Diagnostics — safe to leave off"
+            ) {
+                PerfToggleRow(
+                    icon: "speedometer",
+                    title: "Show FPS overlay",
+                    subtitle: "Overlay a live frames-per-second read-out on the whole app (green = smooth, amber = some drops, red = janky), so you can see the effect of these switches while you browse. Off by default.",
+                    isOn: s.showFPSOverlay
+                )
+            }
+
             Text("Everything ON is the app's full look. Turn things OFF top-to-bottom until the Home screen feels right — each switch only removes visual polish, never content or features. These switches are per-device and don't sync to your account.")
                 .font(.system(size: 18))
                 .foregroundStyle(theme.palette.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
+
+    /// Shown when the system Accessibility → Reduce Motion switch is on: the
+    /// motion effects are forced off no matter what the switches below say.
+    private var reduceMotionBanner: some View {
+        HStack(spacing: NuvioSpacing.md) {
+            SettingsIconTile(symbol: "figure.walk.motion")
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Reduce Motion is on")
+                    .font(.system(size: 23, weight: .semibold))
+                    .foregroundStyle(theme.palette.textPrimary)
+                Text("Your system Accessibility setting is disabling the motion effects (hero crossfade, focus zoom, sidebar and button animations, artwork fade-in) regardless of the switches below.")
+                    .font(.system(size: 19))
+                    .foregroundStyle(theme.palette.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(NuvioSpacing.lg)
+        .background(
+            RoundedRectangle(cornerRadius: theme.settingsCardRadius, style: .continuous)
+                .fill(theme.palette.secondary.opacity(0.14))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: theme.settingsCardRadius, style: .continuous)
+                .strokeBorder(theme.palette.secondary.opacity(0.4), lineWidth: 1)
+        )
+    }
 }
 
-/// Toggle row matching the Playback pane's rows (icon, title, wrapped
-/// description, switch).
+/// Toggle row matching the redesigned settings rows (icon tile, title, wrapped
+/// description, switch; flat until focused).
 private struct PerfToggleRow: View {
     let icon: String
     let title: String
@@ -104,43 +169,64 @@ private struct PerfToggleRow: View {
 
     var body: some View {
         Button { isOn.toggle() } label: {
-            PerfToggleLabel(icon: icon, title: title, subtitle: subtitle, isOn: isOn)
+            PerfRowLabel(icon: icon, title: title, subtitle: subtitle) {
+                NuvioSwitch(isOn: isOn)
+            }
         }
         .buttonStyle(PlainCardButtonStyle())
     }
 }
 
-private struct PerfToggleLabel: View {
+/// A tappable action row (no switch) — used for "Reset to recommended".
+private struct PerfActionRow: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            PerfRowLabel(icon: icon, title: title, subtitle: subtitle) {
+                EmptyView()
+            }
+        }
+        .buttonStyle(PlainCardButtonStyle())
+    }
+}
+
+/// Shared row body: accent icon tile + title + wrapped description + a trailing
+/// accessory (switch, or nothing). Flat until focused, matching the other
+/// redesigned settings panes.
+private struct PerfRowLabel<Accessory: View>: View {
     @EnvironmentObject private var theme: ThemeManager
     @Environment(\.isFocused) private var isFocused
     let icon: String
     let title: String
     let subtitle: String
-    let isOn: Bool
+    @ViewBuilder let accessory: Accessory
 
     var body: some View {
-        HStack(spacing: NuvioSpacing.md) {
-            Image(systemName: icon)
-                .font(.system(size: 22))
-                .foregroundStyle(theme.palette.secondary)
-                .frame(width: 32)
-            VStack(alignment: .leading, spacing: 3) {
+        HStack(alignment: .top, spacing: NuvioSpacing.md) {
+            SettingsIconTile(symbol: icon)
+            VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.system(size: 25, weight: .medium))
+                    .font(.system(size: 25, weight: .semibold))
                     .foregroundStyle(theme.palette.textPrimary)
                 Text(subtitle)
-                    .font(.system(size: 19))
+                    .font(.system(size: 20))
                     .foregroundStyle(theme.palette.textSecondary)
+                    .lineSpacing(3)
                     .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 1000, alignment: .leading)
             }
-            Spacer()
-            NuvioSwitch(isOn: isOn)
+            Spacer(minLength: NuvioSpacing.lg)
+            accessory
+                .padding(.top, 4)
         }
-        .padding(.horizontal, NuvioSpacing.lg)
+        .padding(.horizontal, NuvioSpacing.md)
         .padding(.vertical, NuvioSpacing.md)
-        .background(
-            RoundedRectangle(cornerRadius: theme.settingsRowRadius, style: .continuous)
-                .fill(isFocused ? theme.palette.focusBackground : .clear)
-        )
+        .frame(minHeight: 76)
+        .frame(maxWidth: .infinity)
+        .background(SettingsRowBackground(isFocused: isFocused))
     }
 }

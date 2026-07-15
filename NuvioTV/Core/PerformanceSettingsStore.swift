@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import UIKit
 
 /// User-tunable performance switches (Settings → Performance). On 4K gen-2+
 /// hardware everything defaults ON — the app's full look. Older boxes start
@@ -30,13 +31,16 @@ final class PerformanceSettingsStore: ObservableObject {
         var sidebarAnimation = true
         /// Scale/spring on small controls (See All, tab pills, presses).
         var buttonAnimations = true
+        /// Developer: live FPS counter overlaid on the app. Off by default,
+        /// never set by the tier defaults — a diagnostic, not an effect.
+        var showFPSOverlay = false
 
         init() {}
 
         private enum CodingKeys: String, CodingKey {
             case heroBackdrop, heroCrossfade, cardShadows, focusZoom
             case artworkPrefetch, artworkFadeIn
-            case sidebarAnimation, buttonAnimations
+            case sidebarAnimation, buttonAnimations, showFPSOverlay
         }
 
         /// Lenient decode: a key missing from an older save keeps its default
@@ -52,10 +56,56 @@ final class PerformanceSettingsStore: ObservableObject {
             artworkFadeIn = (try? c.decode(Bool.self, forKey: .artworkFadeIn)) ?? true
             sidebarAnimation = (try? c.decode(Bool.self, forKey: .sidebarAnimation)) ?? true
             buttonAnimations = (try? c.decode(Bool.self, forKey: .buttonAnimations)) ?? true
+            showFPSOverlay = (try? c.decode(Bool.self, forKey: .showFPSOverlay)) ?? false
         }
     }
 
     @Published var settings: Settings { didSet { save() } }
+
+    /// Live mirror of the system Accessibility → Reduce Motion switch. When ON
+    /// it forces the *motion* effects off regardless of the user's toggles (a
+    /// Reduce Motion user still keeps non-motion polish like backdrop art and
+    /// shadows). Read via the `…Effective` accessors below.
+    @Published private(set) var reduceMotion: Bool = UIAccessibility.isReduceMotionEnabled
+
+    // MARK: Effective (motion) values — user switch AND not overridden by
+    // Reduce Motion. Call sites that gate an animation read these instead of
+    // `settings.x` so the system setting is honored in one place.
+    var heroCrossfadeEffective: Bool { settings.heroCrossfade && !reduceMotion }
+    var focusZoomEffective: Bool { settings.focusZoom && !reduceMotion }
+    var sidebarAnimationEffective: Bool { settings.sidebarAnimation && !reduceMotion }
+    var buttonAnimationsEffective: Bool { settings.buttonAnimations && !reduceMotion }
+    var artworkFadeInEffective: Bool { settings.artworkFadeIn && !reduceMotion }
+
+    // MARK: Master "Performance mode"
+    /// True when every optional visual effect is off — the lightest look.
+    /// `artworkPrefetch` is excluded: it HELPS perceived scrolling (art is
+    /// ready before you reach it), so max-performance leaves it on.
+    var isMaxPerformance: Bool {
+        let s = settings
+        return !s.heroBackdrop && !s.heroCrossfade && !s.cardShadows
+            && !s.focusZoom && !s.artworkFadeIn && !s.sidebarAnimation
+            && !s.buttonAnimations
+    }
+
+    /// One switch for all the eye-candy: ON strips every effect for max speed,
+    /// OFF restores the full look. (Individual switches still work afterward.)
+    func setMaxPerformance(_ on: Bool) {
+        let v = !on
+        var s = settings
+        s.heroBackdrop = v; s.heroCrossfade = v; s.cardShadows = v
+        s.focusZoom = v; s.artworkFadeIn = v; s.sidebarAnimation = v
+        s.buttonAnimations = v
+        settings = s
+    }
+
+    /// Restore the hardware-tuned baseline for this box (the first-run defaults).
+    func resetToRecommended() {
+        let show = settings.showFPSOverlay   // a diagnostic, not part of the reset
+        var s = Self.tierDefaults()
+        s.showFPSOverlay = show
+        settings = s
+    }
 
     private static let key = "nuvio.performance.v1"
 
@@ -90,6 +140,16 @@ final class PerformanceSettingsStore: ObservableObject {
             settings = decoded
         } else {
             settings = Self.tierDefaults()
+        }
+        // Track the system Reduce Motion switch live so toggling it in
+        // Accessibility takes effect without relaunching.
+        NotificationCenter.default.addObserver(
+            forName: UIAccessibility.reduceMotionStatusDidChangeNotification,
+            object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.reduceMotion = UIAccessibility.isReduceMotionEnabled
+            }
         }
     }
 

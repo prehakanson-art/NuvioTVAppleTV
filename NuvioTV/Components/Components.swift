@@ -237,7 +237,7 @@ struct RemoteImage: View {
     /// (Settings → Performance) — each fade re-renders the cell for its
     /// duration, which adds up during a fast row scroll on older boxes.
     private func show(_ newImage: UIImage?, key: String?, duration: Double) {
-        if PerformanceSettingsStore.shared.settings.artworkFadeIn {
+        if PerformanceSettingsStore.shared.artworkFadeInEffective {
             withAnimation(.easeOut(duration: duration)) { image = newImage; shownKey = key }
         } else {
             var t = Transaction()
@@ -450,7 +450,7 @@ struct PosterCard: View {
                 .frame(width: cardWidth, alignment: .leading)
             }
         }
-        .scaleEffect(perf.settings.focusZoom && isFocused ? 1.08 : 1.0)
+        .scaleEffect(perf.focusZoomEffective && isFocused ? 1.08 : 1.0)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
     }
 }
@@ -544,7 +544,7 @@ struct LandscapeCard: View {
             }
             .frame(width: width, alignment: .leading)
         }
-        .scaleEffect(perf.settings.focusZoom && isFocused ? 1.06 : 1.0)
+        .scaleEffect(perf.focusZoomEffective && isFocused ? 1.06 : 1.0)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
     }
 }
@@ -574,7 +574,7 @@ struct PlainCardButtonStyle: ButtonStyle {
     var onPressChanged: ((Bool) -> Void)? = nil
 
     func makeBody(configuration: Configuration) -> some View {
-        let anims = PerformanceSettingsStore.shared.settings.buttonAnimations
+        let anims = PerformanceSettingsStore.shared.buttonAnimationsEffective
         return configuration.label
             .scaleEffect(anims && configuration.isPressed ? 0.97 : 1)
             .animation(anims ? .easeOut(duration: 0.12) : nil, value: configuration.isPressed)

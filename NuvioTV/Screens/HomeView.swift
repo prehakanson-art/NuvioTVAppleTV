@@ -269,7 +269,7 @@ final class HeroFocus: ObservableObject {
             try? await Task.sleep(nanoseconds: 60_000_000)   // let focus settle
             guard !Task.isCancelled else { return }
             let display = enriched[newItem.id] ?? newItem
-            let fade = PerformanceSettingsStore.shared.settings.heroCrossfade
+            let fade = PerformanceSettingsStore.shared.heroCrossfadeEffective
             withAnimation(fade ? .easeInOut(duration: 0.4) : nil) { item = display }
             pendingID = nil
             // Bare item (no synopsis): fetch the full meta so the billboard
@@ -852,8 +852,8 @@ struct RetryLabel: View {
         .padding(.vertical, 12)
         .background(Capsule().fill(isFocused ? theme.palette.secondary : Color.white.opacity(0.1)))
         .overlay(Capsule().strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3))
-        .scaleEffect(PerformanceSettingsStore.shared.settings.buttonAnimations && isFocused ? 1.05 : 1)
-        .animation(PerformanceSettingsStore.shared.settings.buttonAnimations
+        .scaleEffect(PerformanceSettingsStore.shared.buttonAnimationsEffective && isFocused ? 1.05 : 1)
+        .animation(PerformanceSettingsStore.shared.buttonAnimationsEffective
                    ? .easeInOut(duration: 0.15) : nil, value: isFocused)
     }
 }
@@ -883,8 +883,8 @@ struct SeeAllLabel: View {
             Capsule(style: .continuous)
                 .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
         )
-        .scaleEffect(PerformanceSettingsStore.shared.settings.buttonAnimations && isFocused ? 1.06 : 1)
-        .animation(PerformanceSettingsStore.shared.settings.buttonAnimations
+        .scaleEffect(PerformanceSettingsStore.shared.buttonAnimationsEffective && isFocused ? 1.06 : 1)
+        .animation(PerformanceSettingsStore.shared.buttonAnimationsEffective
                    ? .spring(response: 0.3, dampingFraction: 0.8) : nil, value: isFocused)
     }
 }
@@ -984,7 +984,7 @@ private struct HeroInfoView: View {
                 // Classic/Grid, so OFF takes the cheap path: in-place updates,
                 // texts swap directly, the logo crossfades internally as its
                 // URL changes.
-                if perf.settings.heroCrossfade {
+                if perf.heroCrossfadeEffective {
                     content(item)
                         .id(item.id)
                         .transition(.opacity)

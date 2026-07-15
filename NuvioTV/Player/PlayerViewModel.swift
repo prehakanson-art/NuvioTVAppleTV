@@ -1048,13 +1048,11 @@ final class PlayerViewModel: ObservableObject {
     }
 
     private func vlcStateChanged(playing: Bool, buffering: Bool, ended: Bool, errored: Bool) {
-        // Exiting: don't let a stream that becomes ready during the exit wait
-        // start playing audio behind a torn-down player.
-        if isExiting {
-            vlcEngine?.pause()
-            vlcEngine?.stop()
-            return
-        }
+        // Exiting: swallow only — same reasoning as the KSPlayer callback
+        // (acting on the engine from inside its own state callback re-enters;
+        // VLCKit additionally can deadlock on a stop() from its delegate).
+        // teardown() stops the engine at dismissal.
+        if isExiting { return }
         if errored {
             isPlaying = false
             isBuffering = false
@@ -2965,14 +2963,17 @@ final class PlayerViewModel: ObservableObject {
 
 extension PlayerViewModel: KSPlayerLayerDelegate {
     func player(layer: KSPlayerLayer, state: KSPlayerState) {
-        // Already exiting: a stream that finishes opening during the exit wait
-        // must NOT start playing — otherwise it plays audio behind a
-        // torn-down player with no UI to stop it. Kill the layer outright.
-        if isExiting {
-            layer.pause()
-            layer.stop()
-            return
-        }
+        // Already exiting: SWALLOW the callback — do not touch the layer.
+        // Calling pause()/stop() here recursed fatally: pause() sets the
+        // layer's state, whose willSet re-fires this delegate synchronously,
+        // which called pause() again… until the stack blew (the crash on
+        // every exit-during-load). Swallowing is also all the audio fix
+        // needs: prepareForExit() already paused (clearing the layer's
+        // internal isAutoPlay, so it won't self-start on ready), and the
+        // only play() on ready lives in OUR .readyToPlay branch below —
+        // which this return keeps from running. teardown() stops the layer
+        // for real once the cover is dismissed.
+        if isExiting { return }
         switch state {
         case .initialized, .preparing:
             isBuffering = true
@@ -3131,6 +3132,10 @@ extension PlayerViewModel: KSPlayerLayerDelegate {
 
     func player(layer: KSPlayerLayer, finish error: Error?) {
         guard let error else { return }
+        // A failure that lands during/after exit must not fail over: that
+        // would load() a fresh source into a NEW layer behind the dismissed
+        // player — orphaned playback with no UI to stop it.
+        guard !isExiting else { return }
         // KSPlayerLayer already retried with the FFmpeg engine before this
         // fires, so a surviving error means both engines rejected the stream.
         // Don't dead-end on it — fail over to the next source automatically

@@ -105,13 +105,24 @@ final class DownloadManager: NSObject, ObservableObject {
     }
 
     func storageInfo() -> StorageInfo {
-        let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]
-        let values = try? dir.resourceValues(forKeys: keys)
-        return StorageInfo(
-            total: Int64(values?.volumeTotalCapacity ?? 0),
-            available: Int64(values?.volumeAvailableCapacity ?? 0),
-            usedByDownloads: totalBytesOnDisk
-        )
+        var total: Int64 = 0
+        var available: Int64 = 0
+        // `attributesOfFileSystem` is the reliable capacity API on tvOS. The
+        // URL volume-capacity resource keys return nil on a real Apple TV (they
+        // only happen to work in the simulator, which shares the Mac's disk),
+        // which left the bar empty on device — so use the FileManager attrs
+        // first and fall back to the resource keys only if they're missing.
+        if let attrs = try? FileManager.default.attributesOfFileSystem(forPath: dir.path) {
+            total = (attrs[.systemSize] as? NSNumber)?.int64Value ?? 0
+            available = (attrs[.systemFreeSize] as? NSNumber)?.int64Value ?? 0
+        }
+        if total == 0 {
+            let keys: Set<URLResourceKey> = [.volumeTotalCapacityKey, .volumeAvailableCapacityKey]
+            let values = try? dir.resourceValues(forKeys: keys)
+            total = Int64(values?.volumeTotalCapacity ?? 0)
+            available = Int64(values?.volumeAvailableCapacity ?? 0)
+        }
+        return StorageInfo(total: total, available: available, usedByDownloads: totalBytesOnDisk)
     }
 
     // MARK: Actions

@@ -1039,6 +1039,13 @@ final class PlayerViewModel: ObservableObject {
     }
 
     private func vlcStateChanged(playing: Bool, buffering: Bool, ended: Bool, errored: Bool) {
+        // Exiting: don't let a stream that becomes ready during the exit wait
+        // start playing audio behind a torn-down player.
+        if isExiting {
+            vlcEngine?.pause()
+            vlcEngine?.stop()
+            return
+        }
         if errored {
             isPlaying = false
             isBuffering = false
@@ -2949,6 +2956,14 @@ final class PlayerViewModel: ObservableObject {
 
 extension PlayerViewModel: KSPlayerLayerDelegate {
     func player(layer: KSPlayerLayer, state: KSPlayerState) {
+        // Already exiting: a stream that finishes opening during the exit wait
+        // must NOT start playing — otherwise it plays audio behind a
+        // torn-down player with no UI to stop it. Kill the layer outright.
+        if isExiting {
+            layer.pause()
+            layer.stop()
+            return
+        }
         switch state {
         case .initialized, .preparing:
             isBuffering = true

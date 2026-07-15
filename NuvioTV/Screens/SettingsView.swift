@@ -61,6 +61,14 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 
     /// Categories hidden from the rail in Essential experience mode.
     var isAdvanced: Bool { self == .plugins }
+
+    /// Shorter label for the narrow rail (the detail header still uses `title`).
+    var railTitle: String {
+        switch self {
+        case .contentDiscovery: return "Content"
+        default: return title
+        }
+    }
 }
 
 struct SettingsView: View {
@@ -103,7 +111,8 @@ struct SettingsView: View {
         HStack(alignment: .top, spacing: NuvioSpacing.xl) {
             rail
             detail
-                .frame(maxWidth: 900, alignment: .topLeading)
+                // Fill the pane instead of capping at 900 — the old cap left
+                // the right ~40% empty and forced descriptions to truncate.
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 .focusSection()
         }
@@ -159,7 +168,7 @@ struct SettingsView: View {
                 }
             }
         }
-        .frame(width: 220)
+        .frame(width: 300)
         .frame(maxHeight: .infinity, alignment: .center)
         .focusSection()
         // Entering the rail lands on the pane you're viewing, not a stale row.
@@ -214,11 +223,11 @@ private struct SettingsRailButton: View {
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(active ? theme.palette.textPrimary : theme.palette.textSecondary)
                 .frame(width: 22)
-            Text(category.title)
-                .font(.system(size: 20, weight: active ? .semibold : .medium))
+            Text(category.railTitle)
+                .font(.system(size: 21, weight: active ? .semibold : .medium))
                 .foregroundStyle(active ? theme.palette.textPrimary : theme.palette.textSecondary)
                 .lineLimit(1)
-                .truncationMode(.tail)
+                .minimumScaleFactor(0.85)
             Spacer(minLength: NuvioSpacing.xs)
             Image(systemName: "chevron.right")
                 .font(.system(size: 16, weight: .semibold))
@@ -323,19 +332,21 @@ struct SettingsActionRow: View {
                     .foregroundStyle(theme.palette.textPrimary)
                     .frame(width: 34)
             }
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.system(size: 25, weight: .medium))
+                    .font(.system(size: 25, weight: .semibold))
                     .foregroundStyle(theme.palette.textPrimary)
                     .lineLimit(1)
                 if let subtitle, !subtitle.isEmpty {
                     Text(subtitle)
-                        .font(.system(size: 19))
+                        .font(.system(size: 20))
                         .foregroundStyle(theme.palette.textSecondary)
-                        .lineLimit(2)
+                        .lineSpacing(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 1000, alignment: .leading)
                 }
             }
-            Spacer()
+            Spacer(minLength: NuvioSpacing.lg)
             if let value, !value.isEmpty {
                 Text(value)
                     .font(.system(size: 21, weight: .medium))
@@ -346,6 +357,7 @@ struct SettingsActionRow: View {
                 .foregroundStyle(theme.palette.textTertiary)
         }
         .padding(.horizontal, NuvioSpacing.lg)
+        .padding(.vertical, NuvioSpacing.md)
         .frame(minHeight: 68)
         .frame(maxWidth: .infinity)
         .background(
@@ -702,7 +714,10 @@ private struct ContentDiscoveryDetail: View {
     @EnvironmentObject private var addonManager: AddonManager
     @EnvironmentObject private var collections: CollectionsStore
     @EnvironmentObject private var homeCatalogSettings: HomeCatalogSettingsStore
+    @EnvironmentObject private var streamBadges: StreamBadgeStore
     @State private var showAddons = false
+    @State private var badgeURLInput = ""
+    @State private var badgeImporting = false
 
     var body: some View {
         DetailScaffold(title: SettingsCategory.contentDiscovery.title, subtitle: SettingsCategory.contentDiscovery.subtitle) {
@@ -730,6 +745,9 @@ private struct ContentDiscoveryDetail: View {
                     ]
                 ) { homeCatalogSettings.autoRefreshMinutes = Int($0) ?? 0 }
             }
+            SettingsGroupCard(title: "Badges", subtitle: "Badge packs from Badger (nintle.github.io/Badger) shown on source rows") {
+                badgeControls
+            }
         }
         .fullScreenCover(isPresented: $showAddons) {
             ZStack {
@@ -741,6 +759,75 @@ private struct ContentDiscoveryDetail: View {
             .environmentObject(collections)
             .environmentObject(homeCatalogSettings)
             .onExitCommand { showAddons = false }
+        }
+    }
+
+    /// Badger badge-pack import: paste a config URL (from the Badger editor's
+    /// export / a community template), fetch + validate, show the live state,
+    /// and allow removal. The chips then appear on Sources-page rows.
+    @ViewBuilder
+    private var badgeControls: some View {
+        if streamBadges.isConfigured {
+            HStack(spacing: NuvioSpacing.md) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 28))
+                    .foregroundStyle(theme.palette.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("\(streamBadges.filterCount) badge filters active")
+                        .font(.system(size: 24, weight: .medium))
+                        .foregroundStyle(theme.palette.textPrimary)
+                    Text(streamBadges.sourceURL)
+                        .font(.system(size: 17))
+                        .foregroundStyle(theme.palette.textTertiary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                Button("Sync from Account") {
+                    Task { await streamBadges.syncFromAccount() }
+                }
+                .font(.system(size: 22, weight: .semibold))
+                Button("Remove") { streamBadges.removeConfig() }
+                    .font(.system(size: 22, weight: .semibold))
+            }
+            .padding(.vertical, 4)
+            if let status = streamBadges.lastStatus {
+                Text(status)
+                    .font(.system(size: 19))
+                    .foregroundStyle(theme.palette.textSecondary)
+            }
+        } else {
+            HStack(spacing: NuvioSpacing.md) {
+                TextField("Badge config URL (https://…/badges.json)", text: $badgeURLInput)
+                    .font(.system(size: 22))
+                Button {
+                    guard !badgeImporting, !badgeURLInput.isEmpty else { return }
+                    badgeImporting = true
+                    Task {
+                        await streamBadges.importConfig(from: badgeURLInput)
+                        badgeImporting = false
+                        if streamBadges.isConfigured { badgeURLInput = "" }
+                    }
+                } label: {
+                    if badgeImporting {
+                        ProgressView()
+                    } else {
+                        Text("Import")
+                            .font(.system(size: 22, weight: .semibold))
+                    }
+                }
+            }
+            Button("Sync from Account") {
+                Task { await streamBadges.syncFromAccount() }
+            }
+            .font(.system(size: 22, weight: .semibold))
+            if let status = streamBadges.lastStatus {
+                Text(status)
+                    .font(.system(size: 19))
+                    .foregroundStyle(theme.palette.textSecondary)
+            }
+            Text("Build or pick a badge pack at nintle.github.io/Badger, host the JSON (the editor gives you a link), and paste its URL here — or pull the pack already set up in another Nuvio app with Sync from Account.")
+                .font(.system(size: 18))
+                .foregroundStyle(theme.palette.textTertiary)
         }
     }
 }

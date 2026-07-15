@@ -7,9 +7,6 @@ import SwiftUI
 struct PlaybackSettingsDetail: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var store: PlayerSettingsStore
-    @EnvironmentObject private var streamBadges: StreamBadgeStore
-    @State private var badgeURLInput = ""
-    @State private var badgeImporting = false
 
     private var s: Binding<PlayerSettings> {
         Binding(get: { store.settings }, set: { store.settings = $0 })
@@ -189,10 +186,6 @@ struct PlaybackSettingsDetail: View {
                         }
                     ) { store.settings.reuseLastLinkCacheHours = Int($0) ?? 24 }
                 }
-            }
-
-            SettingsGroupCard(title: "Badges", subtitle: "Badge packs from Badger (nintle.github.io/Badger) shown on source rows") {
-                badgeControls
             }
 
             SettingsGroupCard(title: "Player", subtitle: "Which engine opens streams") {
@@ -455,75 +448,6 @@ struct PlaybackSettingsDetail: View {
         }
     }
 
-    /// Badger badge-pack import: paste a config URL (from the Badger editor's
-    /// export / a community template), fetch + validate, show the live state,
-    /// and allow removal. The chips then appear on Sources-page rows.
-    @ViewBuilder
-    private var badgeControls: some View {
-        if streamBadges.isConfigured {
-            HStack(spacing: NuvioSpacing.md) {
-                Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 28))
-                    .foregroundStyle(theme.palette.secondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("\(streamBadges.filterCount) badge filters active")
-                        .font(.system(size: 24, weight: .medium))
-                        .foregroundStyle(theme.palette.textPrimary)
-                    Text(streamBadges.sourceURL)
-                        .font(.system(size: 17))
-                        .foregroundStyle(theme.palette.textTertiary)
-                        .lineLimit(1)
-                }
-                Spacer()
-                Button("Sync from Account") {
-                    Task { await streamBadges.syncFromAccount() }
-                }
-                .font(.system(size: 22, weight: .semibold))
-                Button("Remove") { streamBadges.removeConfig() }
-                    .font(.system(size: 22, weight: .semibold))
-            }
-            .padding(.vertical, 4)
-            if let status = streamBadges.lastStatus {
-                Text(status)
-                    .font(.system(size: 19))
-                    .foregroundStyle(theme.palette.textSecondary)
-            }
-        } else {
-            HStack(spacing: NuvioSpacing.md) {
-                TextField("Badge config URL (https://…/badges.json)", text: $badgeURLInput)
-                    .font(.system(size: 22))
-                Button {
-                    guard !badgeImporting, !badgeURLInput.isEmpty else { return }
-                    badgeImporting = true
-                    Task {
-                        await streamBadges.importConfig(from: badgeURLInput)
-                        badgeImporting = false
-                        if streamBadges.isConfigured { badgeURLInput = "" }
-                    }
-                } label: {
-                    if badgeImporting {
-                        ProgressView()
-                    } else {
-                        Text("Import")
-                            .font(.system(size: 22, weight: .semibold))
-                    }
-                }
-            }
-            Button("Sync from Account") {
-                Task { await streamBadges.syncFromAccount() }
-            }
-            .font(.system(size: 22, weight: .semibold))
-            if let status = streamBadges.lastStatus {
-                Text(status)
-                    .font(.system(size: 19))
-                    .foregroundStyle(theme.palette.textSecondary)
-            }
-            Text("Build or pick a badge pack at nintle.github.io/Badger, host the JSON (the editor gives you a link), and paste its URL here — or pull the pack already set up in another Nuvio app with Sync from Account.")
-                .font(.system(size: 18))
-                .foregroundStyle(theme.palette.textTertiary)
-        }
-    }
-
     @ViewBuilder
     private var autoPlayControls: some View {
         PlaybackToggleRow(
@@ -630,24 +554,29 @@ private struct PlaybackToggleLabel: View {
     let isOn: Bool
 
     var body: some View {
-        HStack(spacing: NuvioSpacing.md) {
+        HStack(alignment: .top, spacing: NuvioSpacing.md) {
             Image(systemName: icon)
                 .font(.system(size: 22))
                 .foregroundStyle(theme.palette.secondary)
                 .frame(width: 32)
-            VStack(alignment: .leading, spacing: 3) {
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 5) {
                 Text(title)
-                    .font(.system(size: 25, weight: .medium))
+                    .font(.system(size: 25, weight: .semibold))
                     .foregroundStyle(theme.palette.textPrimary)
                 Text(subtitle)
-                    .font(.system(size: 19))
+                    .font(.system(size: 20))
                     .foregroundStyle(theme.palette.textSecondary)
-                    .lineLimit(2)
+                    .lineSpacing(3)
+                    .fixedSize(horizontal: false, vertical: true)   // full text, wraps
+                    .frame(maxWidth: 1000, alignment: .leading)
             }
-            Spacer()
+            Spacer(minLength: NuvioSpacing.lg)
             NuvioSwitch(isOn: isOn)
+                .padding(.top, 2)
         }
         .padding(.horizontal, NuvioSpacing.lg)
+        .padding(.vertical, NuvioSpacing.md)
         .frame(minHeight: 74)
         .frame(maxWidth: .infinity)
         .background(

@@ -64,14 +64,15 @@ private struct DropdownTrigger: View {
     private var compact: Bool { width != nil }
 
     var body: some View {
-        HStack(spacing: NuvioSpacing.md) {
+        HStack(alignment: compact ? .center : .top, spacing: NuvioSpacing.md) {
             if let icon, !compact {
                 Image(systemName: icon)
                     .font(.system(size: 22))
                     .foregroundStyle(theme.palette.secondary)
                     .frame(width: 32)
+                    .padding(.top, 2)
             }
-            VStack(alignment: .leading, spacing: 3) {
+            VStack(alignment: .leading, spacing: compact ? 3 : 5) {
                 if compact {
                     Text(title)
                         .font(.system(size: 17))
@@ -81,13 +82,15 @@ private struct DropdownTrigger: View {
                         .foregroundStyle(theme.palette.textPrimary)
                 } else {
                     Text(title)
-                        .font(.system(size: 25, weight: .medium))
+                        .font(.system(size: 25, weight: .semibold))
                         .foregroundStyle(theme.palette.textPrimary)
                     if let subtitle, !subtitle.isEmpty {
                         Text(subtitle)
-                            .font(.system(size: 19))
+                            .font(.system(size: 20))
                             .foregroundStyle(theme.palette.textSecondary)
-                            .lineLimit(2)
+                            .lineSpacing(3)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .frame(maxWidth: 1000, alignment: .leading)
                     }
                 }
             }
@@ -96,13 +99,17 @@ private struct DropdownTrigger: View {
                 Text(value)
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundStyle(theme.palette.secondary)
+                    .padding(.top, 2)
             }
             Image(systemName: "chevron.down")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(theme.palette.textSecondary)
+                .padding(.top, compact ? 0 : 2)
         }
         .padding(.horizontal, NuvioSpacing.lg)
-        .frame(width: width, height: compact ? 84 : 72)
+        .padding(.vertical, compact ? 0 : NuvioSpacing.md)
+        .frame(width: width, height: compact ? 84 : nil)
+        .frame(minHeight: compact ? nil : 72)
         .frame(maxWidth: width == nil ? .infinity : nil)
         .background(
             RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)

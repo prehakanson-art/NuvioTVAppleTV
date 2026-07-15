@@ -320,17 +320,6 @@ struct HomeView: View {
     // Owned via @State (NOT @StateObject) so HomeView does NOT observe it —
     // hero changes must re-render only the billboard subviews, never the rows.
     @State private var hero = HeroFocus()
-    // Last-focused Continue Watching card. Coming back UP into the CW row, the
-    // pinning scroll has displaced it off its natural position, so the focus
-    // engine picks a geometrically-wrong card (the "jumps to the 5th" bug).
-    // Two defenses: prefersDefaultFocus marks the remembered card, and a
-    // FocusState snap-back (same proven pattern as the player timeline →
-    // play/pause guarantee) forcibly returns focus to the remembered card when
-    // the row is ENTERED on a different one.
-    @State private var focusedContinueID: String?
-    @FocusState private var focusedCWCard: String?
-    @Namespace private var continueScope
-
     private static let continueRowID = "continue-watching"
 
     var body: some View {
@@ -468,62 +457,19 @@ struct HomeView: View {
     }
 
     private func continueRow(_ items: [WatchProgress]) -> some View {
-        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
-            RowHeader(title: "Continue Watching")
-            ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
-                    ForEach(items) { progress in
-                        Button {
-                            onResume(progress)
-                        } label: {
-                            LandscapeCard(
-                                imageURL: continueImage(progress),
-                                title: progress.name,
-                                subtitle: continueSubtitle(progress),
-                                progress: progress.fraction,
-                                blurImage: homeCatalogSettings.blurContinueWatchingNextUp && progress.fraction < 0.02
-                            )
-                            // Hero bar follows focus here too, like every other
-                            // row. Inside the label: `\.isFocused` only resolves
-                            // within the focusable Button, not around it.
-                            // (The remembered card is updated in the FocusState
-                            // onChange below — NOT here, or the wrong entry card
-                            // would overwrite it before the snap-back runs.)
-                            .onFocusChange { focused in
-                                if focused {
-                                    hero.focus(heroItem(from: progress))
-                                    noteRowFocus(id: Self.continueRowID)
-                                }
-                            }
-                        }
-                        .buttonStyle(PlainCardButtonStyle())
-                        .focused($focusedCWCard, equals: progress.id)
-                        // Returning to the row lands on the card you left, not
-                        // the geometrically-nearest one after the pin scroll.
-                        .prefersDefaultFocus(focusedContinueID == progress.id, in: continueScope)
-                        .contextMenu { continueMenu(progress) }
-                        // ⏯ resumes instantly from a focused CW card too.
-                        .onPlayPauseCommand { onResume(progress) }
-                    }
-                }
-                .padding(.horizontal, NuvioSpacing.huge)
-                .padding(.vertical, NuvioSpacing.lg)
-            }
-            .scrollClipDisabled()
-            .focusScope(continueScope)
-            .onChange(of: focusedCWCard) { oldValue, newValue in
-                guard let newValue else { return }
-                if oldValue == nil,
-                   let last = focusedContinueID, last != newValue,
-                   items.contains(where: { $0.id == last }) {
-                    // ENTERING the row on the wrong (geometric) card — snap
-                    // back to the one the user left.
-                    focusedCWCard = last
-                } else {
-                    focusedContinueID = newValue
-                }
-            }
-        }
+        ContinueWatchingRow(
+            items: items,
+            hero: hero,
+            imageFor: continueImage,
+            subtitleFor: continueSubtitle,
+            blurFor: { [blur = homeCatalogSettings.blurContinueWatchingNextUp] progress in
+                blur && progress.fraction < 0.02
+            },
+            heroItemFor: heroItem(from:),
+            onResume: onResume,
+            onRowFocus: { noteRowFocus(id: Self.continueRowID) },
+            menuFor: { progress in AnyView(continueMenu(progress)) }
+        )
     }
 
     // MARK: Row focus
@@ -726,6 +672,95 @@ struct HomeView: View {
             id: progress.metaID, type: progress.type, name: progress.name,
             poster: progress.poster, background: progress.background, logo: progress.logo
         )
+    }
+}
+
+/// Continue Watching as its OWN view so the per-card focus bookkeeping stays
+/// local. The remembered-card snap-back state used to live on HomeView itself,
+/// so every left/right step inside this row wrote HomeView @State and
+/// re-rendered the ENTIRE Home body — all rows — once per step. That's why
+/// only this row lagged while the rest of Home was fine. Here, a focus step
+/// re-renders just this row.
+private struct ContinueWatchingRow: View {
+    let items: [WatchProgress]
+    /// Plain let (not observed): the row only CALLS into the hero, it never
+    /// renders from it.
+    let hero: HeroFocus
+    let imageFor: (WatchProgress) -> String?
+    let subtitleFor: (WatchProgress) -> String?
+    let blurFor: (WatchProgress) -> Bool
+    let heroItemFor: (WatchProgress) -> MetaItem
+    let onResume: (WatchProgress) -> Void
+    let onRowFocus: () -> Void
+    let menuFor: (WatchProgress) -> AnyView
+
+    // Last-focused card. Coming back UP into the row, the pinning scroll has
+    // displaced it off its natural position, so the focus engine picks a
+    // geometrically-wrong card (the "jumps to the 5th" bug). Two defenses:
+    // prefersDefaultFocus marks the remembered card, and a FocusState
+    // snap-back forcibly returns focus to it when the row is ENTERED on a
+    // different one.
+    @State private var focusedContinueID: String?
+    @FocusState private var focusedCWCard: String?
+    @Namespace private var continueScope
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
+            RowHeader(title: "Continue Watching")
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
+                    ForEach(items) { progress in
+                        Button {
+                            onResume(progress)
+                        } label: {
+                            LandscapeCard(
+                                imageURL: imageFor(progress),
+                                title: progress.name,
+                                subtitle: subtitleFor(progress),
+                                progress: progress.fraction,
+                                blurImage: blurFor(progress)
+                            )
+                            // Hero bar follows focus here too, like every other
+                            // row. Inside the label: `\.isFocused` only resolves
+                            // within the focusable Button, not around it.
+                            // (The remembered card is updated in the FocusState
+                            // onChange below — NOT here, or the wrong entry card
+                            // would overwrite it before the snap-back runs.)
+                            .onFocusChange { focused in
+                                if focused {
+                                    hero.focus(heroItemFor(progress))
+                                    onRowFocus()
+                                }
+                            }
+                        }
+                        .buttonStyle(PlainCardButtonStyle())
+                        .focused($focusedCWCard, equals: progress.id)
+                        // Returning to the row lands on the card you left, not
+                        // the geometrically-nearest one after the pin scroll.
+                        .prefersDefaultFocus(focusedContinueID == progress.id, in: continueScope)
+                        .contextMenu { menuFor(progress) }
+                        // ⏯ resumes instantly from a focused CW card too.
+                        .onPlayPauseCommand { onResume(progress) }
+                    }
+                }
+                .padding(.horizontal, NuvioSpacing.huge)
+                .padding(.vertical, NuvioSpacing.lg)
+            }
+            .scrollClipDisabled()
+            .focusScope(continueScope)
+            .onChange(of: focusedCWCard) { oldValue, newValue in
+                guard let newValue else { return }
+                if oldValue == nil,
+                   let last = focusedContinueID, last != newValue,
+                   items.contains(where: { $0.id == last }) {
+                    // ENTERING the row on the wrong (geometric) card — snap
+                    // back to the one the user left.
+                    focusedCWCard = last
+                } else {
+                    focusedContinueID = newValue
+                }
+            }
+        }
     }
 }
 

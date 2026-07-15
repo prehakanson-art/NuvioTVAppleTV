@@ -264,7 +264,48 @@ struct RootView: View {
     }
 
     private var mainContent: some View {
-        HStack(spacing: 0) {
+        // OVERLAY layout, not an HStack: when the sidebar expanded inside an
+        // HStack its width change re-laid-out the ENTIRE content column (every
+        // Home row) on every frame of the spring — the "sidebar isn't smooth"
+        // jank on the A10X. Now the content is fixed (padded past the
+        // collapsed rail) and the expanding panel just draws OVER the dimmed
+        // content; the only things animating are the panel's own width and
+        // the dim's opacity.
+        ZStack(alignment: .leading) {
+            contentColumn
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay {
+                    // Dim the content while the sidebar is expanded/focused (APK
+                    // behavior). The dim STARTS at the sidebar's own tone right
+                    // at the expanded panel's seam (fixed coordinates now — the
+                    // content no longer moves) and eases into the dim, so
+                    // there's no hard bright/dark two-tone line at the edge.
+                    // Always mounted with an animated opacity (not an insert
+                    // transition) so it fades in IN LOCKSTEP with the sidebar's
+                    // expansion instead of popping in ahead of it.
+                    LinearGradient(
+                        stops: [
+                            // Everything left of ~0.11 sits UNDER the expanded
+                            // panel (tvOS is a fixed 1920pt layout: the panel
+                            // edge lands at (270-64)/(1920-64) ≈ 0.11 of the
+                            // content width).
+                            .init(color: theme.palette.backgroundElevated, location: 0),
+                            .init(color: theme.palette.backgroundElevated, location: 0.111),
+                            .init(color: .black.opacity(0.55), location: 0.20),
+                            .init(color: .black.opacity(0.55), location: 1)
+                        ],
+                        startPoint: .leading, endPoint: .trailing
+                    )
+                    .ignoresSafeArea()
+                    .allowsHitTesting(false)
+                    .opacity(sidebarFocus != nil && showSidebar ? 1 : 0)
+                }
+                // Reserve the collapsed rail's strip (the content's position is
+                // identical to the old HStack at rest); full-bleed when a
+                // pushed screen hides the rail.
+                .padding(.leading, showSidebar ? SidebarNav.collapsedWidth : 0)
+                .focusSection()
+
             if showSidebar {
                 SidebarNav(selected: $selectedTab, focusBinding: $sidebarFocus,
                            onProfileTap: { showProfileGate = true },
@@ -291,30 +332,6 @@ struct RootView: View {
                         sidebarEnabled = true
                     }
             }
-
-            contentColumn
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .overlay {
-                    // Dim the content while the sidebar is expanded/focused (APK
-                    // behavior). The dim STARTS at the sidebar's own tone right
-                    // at the seam and eases into the dim over the first sliver,
-                    // so there's no hard bright/dark two-tone line at the edge.
-                    // Always mounted with an animated opacity (not an insert
-                    // transition) so it fades in IN LOCKSTEP with the sidebar's
-                    // width expansion instead of popping in ahead of it.
-                    LinearGradient(
-                        stops: [
-                            .init(color: theme.palette.backgroundElevated, location: 0),
-                            .init(color: .black.opacity(0.55), location: 0.09),
-                            .init(color: .black.opacity(0.55), location: 1)
-                        ],
-                        startPoint: .leading, endPoint: .trailing
-                    )
-                    .ignoresSafeArea()
-                    .allowsHitTesting(false)
-                    .opacity(sidebarFocus != nil && showSidebar ? 1 : 0)
-                }
-                .focusSection()
         }
         // Matches SidebarNav's own expand spring so the width change, the
         // content reflow, and the dim all move together as one motion.

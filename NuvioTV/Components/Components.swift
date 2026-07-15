@@ -404,6 +404,11 @@ struct LandscapeCard: View {
                 RemoteImage(url: imageURL, maxDimension: width)
                     .aspectRatio(16 / 9, contentMode: .fill)
                     .blur(radius: blurImage && !isFocused ? 28 : 0)
+                    // Snap the blur on/off — WITHOUT this it rides the card's
+                    // trailing focus spring, re-computing a 28pt gaussian at
+                    // intermediate radii every frame of the animation (a
+                    // Continue Watching scroll killer on the A10X).
+                    .animation(nil, value: isFocused)
                 if let progress, progress > 0 {
                     ProgressStrip(fraction: progress)
                         .padding(.horizontal, 12)

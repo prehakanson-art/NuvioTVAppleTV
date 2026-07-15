@@ -300,10 +300,12 @@ struct RootView: View {
                     .allowsHitTesting(false)
                     .opacity(sidebarFocus != nil && showSidebar ? 1 : 0)
                 }
-                // Reserve the collapsed rail's strip (the content's position is
-                // identical to the old HStack at rest); full-bleed when a
-                // pushed screen hides the rail.
-                .padding(.leading, showSidebar ? SidebarNav.collapsedWidth : 0)
+                // Full-bleed: the hero backdrop and content run under the
+                // transparent collapsed rail (icons float over the art, like
+                // Netflix) instead of being inset 64pt — that inset left a
+                // flat-background strip beside the hero that read as a grey
+                // bar on Home. Content's own huge() leading padding keeps text
+                // and rows clear of the icons.
                 .focusSection()
 
             if showSidebar {

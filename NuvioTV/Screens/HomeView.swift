@@ -970,20 +970,27 @@ private struct HeroBackdropView: View {
 /// backdrop.
 private struct HeroInfoView: View {
     @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var perf = PerformanceSettingsStore.shared
     @ObservedObject var hero: HeroFocus
 
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             if let item = hero.item {
-                // IN-PLACE updates on title change: texts swap directly and the
-                // logo RemoteImage crossfades internally as its URL changes.
-                // The old `.id(item.id)` + opacity transition replaced the
-                // whole subtree (logo view, its fetch task, all text layout)
-                // on EVERY focus move — twice for Continue Watching entries,
-                // whose enrich fetch lands a second update. That per-move
-                // teardown is why scrubbing rows felt heavier on Modern than
-                // on Classic/Grid, which don't render this panel.
-                content(item)
+                // Crossfade ON (Settings → Performance → Hero crossfade): the
+                // whole info block dissolves between titles — `.id` replaces
+                // the subtree per focus move (logo view + fetch task + text
+                // layout), paired with HeroFocus.focus's withAnimation. That
+                // teardown is the cost that made Modern scrub heavier than
+                // Classic/Grid, so OFF takes the cheap path: in-place updates,
+                // texts swap directly, the logo crossfades internally as its
+                // URL changes.
+                if perf.settings.heroCrossfade {
+                    content(item)
+                        .id(item.id)
+                        .transition(.opacity)
+                } else {
+                    content(item)
+                }
             }
         }
         .frame(height: 330, alignment: .bottomLeading)

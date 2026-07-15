@@ -27,7 +27,7 @@ struct PerformanceSettingsDetail: View {
                 PerfToggleRow(
                     icon: "square.stack.3d.forward.dottedline",
                     title: "Hero crossfade",
-                    subtitle: "Dissolve animation when the hero art and info change. Blends two full-screen images for almost half a second. Off: they switch instantly.",
+                    subtitle: "Dissolve when the hero art and info change: blends two full-screen images and rebuilds the title/synopsis panel on every card you focus. The main reason browsing rows feels heavier on Modern than on the other layouts. Off: art and text switch instantly — much lighter, recommended on older Apple TVs.",
                     isOn: s.heroCrossfade
                 )
             }

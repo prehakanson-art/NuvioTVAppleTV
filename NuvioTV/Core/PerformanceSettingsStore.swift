@@ -74,10 +74,12 @@ final class PerformanceSettingsStore: ObservableObject {
             s.sidebarAnimation = false
             s.buttonAnimations = false
         } else if PerformanceProfile.isMidPower {
-            // 4K gen 1 (A10X / 3 GB): shadows and per-cell fades are the two
-            // that visibly cost during row scrolls; the rest it handles fine.
+            // 4K gen 1 (A10X / 3 GB): shadows, per-cell fades and the hero
+            // crossfade (now also the info-panel rebuild) are what visibly
+            // cost during row scrolls; the rest it handles fine.
             s.cardShadows = false
             s.artworkFadeIn = false
+            s.heroCrossfade = false
         }
         return s
     }

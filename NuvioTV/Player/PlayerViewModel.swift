@@ -689,6 +689,30 @@ final class PlayerViewModel: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.handleEnterForeground() }
         }
+        // Double-pressing the TV button opens the app switcher: the app only
+        // goes INACTIVE — didEnterBackground never fires — yet it's no longer
+        // what's on screen, so playback kept running over the switcher/menu.
+        nc.addObserver(
+            forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handleResignActive() }
+        }
+    }
+
+    /// App switcher / system overlay took the screen without backgrounding
+    /// us: pause cleanly. Deliberately NO auto-resume on return — same policy
+    /// as backgrounding ("press play to continue"). A real Home press fires
+    /// this first and then didEnterBackground, whose handler runs on top
+    /// harmlessly (pausing an already-paused engine is a no-op; it just adds
+    /// its own didBackground bookkeeping for the pipeline resync).
+    private func handleResignActive() {
+        guard hasStartedPlayback, !isExiting, isPlaying else { return }
+        enginePause()
+        pausedAt = Date()
+        // Land on the pause overlay so returning shows a clean "paused here"
+        // state, not a frozen bare frame.
+        if overlay == .none { overlay = .pauseInfo }
+        saveProgress()
     }
 
     private func handleEnterBackground() {

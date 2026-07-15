@@ -139,10 +139,12 @@ private struct DownloadCardLabel: View {
             .shadow(color: .black.opacity(isFocused ? 0.7 : 0.35), radius: isFocused ? 24 : 10, y: 10)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
-                    .lineLimit(1)
+                MarqueeText(
+                    text: title,
+                    font: .system(size: 22, weight: .medium),
+                    color: isFocused ? theme.palette.textPrimary : theme.palette.textSecondary,
+                    active: isFocused
+                )
                 Text(statusLine)
                     .font(.system(size: 18))
                     .foregroundStyle(theme.palette.textTertiary)

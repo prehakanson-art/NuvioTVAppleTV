@@ -303,6 +303,90 @@ private struct PlaceholderShimmer: View {
     }
 }
 
+// MARK: - Marquee title
+
+/// Focus-marquee for long titles (the Android app's default): while `active`
+/// (card focused) an overflowing title scrolls horizontally in a seamless
+/// loop; inactive (or fitting) it renders as a plain truncated Text. The
+/// measuring/animating variant exists ONLY on the focused card, so grids pay
+/// zero extra cost — critical after the row-perf work.
+struct MarqueeText: View {
+    let text: String
+    let font: Font
+    let color: Color
+    let active: Bool
+
+    var body: some View {
+        if active {
+            ActiveMarquee(text: text, font: font, color: color)
+        } else {
+            Text(text).font(font).foregroundStyle(color).lineLimit(1)
+        }
+    }
+}
+
+private struct ActiveMarquee: View {
+    let text: String
+    let font: Font
+    let color: Color
+
+    @State private var textWidth: CGFloat = 0
+    @State private var boxWidth: CGFloat = 0
+    @State private var offset: CGFloat = 0
+
+    /// Gap between the looping copies, and scroll speed in pt/s.
+    private let gap: CGFloat = 60
+    private let speed: CGFloat = 55
+
+    private var overflows: Bool { textWidth > boxWidth + 1 }
+
+    var body: some View {
+        HStack(spacing: gap) {
+            measuredText
+            if overflows {
+                // Second copy so the loop wraps seamlessly instead of
+                // snapping back to the start.
+                Text(text).font(font).foregroundStyle(color).fixedSize()
+            }
+        }
+        .offset(x: offset)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .clipped()
+        .background(
+            GeometryReader { geo in
+                Color.clear.onAppear { boxWidth = geo.size.width }
+            }
+        )
+        .onChange(of: textWidth) { _, _ in startIfNeeded() }
+        .onChange(of: boxWidth) { _, _ in startIfNeeded() }
+    }
+
+    private var measuredText: some View {
+        Text(text).font(font).foregroundStyle(color)
+            .fixedSize()   // natural width, so overflow is measurable
+            .background(
+                GeometryReader { geo in
+                    Color.clear.onAppear { textWidth = geo.size.width }
+                }
+            )
+    }
+
+    private func startIfNeeded() {
+        guard overflows, offset == 0 else { return }
+        let distance = textWidth + gap
+        // Brief hold so the title is readable before it starts moving.
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            guard overflows, offset == 0 else { return }
+            withAnimation(.linear(duration: distance / speed)
+                .delay(0.4)
+                .repeatForever(autoreverses: false)) {
+                offset = -distance
+            }
+        }
+    }
+}
+
 // MARK: - Poster card
 
 struct PosterCard: View {
@@ -353,11 +437,13 @@ struct PosterCard: View {
                     radius: perf.settings.cardShadows ? (isFocused ? 24 : 10) : 0, y: 10)
 
             if layout.showPosterLabels {
-                Text(item.name)
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
-                    .lineLimit(1)
-                    .frame(width: cardWidth, alignment: .leading)
+                MarqueeText(
+                    text: item.name,
+                    font: .system(size: 22, weight: .medium),
+                    color: isFocused ? theme.palette.textPrimary : theme.palette.textSecondary,
+                    active: isFocused
+                )
+                .frame(width: cardWidth, alignment: .leading)
             }
         }
         .scaleEffect(perf.settings.focusZoom && isFocused ? 1.08 : 1.0)
@@ -436,15 +522,19 @@ struct LandscapeCard: View {
                     radius: perf.settings.cardShadows ? (isFocused ? 24 : 10) : 0, y: 10)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.system(size: 22, weight: .medium))
-                    .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
-                    .lineLimit(1)
+                MarqueeText(
+                    text: title,
+                    font: .system(size: 22, weight: .medium),
+                    color: isFocused ? theme.palette.textPrimary : theme.palette.textSecondary,
+                    active: isFocused
+                )
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle)
-                        .font(.system(size: 19))
-                        .foregroundStyle(theme.palette.textTertiary)
-                        .lineLimit(1)
+                    MarqueeText(
+                        text: subtitle,
+                        font: .system(size: 19),
+                        color: theme.palette.textTertiary,
+                        active: isFocused
+                    )
                 }
             }
             .frame(width: width, alignment: .leading)

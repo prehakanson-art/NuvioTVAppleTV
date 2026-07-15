@@ -703,6 +703,28 @@ final class PlayerViewModel: ObservableObject {
         // actually playing) — NOT disabled for the whole session, which used
         // to leave the Apple TV never sleeping / never showing its screensaver.
         load(entry: request.entry)
+        maybeRouteToVLCForASS()
+    }
+
+    /// Full ASS rendering: if the toggle is on and this title carries a styled
+    /// ASS/SSA subtitle track, reload into VLC (which renders it with libass +
+    /// embedded fonts). Runs in parallel with the initial KSPlayer load — a
+    /// non-ASS title never pays for it, an ASS title flips to VLC once the
+    /// header probe returns. Only for the KSPlayer-family engine and a direct
+    /// URL (not the DV playlist / an explicit VLC/native/external choice).
+    private var assRouteAttempted = false
+    private func maybeRouteToVLCForASS() {
+        guard settings.fullAssSubtitles, !assRouteAttempted,
+              effectiveEngine == .auto || effectiveEngine == .ffmpeg,
+              let url = currentEntry.stream.url else { return }
+        assRouteAttempted = true
+        Task { [weak self] in
+            guard await SubtitleProbe.hasStyledASS(url: url) else { return }
+            guard let self, !self.isExiting, !self.usingNativeDV,
+                  self.effectiveEngine != .vlc else { return }
+            NSLog("[NuvioSubs] styled ASS detected — routing to VLC for full rendering")
+            self.switchEngine(.vlc)
+        }
     }
 
     // MARK: - App background / foreground

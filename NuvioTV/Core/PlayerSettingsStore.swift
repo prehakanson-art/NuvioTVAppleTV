@@ -248,6 +248,12 @@ struct PlayerSettings: Codable, Equatable {
     /// safer to opt into than to ship on. Off = DV7 tone-maps to HDR10 (the
     /// standard engine), exactly as before. Requires Native Dolby Vision on.
     var dolbyVisionProfile7: Bool = false
+    /// Render styled ASS/SSA subtitles fully (custom fonts, positioning,
+    /// karaoke) by playing titles that carry them in the VLC engine, which
+    /// includes libass. KSPlayer's built-in ASS parser drops embedded fonts
+    /// and complex styling. Off = keep KSPlayer's rendering. When it routes to
+    /// VLC you lose that title's scrub-thumbnail preview for the session.
+    var fullAssSubtitles: Bool = false
 
     /// Selectable subtitle sizes.
     static let subtitleSizeValues: [Int] = [28, 32, 36, 42, 48, 56]
@@ -380,6 +386,7 @@ struct PlayerSettings: Codable, Equatable {
         matchFrameRate = (try? c.decode(Bool.self, forKey: .matchFrameRate)) ?? d.matchFrameRate
         nativeDolbyVision = (try? c.decode(Bool.self, forKey: .nativeDolbyVision)) ?? d.nativeDolbyVision
         dolbyVisionProfile7 = (try? c.decode(Bool.self, forKey: .dolbyVisionProfile7)) ?? d.dolbyVisionProfile7
+        fullAssSubtitles = (try? c.decode(Bool.self, forKey: .fullAssSubtitles)) ?? d.fullAssSubtitles
     }
 }
 

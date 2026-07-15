@@ -331,6 +331,13 @@ struct PlaybackSettingsDetail: View {
                     isOn: s.subtitlesOnByDefault
                 )
 
+                PlaybackToggleRow(
+                    icon: "textformat.alt",
+                    title: "Full styled subtitles (ASS/SSA)",
+                    subtitle: "Render fancy anime/fansub subtitles — custom fonts, positioning, karaoke — properly. Titles that carry ASS/SSA subtitles play in the VLC engine (which includes libass and reads embedded fonts). You lose that title's scrub-thumbnail preview while it plays. Off = the built-in renderer (readable text, but drops fonts/effects).",
+                    isOn: s.fullAssSubtitles
+                )
+
                 if store.settings.subtitlesOnByDefault {
                     NuvioDropdown(
                         title: "Preferred language",

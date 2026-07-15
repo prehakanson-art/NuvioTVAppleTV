@@ -58,6 +58,7 @@
 		93AB0F8D7406FDE418FD0158 /* TraktService.swift in Sources */ = {isa = PBXBuildFile; fileRef = A4EA353DABA76B77A9FCA728 /* TraktService.swift */; };
 		93E54350111ACD546EF3AA86 /* TMDBService.swift in Sources */ = {isa = PBXBuildFile; fileRef = E3BA0288809B5DD6BEFC91DE /* TMDBService.swift */; };
 		940EF9F55F7D3674E2E712FC /* NuvioAuthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3DA2F1D1196039A07AE5F6E0 /* NuvioAuthModels.swift */; };
+		948DDDB74756ED1594B6D0FB /* SubtitleProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9B6486364A772D88D23EE575 /* SubtitleProbe.swift */; };
 		954267FE8B47C238B5ED55D1 /* WatchedStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B526B12FF40C35C8286806C2 /* WatchedStore.swift */; };
 		95D56F234169C4D3C66B6EC7 /* ProfilesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1B7D256E3B5029E76D7C03D /* ProfilesView.swift */; };
 		96D2CB47BCA0FE3E4D612153 /* HomeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = ADBB2C0716736EF000BE1068 /* HomeView.swift */; };
@@ -142,6 +143,7 @@
 		88808D61D06962DC1E8D8598 /* PlayerVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerVideoView.swift; sourceTree = "<group>"; };
 		8E7D954FA6B8F52309A05490 /* StremioAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StremioAPI.swift; sourceTree = "<group>"; };
 		969D7289F1E624FC42108D86 /* NuvioSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NuvioSyncManager.swift; sourceTree = "<group>"; };
+		9B6486364A772D88D23EE575 /* SubtitleProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SubtitleProbe.swift; sourceTree = "<group>"; };
 		A26744F92AC1D7E60BF3416E /* HomeCatalogSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeCatalogSettingsStore.swift; sourceTree = "<group>"; };
 		A4EA353DABA76B77A9FCA728 /* TraktService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraktService.swift; sourceTree = "<group>"; };
 		AD681267F7BC35D3CC1F797C /* RequestCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestCache.swift; sourceTree = "<group>"; };
@@ -329,6 +331,7 @@
 				33E98DE3FF2BD0DC102D80F4 /* RemoteInput.swift */,
 				E6F178D2C0DFC1696A87DB92 /* ScrubberViews.swift */,
 				0AABBCDB9DAA6E74AB201B6E /* SidePanels.swift */,
+				9B6486364A772D88D23EE575 /* SubtitleProbe.swift */,
 				E07F3565C7E5BB417A83893E /* TrailerPlayer.swift */,
 				760F22FDFFEF572A2AB98E3D /* VLCEngine.swift */,
 			);
@@ -526,6 +529,7 @@
 				2DCA83982721109BBFD27A97 /* StreamBadges.swift in Sources */,
 				7000373F832F741F5E30C8D0 /* StreamsView.swift in Sources */,
 				8BEFD722640C2C3DCF9F0E71 /* StremioAPI.swift in Sources */,
+				948DDDB74756ED1594B6D0FB /* SubtitleProbe.swift in Sources */,
 				3E75BF4F2B2008787D63DDDD /* TMDBBrowseView.swift in Sources */,
 				93E54350111ACD546EF3AA86 /* TMDBService.swift in Sources */,
 				70F4581D9B6D5F367F3AB2FE /* TopShelfExporter.swift in Sources */,

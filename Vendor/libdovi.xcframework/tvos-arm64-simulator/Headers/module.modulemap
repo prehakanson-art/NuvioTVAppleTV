@@ -1,4 +1,0 @@
-module libdovi {
-    header "dovi.h"
-    export *
-}

@@ -4,6 +4,19 @@ import GameController
 import KSPlayer
 import SwiftUI
 
+extension UIApplication {
+    /// Non-deprecated replacement for `.windows.first` (deprecated tvOS 15) —
+    /// tvOS only ever has one connected window scene, so this is equivalent.
+    /// Used for `avDisplayManager`, which hangs off UIWindow.
+    var ks_keyWindow: UIWindow? {
+        connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?
+            .windows
+            .first
+    }
+}
+
 struct PlaybackRequest: Identifiable {
     let id = UUID()
     let meta: MetaItem
@@ -160,7 +173,7 @@ final class NuvioPlayerOptions: KSOptions {
         pulldown60Hz = true
         guard matchDisplayCriteria || nativeDV,
               refreshRate > 0,
-              let displayManager = UIApplication.shared.windows.first?.avDisplayManager,
+              let displayManager = UIApplication.shared.ks_keyWindow?.avDisplayManager,
               displayManager.isDisplayCriteriaMatchingEnabled,
               let formatDescription
         else { return }
@@ -2654,7 +2667,7 @@ final class PlayerViewModel: ObservableObject {
         overlay = .none
         // Kick the display-mode switch off immediately, over the player's own
         // screen — the same thing KSPlayerLayer's deinit would do later.
-        UIApplication.shared.windows.first?.avDisplayManager.preferredDisplayCriteria = nil
+        UIApplication.shared.ks_keyWindow?.avDisplayManager.preferredDisplayCriteria = nil
     }
 
     func teardown() {

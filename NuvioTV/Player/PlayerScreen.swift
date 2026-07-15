@@ -353,7 +353,7 @@ struct PlayerScreen: View {
         NSLog("[NuvioPlayer] exitPlayer() called — overlay=%@", String(describing: viewModel.overlay))
         viewModel.prepareForExit()
         Task { @MainActor in
-            let manager = UIApplication.shared.windows.first?.avDisplayManager
+            let manager = UIApplication.shared.ks_keyWindow?.avDisplayManager
             // Did THIS session actually request a display switch? Keying off
             // the match-content toggle alone missed native-DV sessions (they
             // switch with the toggle OFF) — exiting DV then dismissed

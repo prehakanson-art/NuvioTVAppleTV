@@ -28,15 +28,12 @@ targets:
       - package: YouTubeKit
       - package: VLCKit
         product: VLCKitSPM
-      # ─── Top Shelf (Continue Watching on the tvOS home screen) ───
-      # OFF by default: it needs an APP-GROUP entitlement + a signed app
-      # extension, which a free cert / most sideload services can't
-      # provision — that makes the DEVICE build fail. Enable it only when
-      # your signing can do app groups, by uncommenting all THREE marked
-      # "TOP SHELF" spots in this file (this dependency, the app's
-      # CODE_SIGN_ENTITLEMENTS below, and the NuvioTopShelf target). The
-      # app runs fine without it; the shelf just doesn't appear.
-      # - target: NuvioTopShelf
+      # Top Shelf (Continue Watching on the tvOS home screen). Needs an
+      # app-group entitlement + a signed app extension — only works when
+      # your signing can provision both (see the other two TOP SHELF spots
+      # below). If your build starts failing to install again, comment out
+      # this line + the two below and regenerate.
+      - target: NuvioTopShelf
     info:
       path: Config/Info.plist
       properties:
@@ -71,11 +68,8 @@ targets:
         # script sandboxing must be off or the phase is denied file access.
         ENABLE_USER_SCRIPT_SANDBOXING: false
         ASSETCATALOG_COMPILER_APPICON_NAME: "App Icon & Top Shelf Image"
-        # ─── TOP SHELF (2 of 3) ─── App group entitlement, shared with the
-        # extension. Uncomment ONLY together with the other two Top Shelf
-        # spots and only when your signing supports app groups — otherwise
-        # the device build fails to sign.
-        # CODE_SIGN_ENTITLEMENTS: Config/NuvioTV.entitlements
+        # App group shared with the Top Shelf extension.
+        CODE_SIGN_ENTITLEMENTS: Config/NuvioTV.entitlements
     postBuildScripts:
       # FFmpegKit (pulled in transitively by KSPlayer) ships
       # libshaderc_combined.framework with an underscore in its
@@ -106,35 +100,32 @@ targets:
                 ;;
             esac
           done
-  # ─── TOP SHELF (3 of 3) ─── The extension target itself. Renders the
-  # app's Continue Watching list on the tvOS home screen (Android's "Watch
-  # Next" equivalent). Uncomment this whole block together with the other
-  # two Top Shelf spots above — ONLY when your signing can provision an app
-  # extension + app group. Left in the tree (dormant) otherwise; the app
-  # code (TopShelfExporter) simply no-ops when the app group isn't present.
-  # NuvioTopShelf:
-  #   type: app-extension
-  #   platform: tvOS
-  #   sources:
-  #     - NuvioTopShelf
-  #     - path: NuvioTV/Core/AppGroupResolver.swift
-  #       buildPhase: sources
-  #   info:
-  #     path: NuvioTopShelf/Info.plist
-  #     properties:
-  #       CFBundleDisplayName: NuvioTV
-  #       CFBundleShortVersionString: "0.7.15"
-  #       NSExtension:
-  #         NSExtensionPointIdentifier: com.apple.tv-top-shelf
-  #         NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).TopShelfProvider
-  #   settings:
-  #     base:
-  #       PRODUCT_BUNDLE_IDENTIFIER: com.nuvio.tv.appletv.topshelf
-  #       SWIFT_VERSION: "5.9"
-  #       TARGETED_DEVICE_FAMILY: "3"
-  #       MARKETING_VERSION: "0.7.15"
-  #       CURRENT_PROJECT_VERSION: "1"
-  #       CODE_SIGN_ENTITLEMENTS: NuvioTopShelf/NuvioTopShelf.entitlements
+  # Top Shelf extension: renders the app's Continue Watching list on the tvOS
+  # home screen (Android's "Watch Next" equivalent). Reads a JSON snapshot
+  # from the shared app group written by TopShelfExporter.
+  NuvioTopShelf:
+    type: app-extension
+    platform: tvOS
+    sources:
+      - NuvioTopShelf
+      - path: NuvioTV/Core/AppGroupResolver.swift
+        buildPhase: sources
+    info:
+      path: NuvioTopShelf/Info.plist
+      properties:
+        CFBundleDisplayName: NuvioTV
+        CFBundleShortVersionString: "0.7.15"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).TopShelfProvider
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.nuvio.tv.appletv.topshelf
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "3"
+        MARKETING_VERSION: "0.7.15"
+        CURRENT_PROJECT_VERSION: "1"
+        CODE_SIGN_ENTITLEMENTS: NuvioTopShelf/NuvioTopShelf.entitlements
 schemes:
   NuvioTV:
     build:

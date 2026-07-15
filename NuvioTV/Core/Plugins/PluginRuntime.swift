@@ -7,7 +7,12 @@ import JavaScriptCore
 /// `setTimeout`. crypto-js / cheerio are loaded when a bundled resource is
 /// present (see `bootstrapExtras`); scrapers that need them and find them
 /// absent fail gracefully and return nothing.
-final class PluginRuntime {
+// Manually thread-safe, not actor-isolated: every mutable value the JS
+// execution touches (the JSContext, `finished`, JS callbacks) is local to
+// `execute` and confined to `queue` — nothing escapes across threads except
+// through that queue hop. `@unchecked` because the compiler can't see that
+// confinement, only the code review can.
+final class PluginRuntime: @unchecked Sendable {
     /// One serial queue owns the JSContext (JSCore isn't thread-safe); fetch
     /// completions hop back onto it before touching JS values.
     private let queue = DispatchQueue(label: "tv.nuvio.plugin.runtime")

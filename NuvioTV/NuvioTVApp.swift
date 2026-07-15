@@ -300,28 +300,31 @@ struct RootView: View {
                     .allowsHitTesting(false)
                     .opacity(sidebarFocus != nil && showSidebar ? 1 : 0)
                 }
-                // Full-bleed: the hero backdrop and content run under the
-                // transparent collapsed rail (icons float over the art, like
-                // Netflix) instead of being inset 64pt — that inset left a
-                // flat-background strip beside the hero that read as a grey
-                // bar on Home. Content's own huge() leading padding keeps text
-                // and rows clear of the icons.
+                // HOME runs full-bleed (hero to the edge, icons float over it
+                // on the soft background column below). Every OTHER tab keeps
+                // the original 64pt inset so its content sits beside the rail,
+                // not under it — that also keeps left-navigation into the
+                // sidebar clean (Library was letting focus slip into the panel
+                // when its grid ran full-bleed under the rail). Pushed screens
+                // (showSidebar == false) stay full-bleed as before.
+                .padding(.leading, showSidebar && selectedTab != 0 ? SidebarNav.collapsedWidth : 0)
                 .focusSection()
 
             // Home only: a soft left column in the BACKGROUND colour behind the
             // icons. Grounds them over the hero art without the contrasting
             // grey the old reserved strip had — it IS the background, fading
-            // into the content. Over content, under the icons.
+            // into the content. The solid part extends a bit PAST the icons
+            // before fading. Over content, under the icons.
             if selectedTab == 0 && showSidebar {
                 LinearGradient(
                     stops: [
                         .init(color: theme.palette.background, location: 0),
-                        .init(color: theme.palette.background, location: 0.4),
+                        .init(color: theme.palette.background, location: 0.5),
                         .init(color: .clear, location: 1)
                     ],
                     startPoint: .leading, endPoint: .trailing
                 )
-                .frame(width: 190)
+                .frame(width: 210)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
@@ -331,10 +334,10 @@ struct RootView: View {
                 SidebarNav(selected: $selectedTab, focusBinding: $sidebarFocus,
                            onProfileTap: { showProfileGate = true },
                            onTabSelected: { newTab in selectTab(newTab) })
-                    // Nudge the collapsed icons further left (clip-safe, moves
+                    // Nudge the collapsed icons a touch left (clip-safe, moves
                     // with the rail's clip region). Snaps back to 0 when the
                     // panel expands so labels aren't pushed off the edge.
-                    .offset(x: sidebarFocus == nil ? -16 : 0)
+                    .offset(x: sidebarFocus == nil ? -8 : 0)
                     .focusSection()
                     .disabled(!sidebarEnabled)
                     // Back while IN the sidebar collapses it into content

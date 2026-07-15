@@ -186,9 +186,12 @@ private struct SidebarItemLabel: View {
                 Spacer(minLength: 0)
             }
         }
-        .padding(.horizontal, expanded ? NuvioSpacing.md : 0)
+        // Collapsed: hug the leading edge (icons sat centered in the 64pt
+        // rail, reading as floating too far right) with a small inset.
+        .padding(.leading, expanded ? NuvioSpacing.md : 8)
+        .padding(.trailing, expanded ? NuvioSpacing.md : 0)
         .frame(height: 80)
-        .frame(maxWidth: .infinity, alignment: expanded ? .leading : .center)
+        .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             // Capsule fill on the focused/selected item, only in the expanded panel.
             Capsule(style: .continuous)

@@ -490,6 +490,9 @@ struct HomeView: View {
         ContinueWatchingRow(
             items: items,
             hero: hero,
+            // Grid renders no backdrop/billboard, so don't pay the per-focus
+            // hero update (and its enrich fetch) where nothing displays it.
+            drivesHero: layout != .grid,
             imageFor: continueImage,
             subtitleFor: continueSubtitle,
             blurFor: { [blur = homeCatalogSettings.blurContinueWatchingNextUp] progress in
@@ -699,6 +702,8 @@ private struct ContinueWatchingRow: View {
     /// Plain let (not observed): the row only CALLS into the hero, it never
     /// renders from it.
     let hero: HeroFocus
+    /// False in Grid layout, where no backdrop/billboard renders the hero.
+    let drivesHero: Bool
     let imageFor: (WatchProgress) -> String?
     let subtitleFor: (WatchProgress) -> String?
     let blurFor: (WatchProgress) -> Bool
@@ -738,7 +743,7 @@ private struct ContinueWatchingRow: View {
                             // onChange below — NOT here, or the wrong entry card
                             // would overwrite it before the snap-back runs.)
                             .onFocusChange { focused in
-                                if focused { hero.focus(heroItemFor(progress)) }
+                                if focused, drivesHero { hero.focus(heroItemFor(progress)) }
                             }
                         }
                         .buttonStyle(PlainCardButtonStyle())
@@ -970,11 +975,15 @@ private struct HeroInfoView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             if let item = hero.item {
+                // IN-PLACE updates on title change: texts swap directly and the
+                // logo RemoteImage crossfades internally as its URL changes.
+                // The old `.id(item.id)` + opacity transition replaced the
+                // whole subtree (logo view, its fetch task, all text layout)
+                // on EVERY focus move — twice for Continue Watching entries,
+                // whose enrich fetch lands a second update. That per-move
+                // teardown is why scrubbing rows felt heavier on Modern than
+                // on Classic/Grid, which don't render this panel.
                 content(item)
-                    // Crossfade the whole info block when the title changes
-                    // (paired with HeroFocus.focus's withAnimation).
-                    .id(item.id)
-                    .transition(.opacity)
             }
         }
         .frame(height: 330, alignment: .bottomLeading)

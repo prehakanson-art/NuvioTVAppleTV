@@ -71,7 +71,7 @@ final class DetailViewModel: ObservableObject {
                 language = detail.language
             }
             if tmdb.useReleaseDates { releaseDate = detail.releaseDate }
-            if tmdb.useMoreLikeThis { moreLikeThis = detail.moreLikeThis }
+            if tmdb.useMoreLikeThis { moreLikeThis = detail.moreLikeThis.deduplicatedByID() }
             if tmdb.useProductions { companies = detail.companies }
             if tmdb.useTrailers { trailers = detail.trailers }
             if tmdb.useCollections {
@@ -79,6 +79,7 @@ final class DetailViewModel: ObservableObject {
                 if let collection {
                     collectionParts = await TMDBService.collectionItems(id: collection.id)
                         .filter { $0.id != meta.id }
+                        .deduplicatedByID()
                 }
             }
         }

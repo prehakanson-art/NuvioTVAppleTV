@@ -301,6 +301,31 @@ struct MetaItem: Codable, Identifiable, Hashable {
         (videos ?? [])
             .filter { $0.season == season }
             .sorted { ($0.episode ?? 0) < ($1.episode ?? 0) }
+            .deduplicatedByID()
+    }
+}
+
+extension Array where Element == MetaItem {
+    /// Keep only the first occurrence of each `id`. Addons — especially
+    /// aggregators like AIO Metadata — routinely return the same title more
+    /// than once in a single catalog. `MetaItem` is `Identifiable` by `id`, so
+    /// duplicates put repeated identifiers into a `ForEach`, which is undefined
+    /// in SwiftUI and crashes the tvOS focus engine. Search, Discover and the
+    /// paginated "See All" already guard this way; catalogs feeding Home did
+    /// not, which is why an AIO catalog could crash the app right after login.
+    func deduplicatedByID() -> [MetaItem] {
+        var seen = Set<String>()
+        return filter { seen.insert($0.id).inserted }
+    }
+}
+
+extension Array where Element == MetaVideo {
+    /// Same rationale as `MetaItem.deduplicatedByID` — some meta addons emit
+    /// duplicate `video.id`s in an episode list, which would crash the Detail
+    /// page's episode `ForEach` on tvOS.
+    func deduplicatedByID() -> [MetaVideo] {
+        var seen = Set<String>()
+        return filter { seen.insert($0.id).inserted }
     }
 }
 

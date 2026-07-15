@@ -115,7 +115,9 @@ enum StremioAPI {
         // cached briefly so revisiting Home is instant.
         let ttl: TimeInterval = (search?.isEmpty == false) ? 0 : 120
         let response: CatalogResponse = try await get(url, ttl: ttl)
-        return (response.metas ?? []).filter { !$0.name.isEmpty }
+        // De-dup by id: duplicate identifiers in a catalog crash the tvOS focus
+        // engine when rendered in a ForEach (aggregator addons emit them).
+        return (response.metas ?? []).filter { !$0.name.isEmpty }.deduplicatedByID()
     }
 
     static func meta(addon: InstalledAddon, type: String, id: String) async throws -> MetaItem {

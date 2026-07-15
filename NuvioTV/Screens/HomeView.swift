@@ -127,7 +127,9 @@ final class HomeViewModel: ObservableObject {
                     stale.append(.catalog(HomeRow(
                         id: Self.rowID(request),
                         title: Self.rowTitle(key: key, request: request, settings: settings),
-                        items: items, addon: request.addon, catalog: request.catalog
+                        // Dedup: a cache written before the source-side dedup
+                        // shipped could still hold duplicate ids.
+                        items: items.deduplicatedByID(), addon: request.addon, catalog: request.catalog
                     )))
                 }
             }

@@ -186,10 +186,10 @@ private struct SidebarItemLabel: View {
                 Spacer(minLength: 0)
             }
         }
-        // Collapsed inset from the rail's (safe-area-ignoring) leading edge —
-        // see the .ignoresSafeArea at the call site, which lets the rail sit
-        // in the overscan margin so the icons hug the edge.
-        .padding(.leading, expanded ? NuvioSpacing.md : 12)
+        // Collapsed: icons sit just LEFT of the rail's center (a gentle nudge
+        // off the original centered position — not jammed against the edge).
+        // Leading-aligned with a 6pt inset ≈ 7pt left of dead-center.
+        .padding(.leading, expanded ? NuvioSpacing.md : 6)
         .padding(.trailing, expanded ? NuvioSpacing.md : 0)
         .frame(height: 80)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -321,6 +321,14 @@ struct RootView: View {
                     // fixed-delay re-enable — never waits on onContentReady,
                     // which wouldn't fire again since Home isn't reloading.
                     .onExitCommand { collapseSidebarFromExit() }
+                    // Swipe/press RIGHT exits into content. In the overlay
+                    // layout the content's focus section is UNDER the panel
+                    // (overlapping, not beside it), so the focus engine sees
+                    // no candidate "to the right" and the move dies — catch
+                    // it and run the same collapse Back uses.
+                    .onMoveCommand { direction in
+                        if direction == .right { collapseSidebarFromExit() }
+                    }
                     .transition(.move(edge: .leading).combined(with: .opacity))
                     // The sidebar stays non-focusable until Home has content to
                     // hold initial focus (onContentReady) — otherwise the app

@@ -58,6 +58,8 @@ struct SidebarNav: View {
                     }
                     .buttonStyle(PlainCardButtonStyle())
                     .focused(focusBinding, equals: -1)
+                    // Fade in with the expansion instead of popping.
+                    .transition(.opacity)
                 } else {
                     SidebarProfileHeader(profile: profiles.active).opacity(0)
                 }
@@ -93,7 +95,13 @@ struct SidebarNav: View {
             Spacer(minLength: 0)
         }
         // The panel column changes width (collapsed icons ⇄ expanded labels).
-        .frame(width: expanded ? Self.expandedWidth : Self.collapsedWidth)
+        .frame(width: expanded ? Self.expandedWidth : Self.collapsedWidth, alignment: .leading)
+        // Clip to the ANIMATING width: in the overlay layout nothing squeezes
+        // the labels anymore, so without this they render at their final
+        // position the instant they're inserted — visible over the content
+        // before the panel has expanded. Clipped, the expanding edge reveals
+        // them in sync with the motion.
+        .clipped()
         .frame(maxHeight: .infinity, alignment: .top)
         // Elevated panel only when expanded; collapsed rail is transparent over content.
         .background(
@@ -172,6 +180,9 @@ private struct SidebarItemLabel: View {
                     .font(.system(size: 28, weight: .medium))
                     .foregroundStyle(highlighted ? theme.palette.textPrimary : theme.palette.textSecondary)
                     .lineLimit(1)
+                    // Fade with the expansion spring (and out on collapse)
+                    // instead of popping in/out structurally.
+                    .transition(.opacity)
                 Spacer(minLength: 0)
             }
         }

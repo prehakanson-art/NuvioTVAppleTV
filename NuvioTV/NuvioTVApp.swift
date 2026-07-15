@@ -324,10 +324,12 @@ struct RootView: View {
                     ],
                     startPoint: .leading, endPoint: .trailing
                 )
-                .frame(width: 210)
+                // Anchored at the very left edge (no offset — offsetting left a
+                // bare sliver of hero at the edge). Widened by ~20pt instead so
+                // its right edge still sits ~0.5in past where it was, while the
+                // solid start stays pinned to the screen edge.
+                .frame(width: 230)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                // Shift the column ~20pt (≈0.5in on a 55" panel) to the right.
-                .offset(x: 20)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
             }

@@ -308,10 +308,33 @@ struct RootView: View {
                 // and rows clear of the icons.
                 .focusSection()
 
+            // Home only: a soft left column in the BACKGROUND colour behind the
+            // icons. Grounds them over the hero art without the contrasting
+            // grey the old reserved strip had — it IS the background, fading
+            // into the content. Over content, under the icons.
+            if selectedTab == 0 && showSidebar {
+                LinearGradient(
+                    stops: [
+                        .init(color: theme.palette.background, location: 0),
+                        .init(color: theme.palette.background, location: 0.4),
+                        .init(color: .clear, location: 1)
+                    ],
+                    startPoint: .leading, endPoint: .trailing
+                )
+                .frame(width: 190)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            }
+
             if showSidebar {
                 SidebarNav(selected: $selectedTab, focusBinding: $sidebarFocus,
                            onProfileTap: { showProfileGate = true },
                            onTabSelected: { newTab in selectTab(newTab) })
+                    // Nudge the collapsed icons further left (clip-safe, moves
+                    // with the rail's clip region). Snaps back to 0 when the
+                    // panel expands so labels aren't pushed off the edge.
+                    .offset(x: sidebarFocus == nil ? -16 : 0)
                     .focusSection()
                     .disabled(!sidebarEnabled)
                     // Back while IN the sidebar collapses it into content

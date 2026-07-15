@@ -71,6 +71,7 @@
 		A4C392E6EA1199F861E53767 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D65C4F9D6EA30C04E99A1C3E /* DownloadManager.swift */; };
 		A9F8E8B54CCF719E19974568 /* ScrubberViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6F178D2C0DFC1696A87DB92 /* ScrubberViews.swift */; };
 		AE0CFA7CB5922AEB4625975A /* CollectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAE1265EE9F6B43BD02CCC9F /* CollectionView.swift */; };
+		B99589BE4621E7B4EDD07A19 /* LiveTVView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2E52DF7CD06E99777E79CD5 /* LiveTVView.swift */; };
 		BAFA27E5E9E52210E0D89DA5 /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4581D56301494EB1525328EA /* AccountView.swift */; };
 		BF6961891F5345E7DBE28277 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 49BAA0E54FBA5A8CFE9473FA /* Components.swift */; };
 		C1E4CF340CEB3DCC7282754C /* TorrServerService.swift in Sources */ = {isa = PBXBuildFile; fileRef = B849FFDB58E807B07C473367 /* TorrServerService.swift */; };
@@ -166,6 +167,7 @@
 		E082ACA18B306E4D2DFC76F4 /* NuvioTV.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NuvioTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		E1B7D256E3B5029E76D7C03D /* ProfilesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProfilesView.swift; sourceTree = "<group>"; };
 		E2B5622602D0586649B04485 /* PauseOverlayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PauseOverlayView.swift; sourceTree = "<group>"; };
+		E2E52DF7CD06E99777E79CD5 /* LiveTVView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVView.swift; sourceTree = "<group>"; };
 		E3BA0288809B5DD6BEFC91DE /* TMDBService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TMDBService.swift; sourceTree = "<group>"; };
 		E565452F2EEBB3B76844EE38 /* TMDBBrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TMDBBrowseView.swift; sourceTree = "<group>"; };
 		E5D7F61A348C43BA8601218A /* SearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchView.swift; sourceTree = "<group>"; };
@@ -248,6 +250,7 @@
 				0FB737837B726FAD666FA4B3 /* DownloadsView.swift */,
 				ADBB2C0716736EF000BE1068 /* HomeView.swift */,
 				DF61804404FEAD1E3E5E4FD6 /* LibraryView.swift */,
+				E2E52DF7CD06E99777E79CD5 /* LiveTVView.swift */,
 				E1B7D256E3B5029E76D7C03D /* ProfilesView.swift */,
 				E5D7F61A348C43BA8601218A /* SearchView.swift */,
 				C34BF835101EA7DC519880C9 /* SettingsIntegrationsView.swift */,
@@ -489,6 +492,7 @@
 				96D2CB47BCA0FE3E4D612153 /* HomeView.swift in Sources */,
 				05E7F090FE1B9AC25B4A887D /* LibraryStore.swift in Sources */,
 				FAA75F676F4221AD4B32CD89 /* LibraryView.swift in Sources */,
+				B99589BE4621E7B4EDD07A19 /* LiveTVView.swift in Sources */,
 				26142DF8D7225D3AC3BEA184 /* MDBListService.swift in Sources */,
 				CC4A6D4DD45D75EFED96839E /* Models.swift in Sources */,
 				D31767F9B2A2591C6DF38322 /* NuvioAccountManager.swift in Sources */,

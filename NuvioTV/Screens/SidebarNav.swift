@@ -1,15 +1,22 @@
 import SwiftUI
 
-/// The four primary destinations, matching the APK's left sidebar order.
+/// The primary sidebar destinations. `liveTV` is declared LAST so its raw
+/// value (4) is stable and doesn't renumber `settings` (3) — the app keys tab
+/// state off these ints in many places. For display it sits ABOVE Settings via
+/// `sidebarOrder`.
 enum AppTab: Int, CaseIterable, Identifiable {
-    case home, search, library, settings
+    case home, search, library, settings, liveTV
     var id: Int { rawValue }
+
+    /// Order the rail renders in (Live TV above Settings, despite raw value).
+    static let sidebarOrder: [AppTab] = [.home, .search, .library, .liveTV, .settings]
 
     var label: String {
         switch self {
         case .home: return "Home"
         case .search: return "Search"
         case .library: return "Library"
+        case .liveTV: return "Live TV"
         case .settings: return "Settings"
         }
     }
@@ -19,6 +26,7 @@ enum AppTab: Int, CaseIterable, Identifiable {
         case .home: return "house.fill"
         case .search: return "magnifyingglass"
         case .library: return "bookmark.fill"
+        case .liveTV: return "tv.fill"
         case .settings: return "gearshape.fill"
         }
     }
@@ -71,7 +79,7 @@ struct SidebarNav: View {
 
             // Nav items, vertically centered as a group (generous spacing like the APK).
             VStack(alignment: .leading, spacing: 22) {
-                ForEach(AppTab.allCases) { tab in
+                ForEach(AppTab.sidebarOrder) { tab in
                     Button {
                         // Fire BEFORE mutating `selected` so the root can still
                         // see which tab we're coming FROM.

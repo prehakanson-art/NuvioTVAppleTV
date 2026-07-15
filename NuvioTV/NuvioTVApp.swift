@@ -86,6 +86,7 @@ struct RootView: View {
     @State private var homePath = NavigationPath()
     @State private var searchPath = NavigationPath()
     @State private var libraryPath = NavigationPath()
+    @State private var liveTVPath = NavigationPath()
     // Persisted here (not inside HomeView) so switching tabs and coming back
     // doesn't rebuild it and re-trigger the catalog load / loading spinner.
     @StateObject private var homeViewModel = HomeViewModel()
@@ -141,10 +142,11 @@ struct RootView: View {
                     // "Who's watching?" gate on cold launch when 2+ profiles.
                     // Skipped in the demo modes so the screen isn't covered.
                     let args = ProcessInfo.processInfo.arguments
-                    let demoArgs = ["-detailDemo", "-homeDemo", "-settingsDemo", "-searchDemo", "-libraryDemo", "-discoverDemo", "-traktQRDemo", "-accountDemo"]
+                    let demoArgs = ["-detailDemo", "-homeDemo", "-settingsDemo", "-liveTVDemo", "-searchDemo", "-libraryDemo", "-discoverDemo", "-traktQRDemo", "-accountDemo"]
                     let demoMode = demoArgs.contains { args.contains($0) }
                     showProfileGate = profiles.profiles.count >= 2 && !demoMode
                     if args.contains("-settingsDemo") { selectedTab = 3 }
+                    if args.contains("-liveTVDemo") { selectedTab = 4 }
                     if args.contains("-searchDemo") { selectedTab = 1 }
                     if args.contains("-libraryDemo") { selectedTab = 2 }
                     if args.contains("-discoverDemo") {
@@ -259,6 +261,7 @@ struct RootView: View {
         case 0: return homePath.isEmpty
         case 1: return searchPath.isEmpty
         case 2: return libraryPath.isEmpty
+        case 4: return liveTVPath.isEmpty
         default: return true   // Settings keeps the rail
         }
     }
@@ -512,6 +515,14 @@ struct RootView: View {
         case 3:
             SettingsView()
                 .onExitCommand { sidebarFocus = 3 }
+        case 4:
+            NavigationStack(path: $liveTVPath) {
+                LiveTVView(
+                    onSelectChannel: { channel in liveTVPath.append(Route.streams(channel, nil)) }
+                )
+                .onExitCommand { sidebarFocus = 4 }
+                .navigationDestination(for: Route.self) { destination(for: $0, path: $liveTVPath) }
+            }
         default:
             NavigationStack(path: $homePath) {
                 HomeView(

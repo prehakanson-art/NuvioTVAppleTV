@@ -260,7 +260,14 @@ final class ProgressStore: ObservableObject {
     }
 
     private func load() {
-        defer { rebuildContinueFractions() }
+        defer {
+            rebuildContinueFractions()
+            // Refresh the Top Shelf snapshot on launch/profile switch so the
+            // tvOS home shelf reflects existing Continue Watching immediately
+            // (save() only fires during playback).
+            let shelf = TopShelfExporter.entries(from: continueWatching)
+            Task.detached(priority: .utility) { TopShelfExporter.write(shelf) }
+        }
         guard let data = UserDefaults.standard.data(forKey: storageKey),
               let decoded = try? JSONDecoder().decode([String: WatchProgress].self, from: data) else {
             items = [:]

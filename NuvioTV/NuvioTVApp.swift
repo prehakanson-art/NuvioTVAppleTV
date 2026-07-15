@@ -313,22 +313,22 @@ struct RootView: View {
             // Home only: a soft left column in the BACKGROUND colour behind the
             // icons. Grounds them over the hero art without the contrasting
             // grey the old reserved strip had — it IS the background, fading
-            // into the content. The solid part extends a bit PAST the icons
-            // before fading. Over content, under the icons.
+            // into the content. Solid over the icons (~0-90pt), fully clear by
+            // ~135pt — BEFORE the content's leading edge (~145pt) so the hero
+            // text / row labels / posters don't get darkened by the fade.
             if selectedTab == 0 && showSidebar {
                 LinearGradient(
                     stops: [
                         .init(color: theme.palette.background, location: 0),
-                        .init(color: theme.palette.background, location: 0.5),
+                        .init(color: theme.palette.background, location: 0.66),
                         .init(color: .clear, location: 1)
                     ],
                     startPoint: .leading, endPoint: .trailing
                 )
-                // Anchored at the very left edge (no offset — offsetting left a
-                // bare sliver of hero at the edge). Widened by ~20pt instead so
-                // its right edge still sits ~0.5in past where it was, while the
-                // solid start stays pinned to the screen edge.
-                .frame(width: 230)
+                // Anchored at the very left edge, narrow enough that the fade
+                // completes before the content — the earlier 230pt column ran
+                // its tail across the first posters/labels.
+                .frame(width: 135)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)

@@ -25,16 +25,14 @@ final class TopShelfProvider: TVTopShelfContentProvider {
         let imageURL: String?
     }
 
-    private static let appGroupID = "group.com.nuvio.tv.appletv"
-
     override func loadTopShelfContent(completionHandler: @escaping (TVTopShelfContent?) -> Void) {
         completionHandler(Self.content())
     }
 
     private static func content() -> TVTopShelfContent? {
-        guard let dir = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: appGroupID
-        ) else { return nil }
+        // AppGroupResolver is shared with the app target (see project.yml) so
+        // both sides resolve the SAME signer-assigned group at runtime.
+        guard let dir = AppGroupResolver.containerURL else { return nil }
         let file = dir.appendingPathComponent("topshelf.json")
         guard let data = try? Data(contentsOf: file),
               let entries = try? JSONDecoder().decode([Entry].self, from: data),

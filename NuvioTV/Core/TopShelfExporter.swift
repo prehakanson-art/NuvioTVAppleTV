@@ -9,8 +9,6 @@ import Foundation
 /// `containerURL` is nil and this is a silent no-op — the app works, the
 /// shelf just stays empty.
 enum TopShelfExporter {
-    static let appGroupID = "group.com.nuvio.tv.appletv"
-
     /// Mirrored by TopShelfProvider.Entry in the extension target — keep the
     /// fields/keys in sync.
     struct Entry: Codable {
@@ -44,9 +42,7 @@ enum TopShelfExporter {
 
     /// Persist to the shared container. Safe to call from any thread.
     static func write(_ entries: [Entry]) {
-        guard let dir = FileManager.default.containerURL(
-            forSecurityApplicationGroupIdentifier: appGroupID
-        ) else { return }
+        guard let dir = AppGroupResolver.containerURL else { return }
         let file = dir.appendingPathComponent("topshelf.json")
         guard let data = try? JSONEncoder().encode(entries) else { return }
         try? data.write(to: file, options: .atomic)

@@ -107,6 +107,10 @@ targets:
     platform: tvOS
     sources:
       - NuvioTopShelf
+      # Shared with the app target: resolves the app-group id from the live
+      # entitlements so both sides use the same signer-assigned group.
+      - path: NuvioTV/Core/AppGroupResolver.swift
+        buildPhase: sources
     info:
       path: NuvioTopShelf/Info.plist
       properties:

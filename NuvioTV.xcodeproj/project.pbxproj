@@ -76,6 +76,7 @@
 		C7A329FA86460E8FE3DFCA59 /* DVRemuxer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 48D4225F2EA78DACA1350421 /* DVRemuxer.swift */; };
 		CB4FE6DE4F4A2038847E8042 /* KSPlayer in Frameworks */ = {isa = PBXBuildFile; productRef = 6F247E3DA7201162C0D31072 /* KSPlayer */; };
 		CC4A6D4DD45D75EFED96839E /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = 79E6F3DF03C6701BE4587833 /* Models.swift */; };
+		CDC73E3618427DB7F9E390BC /* AppGroupResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F886347A1FAA3C2686A4A49 /* AppGroupResolver.swift */; };
 		D31767F9B2A2591C6DF38322 /* NuvioAccountManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = E88E24392958CAE9EB4727EE /* NuvioAccountManager.swift */; };
 		D5A546FAEA5DBF7EF868DBE3 /* NuvioSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 969D7289F1E624FC42108D86 /* NuvioSyncManager.swift */; };
 		D80260DF602808C85646CA6F /* ParentalGuideService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E6B87A80D6B01D3A58DD6B /* ParentalGuideService.swift */; };
@@ -84,6 +85,7 @@
 		E5B79A409AAB47A1AC1155D8 /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243ACB41C793BA410B49B210 /* DetailView.swift */; };
 		E70E13C52AD92FE35CBC2E4C /* CatalogSeeAllView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */; };
 		E7D11030D6A9778E46F942EB /* PerformanceSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 378BD17D8C6352257471571D /* PerformanceSettingsStore.swift */; };
+		E9F427CC46D1D7C9E4D65EBE /* AppGroupResolver.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F886347A1FAA3C2686A4A49 /* AppGroupResolver.swift */; };
 		EA3331CD768BFEBD84DF3E31 /* CloudLibraryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0427A6C91DE30C948C8A38BF /* CloudLibraryView.swift */; };
 		EA3FAC10216300E9811CF19E /* SearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D7F61A348C43BA8601218A /* SearchView.swift */; };
 		F016AB0B271739F9298BE959 /* NuvioDropdown.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44180118E0397498DE32CF39 /* NuvioDropdown.swift */; };
@@ -160,6 +162,7 @@
 		760F22FDFFEF572A2AB98E3D /* VLCEngine.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLCEngine.swift; sourceTree = "<group>"; };
 		79E6F3DF03C6701BE4587833 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
 		7EC7EEE05D52CC374B75AF0F /* SettingsPluginsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPluginsView.swift; sourceTree = "<group>"; };
+		7F886347A1FAA3C2686A4A49 /* AppGroupResolver.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppGroupResolver.swift; sourceTree = "<group>"; };
 		824B17483732A7F2EBB5F81D /* PlayerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerViewModel.swift; sourceTree = "<group>"; };
 		88808D61D06962DC1E8D8598 /* PlayerVideoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlayerVideoView.swift; sourceTree = "<group>"; };
 		8E7D954FA6B8F52309A05490 /* StremioAPI.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StremioAPI.swift; sourceTree = "<group>"; };
@@ -298,6 +301,7 @@
 			children = (
 				EDBD5D6D83637232496C5D02 /* AddonManager.swift */,
 				33630A3CF4A4B769A36A3404 /* AnimeSkipService.swift */,
+				7F886347A1FAA3C2686A4A49 /* AppGroupResolver.swift */,
 				CB57AA419192D7276E5E56DC /* CloudLibraryService.swift */,
 				3A901073E967FB097E347259 /* CollectionsStore.swift */,
 				3A1B94052D73FAE9626AEBA3 /* DebridService.swift */,
@@ -504,6 +508,7 @@
 				BAFA27E5E9E52210E0D89DA5 /* AccountView.swift in Sources */,
 				14C76B28C6CFAB66591F7FEB /* AddonManager.swift in Sources */,
 				D93146472B6B7BF5F92096A7 /* AnimeSkipService.swift in Sources */,
+				E9F427CC46D1D7C9E4D65EBE /* AppGroupResolver.swift in Sources */,
 				8C3C2D551DB191D562E74637 /* CastDetailView.swift in Sources */,
 				E70E13C52AD92FE35CBC2E4C /* CatalogSeeAllView.swift in Sources */,
 				DE74561D221C4C25B60C7E41 /* CloudLibraryService.swift in Sources */,
@@ -584,6 +589,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CDC73E3618427DB7F9E390BC /* AppGroupResolver.swift in Sources */,
 				4B22B6BDBC06FC4799AE5E2C /* TopShelfProvider.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

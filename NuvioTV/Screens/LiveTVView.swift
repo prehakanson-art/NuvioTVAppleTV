@@ -56,6 +56,13 @@ final class LiveTVViewModel: ObservableObject {
     }
 }
 
+enum ChannelSort: String, CaseIterable, Identifiable {
+    case defaultOrder = "Default"
+    case nameAsc = "A → Z"
+    case nameDesc = "Z → A"
+    var id: String { rawValue }
+}
+
 struct LiveTVView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var addonManager: AddonManager
@@ -64,12 +71,39 @@ struct LiveTVView: View {
     /// Push the channel into the shared streams flow (fetch → pick → play).
     let onSelectChannel: (MetaItem) -> Void
 
+    @State private var searchText = ""
+    @State private var sortMode: ChannelSort = .defaultOrder
+    @State private var selectedGroup = ""   // "" = all groups
+
     var body: some View {
         ZStack {
             theme.palette.background.ignoresSafeArea()
             content
         }
         .task { await viewModel.loadIfNeeded(addonManager: addonManager) }
+    }
+
+    /// Any control that switches from the grouped rows to a flat, filtered grid.
+    private var filtering: Bool {
+        !searchText.isEmpty || sortMode != .defaultOrder || !selectedGroup.isEmpty
+    }
+
+    /// Channels for the flat view: pick the group, de-dup, search, then sort.
+    private var displayChannels: [MetaItem] {
+        var pool = selectedGroup.isEmpty
+            ? viewModel.sections.flatMap(\.channels)
+            : (viewModel.sections.first { $0.title == selectedGroup }?.channels ?? [])
+        var seen = Set<String>()
+        pool = pool.filter { seen.insert($0.id).inserted }
+        if !searchText.isEmpty {
+            pool = pool.filter { $0.name.localizedCaseInsensitiveContains(searchText) }
+        }
+        switch sortMode {
+        case .nameAsc:  pool.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .nameDesc: pool.sort { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedDescending }
+        case .defaultOrder: break
+        }
+        return pool
     }
 
     @ViewBuilder
@@ -86,8 +120,13 @@ struct LiveTVView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: NuvioSpacing.xl) {
                     header
-                    ForEach(viewModel.sections) { section in
-                        channelRow(section)
+                    controls
+                    if filtering {
+                        filteredGrid
+                    } else {
+                        ForEach(viewModel.sections) { section in
+                            channelRow(section)
+                        }
                     }
                 }
                 .padding(.top, NuvioSpacing.xl)
@@ -106,6 +145,69 @@ struct LiveTVView: View {
                 .foregroundStyle(theme.palette.textSecondary)
         }
         .padding(.leading, NuvioSpacing.huge)
+    }
+
+    /// Search field + sort + group filter.
+    private var controls: some View {
+        HStack(spacing: NuvioSpacing.lg) {
+            HStack(spacing: NuvioSpacing.sm) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 22))
+                    .foregroundStyle(theme.palette.textSecondary)
+                TextField("Search channels", text: $searchText)
+                    .font(.system(size: 23))
+            }
+            .padding(.horizontal, NuvioSpacing.lg)
+            .padding(.vertical, NuvioSpacing.md)
+            .background(theme.palette.field, in: RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous))
+            .frame(maxWidth: 560)
+
+            NuvioDropdown(
+                title: "Sort",
+                selection: sortMode.rawValue,
+                options: ChannelSort.allCases.map { NuvioDropdownOption($0.rawValue) },
+                triggerWidth: 260
+            ) { sortMode = ChannelSort(rawValue: $0) ?? .defaultOrder }
+
+            if viewModel.sections.count > 1 {
+                NuvioDropdown(
+                    title: "Group",
+                    selection: selectedGroup.isEmpty ? "All groups" : selectedGroup,
+                    options: [NuvioDropdownOption("All groups")]
+                        + viewModel.sections.map { NuvioDropdownOption($0.title) },
+                    triggerWidth: 360
+                ) { selectedGroup = ($0 == "All groups") ? "" : $0 }
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, NuvioSpacing.huge)
+    }
+
+    private var filteredGrid: some View {
+        Group {
+            if displayChannels.isEmpty {
+                Text("No channels match “\(searchText)”.")
+                    .font(.system(size: 22))
+                    .foregroundStyle(theme.palette.textSecondary)
+                    .padding(.horizontal, NuvioSpacing.huge)
+                    .padding(.top, NuvioSpacing.xl)
+            } else {
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 300, maximum: 300), spacing: NuvioSpacing.lg, alignment: .top)],
+                    alignment: .leading,
+                    spacing: NuvioSpacing.xl
+                ) {
+                    ForEach(displayChannels) { channel in
+                        Button { onSelectChannel(channel) } label: {
+                            ChannelCard(channel: channel)
+                        }
+                        .buttonStyle(PlainCardButtonStyle())
+                        .onPlayPauseCommand { onSelectChannel(channel) }
+                    }
+                }
+                .padding(.horizontal, NuvioSpacing.huge)
+            }
+        }
     }
 
     private func channelRow(_ section: LiveTVViewModel.Section) -> some View {

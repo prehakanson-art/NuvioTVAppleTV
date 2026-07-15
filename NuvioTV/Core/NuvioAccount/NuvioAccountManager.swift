@@ -68,7 +68,7 @@ final class NuvioAccountManager: ObservableObject {
         errorMessage = nil
         qrLogin = nil
         let nonce = Self.generateDeviceNonce()
-        let deviceName = UIDevice.current.name
+        let deviceName = Self.deviceLabel
 
         Task {
             do {
@@ -352,6 +352,20 @@ final class NuvioAccountManager: ObservableObject {
         }
         let snippet = String(data: data.prefix(200), encoding: .utf8) ?? ""
         throw NuvioAuthError.message("Unexpected sign-in response: \(snippet)")
+    }
+
+    /// The name this client registers with the Nuvio account. `UIDevice.name`
+    /// on tvOS is unreliable (can be empty or a stale/default value that shows
+    /// up as a junk label like "New Folder" in the account's device list), so
+    /// we always identify clearly as an Apple TV — appending the user's set
+    /// name only when it's a real, distinct one.
+    static var deviceLabel: String {
+        let raw = UIDevice.current.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty,
+              !raw.localizedCaseInsensitiveContains("apple tv"),
+              !raw.localizedCaseInsensitiveContains("new folder")
+        else { return "Apple TV" }
+        return "\(raw) (Apple TV)"
     }
 
     private static func generateDeviceNonce() -> String {

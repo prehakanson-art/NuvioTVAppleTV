@@ -774,6 +774,7 @@ private struct ContentDiscoveryDetail: View {
     @EnvironmentObject private var homeCatalogSettings: HomeCatalogSettingsStore
     @EnvironmentObject private var streamBadges: StreamBadgeStore
     @State private var showAddons = false
+    @State private var showCommunityCatalogs = false
     @State private var badgeURLInput = ""
     @State private var badgeImporting = false
 
@@ -790,6 +791,15 @@ private struct ContentDiscoveryDetail: View {
                 .buttonStyle(PlainCardButtonStyle())
             }
             SettingsGroupCard(title: "Catalogs") {
+                Button { showCommunityCatalogs = true } label: {
+                    SettingsActionRow(
+                        title: "Community Catalogs",
+                        subtitle: "Browse and add catalog add-ons from the Stremio community — their rows show up on Home",
+                        leadingIcon: "square.grid.3x3.fill.square"
+                    )
+                }
+                .buttonStyle(PlainCardButtonStyle())
+
                 NuvioDropdown(
                     title: "Auto-refresh",
                     subtitle: "Re-fetch Home catalogs on a timer while the app is open, so new releases appear without relaunching",
@@ -817,6 +827,11 @@ private struct ContentDiscoveryDetail: View {
             .environmentObject(collections)
             .environmentObject(homeCatalogSettings)
             .onExitCommand { showAddons = false }
+        }
+        .fullScreenCover(isPresented: $showCommunityCatalogs) {
+            AddonDiscoverView(onDone: { showCommunityCatalogs = false }, catalogsOnly: true)
+                .environmentObject(theme)
+                .environmentObject(addonManager)
         }
     }
 

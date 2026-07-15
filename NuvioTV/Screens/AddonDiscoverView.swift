@@ -68,6 +68,9 @@ struct AddonDiscoverView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var addonManager: AddonManager
     let onDone: () -> Void
+    /// When true, only add-ons that contribute catalogs are shown — the
+    /// "Community Catalogs" page reached from the Catalogs settings.
+    var catalogsOnly: Bool = false
 
     @State private var installingID: String?
     @State private var remote: [RemoteAddon] = []
@@ -83,8 +86,10 @@ struct AddonDiscoverView: View {
         ZStack {
             theme.palette.background.ignoresSafeArea()
             DetailScaffold(
-                title: "Discover Add-ons",
-                subtitle: "Recommended picks and the full Stremio community catalog"
+                title: catalogsOnly ? "Community Catalogs" : "Discover Add-ons",
+                subtitle: catalogsOnly
+                    ? "Add catalog add-ons — their rows appear on Home"
+                    : "Recommended picks and the full Stremio community catalog"
             ) {
                 LazyVStack(alignment: .leading, spacing: NuvioSpacing.xl) {
                     section("Recommended", items: featuredItems)
@@ -156,18 +161,26 @@ struct AddonDiscoverView: View {
 
     // MARK: Data
 
+    /// Categories that contribute Home catalog rows (used by the catalogs-only page).
+    private static let catalogCategories: Set<AddonCategory> = [.metadata, .anime, .liveTV]
+
     private var featuredItems: [DiscoverItem] {
-        AddonDirectory.featured.map {
-            DiscoverItem(url: $0.manifestURL, name: $0.name, subtitle: $0.tagline,
-                         category: $0.category, needsSetup: $0.needsSetup)
-        }
+        AddonDirectory.featured
+            .filter { !catalogsOnly || Self.catalogCategories.contains($0.category) }
+            .map {
+                DiscoverItem(url: $0.manifestURL, name: $0.name, subtitle: $0.tagline,
+                             category: $0.category, needsSetup: $0.needsSetup)
+            }
     }
 
     /// Live add-ons in a category, minus any already shown under Recommended.
+    /// In catalogs-only mode, only add-ons that actually serve a `catalog`.
     private func liveItems(for category: AddonCategory) -> [DiscoverItem] {
         let featuredBases = Set(AddonDirectory.featured.map { Self.base($0.manifestURL) })
         return remote
-            .filter { $0.category == category && !featuredBases.contains(Self.base($0.transportUrl)) }
+            .filter { $0.category == category
+                && !featuredBases.contains(Self.base($0.transportUrl))
+                && (!catalogsOnly || $0.resources.contains(where: { $0.lowercased() == "catalog" })) }
             .map {
                 DiscoverItem(url: $0.transportUrl, name: $0.name,
                              subtitle: $0.description ?? "", category: category, needsSetup: false)

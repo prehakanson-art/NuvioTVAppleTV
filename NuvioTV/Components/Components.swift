@@ -370,15 +370,17 @@ struct ProgressStrip: View {
     let fraction: Double
 
     var body: some View {
-        GeometryReader { geo in
-            ZStack(alignment: .leading) {
-                Capsule().fill(Color.white.opacity(0.35))
+        // No GeometryReader: a full-width fill Capsule scaled horizontally to
+        // the fraction. Every Continue Watching card carries one of these, and
+        // GeometryReader forces each into its own layout pass — measurable
+        // scroll cost across a row of them. scaleEffect is a cheap transform.
+        Capsule().fill(Color.white.opacity(0.35))
+            .overlay(alignment: .leading) {
                 Capsule()
                     .fill(theme.palette.secondary)
-                    .frame(width: max(geo.size.width * fraction, 6))
+                    .scaleEffect(x: CGFloat(min(max(fraction, 0.02), 1)), y: 1, anchor: .leading)
             }
-        }
-        .frame(height: 6)
+            .frame(height: 6)
     }
 }
 
@@ -403,12 +405,14 @@ struct LandscapeCard: View {
             ZStack(alignment: .bottom) {
                 RemoteImage(url: imageURL, maxDimension: width)
                     .aspectRatio(16 / 9, contentMode: .fill)
-                    .blur(radius: blurImage && !isFocused ? 28 : 0)
-                    // Snap the blur on/off — WITHOUT this it rides the card's
-                    // trailing focus spring, re-computing a 28pt gaussian at
-                    // intermediate radii every frame of the animation (a
-                    // Continue Watching scroll killer on the A10X).
-                    .animation(nil, value: isFocused)
+                    // Attach `.blur` ONLY on the rare spoiler card. Applied
+                    // unconditionally (even at radius 0) it forces every card
+                    // into an offscreen render pass that the focus scale
+                    // animation re-composites each frame — that, not the row
+                    // re-render, is why Continue Watching scrolled heavier
+                    // than the poster rows. `blurImage` is fixed per card, so
+                    // the branch never flips on focus.
+                    .modifier(SpoilerBlur(active: blurImage, revealed: isFocused))
                 if let progress, progress > 0 {
                     ProgressStrip(fraction: progress)
                         .padding(.horizontal, 12)
@@ -447,6 +451,24 @@ struct LandscapeCard: View {
         }
         .scaleEffect(perf.settings.focusZoom && isFocused ? 1.06 : 1.0)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
+    }
+}
+
+/// Spoiler blur that is entirely ABSENT when inactive — no radius-0 blur
+/// layer, so an unblurred card has no offscreen render pass to re-composite
+/// during its focus animation. `active` is fixed per card (never toggles on
+/// focus), so this branch is identity-stable.
+private struct SpoilerBlur: ViewModifier {
+    let active: Bool
+    let revealed: Bool
+    @ViewBuilder func body(content: Content) -> some View {
+        if active {
+            content
+                .blur(radius: revealed ? 0 : 28)
+                .animation(nil, value: revealed)   // snap, don't ride the spring
+        } else {
+            content
+        }
     }
 }
 

@@ -28,6 +28,12 @@ targets:
       - package: YouTubeKit
       - package: VLCKit
         product: VLCKitSPM
+      # libdovi (quietvoid/dovi_tool's dolby_vision crate, C API) —
+      # cross-compiled Rust static lib for tvOS. Powers Dolby Vision
+      # Profile 7 (dual-layer) → 8.1 RPU conversion so DV7 remuxes get
+      # native DV output instead of the HDR10 base-layer tone-map.
+      - framework: Vendor/libdovi.xcframework
+        embed: false
       # ─── Top Shelf (Continue Watching on the tvOS home screen) ───
       # OFF. Confirmed: this device is signed with a free/Personal Team
       # Apple ID, and App Groups capability is UNAVAILABLE to Personal

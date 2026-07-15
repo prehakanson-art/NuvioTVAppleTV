@@ -326,6 +326,8 @@ struct RootView: View {
                 )
                 .frame(width: 210)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+                // Shift the column ~20pt (≈0.5in on a 55" panel) to the right.
+                .offset(x: 20)
                 .ignoresSafeArea()
                 .allowsHitTesting(false)
             }
@@ -334,10 +336,11 @@ struct RootView: View {
                 SidebarNav(selected: $selectedTab, focusBinding: $sidebarFocus,
                            onProfileTap: { showProfileGate = true },
                            onTabSelected: { newTab in selectTab(newTab) })
-                    // Nudge the collapsed icons a touch left (clip-safe, moves
-                    // with the rail's clip region). Snaps back to 0 when the
-                    // panel expands so labels aren't pushed off the edge.
-                    .offset(x: sidebarFocus == nil ? -8 : 0)
+                    // Nudge the collapsed icons left (clip-safe, moves with the
+                    // rail's clip region). ~48pt ≈ 1.2in on a 55" panel — was
+                    // -8, moved another ~40pt (≈1in) left. Snaps back to 0 when
+                    // the panel expands so labels aren't pushed off the edge.
+                    .offset(x: sidebarFocus == nil ? -48 : 0)
                     .focusSection()
                     .disabled(!sidebarEnabled)
                     // Back while IN the sidebar collapses it into content

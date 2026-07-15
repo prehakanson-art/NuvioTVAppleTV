@@ -742,6 +742,7 @@ private struct AddonsManagementView: View {
     @State private var showCatalogOrder = false
     @State private var refreshing = false
     @State private var showExport = false
+    @State private var pendingRemoval: InstalledAddon?
 
     private static let refreshIdle = "Re-fetch installed add-on manifests"
     @State private var refreshSubtitle = AddonsManagementView.refreshIdle
@@ -833,7 +834,7 @@ private struct AddonsManagementView: View {
                             onMoveUp: { addonManager.moveUp(addon) },
                             onMoveDown: { addonManager.moveDown(addon) },
                             onToggle: { addonManager.setEnabled(addon, !addon.enabled) },
-                            onRemove: { addonManager.remove(addon) }
+                            onRemove: { pendingRemoval = addon }
                         )
                     }
                 }
@@ -851,6 +852,18 @@ private struct AddonsManagementView: View {
                 .environmentObject(addonManager)
                 .environmentObject(collections)
                 .environmentObject(homeCatalogSettings)
+        }
+        .alert("Remove Add-on?",
+               isPresented: Binding(get: { pendingRemoval != nil },
+                                    set: { if !$0 { pendingRemoval = nil } }),
+               presenting: pendingRemoval) { addon in
+            Button("Remove", role: .destructive) {
+                addonManager.remove(addon)
+                pendingRemoval = nil
+            }
+            Button("Cancel", role: .cancel) { pendingRemoval = nil }
+        } message: { addon in
+            Text("\"\(addon.manifest.name)\" will be removed from this device and your account. You can add it back later with its manifest URL.")
         }
         .fullScreenCover(isPresented: $showExport) {
             AddonExportView(

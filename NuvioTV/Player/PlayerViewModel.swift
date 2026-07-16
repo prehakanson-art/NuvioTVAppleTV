@@ -374,7 +374,7 @@ final class PlayerViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Native Dolby Vision (experimental)
+    // MARK: - Native Dolby Vision
 
     /// True while playback runs off the DV-tagged local playlist (real DV out
     /// through Apple's pipeline). See DVRemuxer for the machinery.
@@ -414,7 +414,7 @@ final class PlayerViewModel: ObservableObject {
         else { return }
         let track = player.tracks(mediaType: .video).first(where: \.isEnabled)
             ?? player.tracks(mediaType: .video).first
-        // Profile 5/8 always; Profile 7 only with the experimental libdovi
+        // Profile 5/8 always; Profile 7 only with the libdovi
         // 7→8.1 conversion enabled (DVRemuxer rewrites its RPUs).
         let p7ok = settings.dolbyVisionProfile7
         guard let profile = track?.dovi?.dv_profile,

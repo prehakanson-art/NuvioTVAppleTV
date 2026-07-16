@@ -257,14 +257,14 @@ struct PlayerSettings: Codable, Equatable {
     /// dynamic range for HDR/DV. Turn ON only if your TV handles 24p mode
     /// switches cleanly.
     var matchFrameRate: Bool = false
-    /// Native Dolby Vision output (experimental). When a Dolby Vision file
+    /// Native Dolby Vision output. When a Dolby Vision file
     /// (profile 5/8) plays on a DV-capable TV, the stream is remuxed on-device
     /// into a DV-tagged fMP4 playlist and handed to Apple's video pipeline —
     /// true dynamic DV instead of the HDR10 tone-map. Any failure falls back
     /// to the standard engine automatically. Off = always use the standard
     /// HDR10 path.
     var nativeDolbyVision: Bool = true
-    /// EXPERIMENTAL: convert Dolby Vision Profile 7 (dual-layer) → 8.1 via
+    /// Convert Dolby Vision Profile 7 (dual-layer) → 8.1 via
     /// libdovi so DV7 files also get native DV output (the base layer is kept,
     /// the enhancement layer dropped, each RPU rewritten 7→8.1). The DEFAULT is
     /// device-aware: ON on 4 GB+ Apple TVs (gen-3), OFF on the 3 GB gen-1/2 and

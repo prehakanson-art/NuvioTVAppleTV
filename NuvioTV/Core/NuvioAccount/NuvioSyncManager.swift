@@ -421,7 +421,14 @@ final class NuvioSyncManager: ObservableObject {
         // Match ProgressStore.continueWatching: any started, unfinished item is
         // visible (no lower bound), so all of them need title/artwork.
         let visible = entries.filter { $0.fraction < 0.95 }
-        let ids = Array(Set(visible.map { ($0.metaID, $0.type) }.map { "\($0.0)|\($0.1)" })).prefix(30)
+        // Skip metaIDs already displayed locally (they carry a name/art) — the
+        // 30s Home poll must not re-hit meta addons for cards already on
+        // screen; only genuinely new rows (added on another device) enrich.
+        // Their name/art then flows through mergeRemote's local-field coalesce.
+        let localNamed = Set(progressStore.items.values.filter { !$0.name.isEmpty }.map(\.metaID))
+        let ids = Array(Set(visible.map { ($0.metaID, $0.type) }
+            .filter { !localNamed.contains($0.0) }
+            .map { "\($0.0)|\($0.1)" })).prefix(30)
         var metaByID: [String: MetaItem] = [:]
         for token in ids {
             let parts = token.split(separator: "|", maxSplits: 1).map(String.init)

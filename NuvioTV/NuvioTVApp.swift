@@ -107,6 +107,13 @@ struct RootView: View {
     @State private var sync: NuvioSyncManager?
     @State private var showProfileGate = false
     @State private var selectedTab = 0
+    /// Polls the account every 30s while Home is up so Continue Watching stays
+    /// live — removals and additions made on another device (or that failed to
+    /// reconcile on foreground) appear without a relaunch. Fires continuously;
+    /// the receiver gates it to Home + active + not-in-player. A no-change pull
+    /// mutates nothing (mergeRemote only publishes on a real diff), so an idle
+    /// Home doesn't re-render.
+    private let continueWatchingPoll = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
     /// When Home last popped back from a pushed screen — used to swallow the
     /// stray Menu that otherwise opens the sidebar right after backing out.
     @State private var lastHomePopAt: Date?
@@ -191,6 +198,13 @@ struct RootView: View {
             // already push immediately on every change).
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active { sync?.refreshContinueWatching() }
+            }
+            // Keep Continue Watching live while browsing Home (tab 0), app
+            // active, no player open. refreshContinueWatching pulls a full
+            // snapshot; mergeRemote reconciles both adds and removes.
+            .onReceive(continueWatchingPoll) { _ in
+                guard scenePhase == .active, selectedTab == 0, playback == nil else { return }
+                sync?.refreshContinueWatching()
             }
     }
 

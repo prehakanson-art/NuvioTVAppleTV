@@ -41,6 +41,20 @@ final class ProgressStore: ObservableObject {
     var onRemove: (([String]) -> Void)?
     private var suppressChange = false
 
+    /// Recently-removed progress keys → removal time. A pull's server snapshot
+    /// can still contain a just-removed item (its server delete is slower than
+    /// the 30s Home poll), so without this the next poll would resurrect the
+    /// card the user just removed. mergeRemote refuses to re-add a tombstoned
+    /// id until the grace passes (by which point the delete has landed and the
+    /// server no longer returns it). A local re-watch clears the tombstone.
+    private var tombstones: [String: Date] = [:]
+    private static let tombstoneGrace: TimeInterval = 180
+
+    private func pruneTombstones() {
+        let cutoff = Date().addingTimeInterval(-Self.tombstoneGrace)
+        tombstones = tombstones.filter { $0.value >= cutoff }
+    }
+
     /// Active profile scope. Profile 1 uses the original (unsuffixed) key so
     /// existing data is preserved; other profiles get a suffixed namespace.
     private var profileID = 1
@@ -84,6 +98,7 @@ final class ProgressStore: ObservableObject {
         suppressChange = true
         defer { suppressChange = false }
         var changed = false
+        pruneTombstones()
 
         // ── Reconcile deletions ── remove local rows absent from the server
         // snapshot, except ones updated within the grace window (their own push
@@ -101,6 +116,17 @@ final class ProgressStore: ObservableObject {
         }
 
         for entry in remote {
+            // A just-removed item may still be in the server snapshot (its
+            // delete is slower than the poll). Don't resurrect it — unless the
+            // remote row is NEWER than our removal, which means it was
+            // re-watched elsewhere after we removed it (honor that, drop tomb).
+            if let tomb = tombstones[entry.id] {
+                if entry.updatedAt > tomb {
+                    tombstones.removeValue(forKey: entry.id)
+                } else {
+                    continue
+                }
+            }
             if let local = items[entry.id], local.updatedAt >= entry.updatedAt { continue }
             // Remote wins on position/timestamps, but synced rows arrive bare
             // (the backend stores no title/artwork/stream URL) and enrichment
@@ -192,6 +218,9 @@ final class ProgressStore: ObservableObject {
             items.removeValue(forKey: key)
             if !suppressChange { onFinished?(meta, video) }
         } else {
+            // Re-watching something you'd removed clears its tombstone so the
+            // fresh entry syncs normally.
+            tombstones.removeValue(forKey: key)
             items[key] = WatchProgress(
                 id: key,
                 metaID: meta.id,
@@ -255,6 +284,7 @@ final class ProgressStore: ObservableObject {
 
     func remove(id: String) {
         guard items.removeValue(forKey: id) != nil else { return }
+        tombstones[id] = Date()
         save()
         if !suppressChange {
             onRemove?([id])
@@ -270,6 +300,8 @@ final class ProgressStore: ObservableObject {
     func recanonicalize(oldID: String, newID: String, newMetaID: String) {
         guard oldID != newID, let existing = items[oldID] else { return }
         items.removeValue(forKey: oldID)
+        tombstones[oldID] = Date()   // stale key is deleted server-side too
+        tombstones.removeValue(forKey: newID)   // the canonical key is being (re)created
         items[newID] = WatchProgress(
             id: newID, metaID: newMetaID, type: existing.type, name: existing.name,
             poster: existing.poster, background: existing.background, logo: existing.logo,
@@ -291,7 +323,11 @@ final class ProgressStore: ObservableObject {
     func removeShow(metaID: String) {
         let removedKeys = items.values.filter { $0.metaID == metaID }.map(\.id)
         guard !removedKeys.isEmpty else { return }
-        for key in removedKeys { items.removeValue(forKey: key) }
+        let now = Date()
+        for key in removedKeys {
+            items.removeValue(forKey: key)
+            tombstones[key] = now
+        }
         save()
         if !suppressChange {
             onRemove?(removedKeys)

@@ -293,14 +293,14 @@ struct PlayerScreen: View {
                 watched.mark(meta: viewModel.meta, video: episode)
             }
             // Hand the view model a debrid resolver so torrent sources can be
-            // switched to (and failed over to) mid-playback.
-            if let provider = debrid.resolverProvider {
-                let key = debrid.key(for: provider)
+            // switched to (and failed over to) mid-playback. Tries every
+            // configured provider, preferred first, like the Sources page.
+            if debrid.resolverProvider != nil {
+                let resolvers = debrid.orderedResolvers
                 viewModel.torrentResolver = { [weak viewModel] stream in
-                    let result = await DebridService.resolve(
+                    let (result, _) = await DebridService.resolveAcross(
                         stream: stream,
-                        provider: provider,
-                        apiKey: key,
+                        providers: resolvers,
                         season: viewModel?.currentVideo?.season,
                         episode: viewModel?.currentVideo?.episode
                     )

@@ -13,6 +13,51 @@ struct AddonManifest: Codable, Identifiable, Hashable {
     let catalogs: [ManifestCatalog]?
     let resources: [ManifestResource]?
 
+    private enum CodingKeys: String, CodingKey {
+        case id, name, version, description, logo, types, idPrefixes, catalogs, resources
+    }
+
+    /// Tolerant decode: real-world manifests routinely bend the spec (missing
+    /// name, numeric versions, odd catalog entries…). A strict decode turned
+    /// ANY such quirk into a dead placeholder addon — instead, salvage every
+    /// field we can and fall back sensibly, so any addon that serves valid
+    /// streams works regardless of manifest cosmetics.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        let rawID = (try? c.decodeIfPresent(String.self, forKey: .id)) ?? nil
+        let rawName = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil
+        id = rawID ?? rawName ?? "addon"
+        name = rawName ?? rawID ?? "Add-on"
+        // NB: no non-nil fallback here — version's nil-ness participates in
+        // isPlaceholder, and persisted placeholders must round-trip as such.
+        var decodedVersion: String? = (try? c.decodeIfPresent(String.self, forKey: .version)) ?? nil
+        if decodedVersion == nil,
+           let numeric = (try? c.decodeIfPresent(Double.self, forKey: .version)) ?? nil {
+            decodedVersion = String(numeric)
+        }
+        version = decodedVersion
+        description = (try? c.decodeIfPresent(String.self, forKey: .description)) ?? nil
+        logo = (try? c.decodeIfPresent(String.self, forKey: .logo)) ?? nil
+        types = (try? c.decodeIfPresent([String].self, forKey: .types)) ?? nil
+        idPrefixes = (try? c.decodeIfPresent([String].self, forKey: .idPrefixes)) ?? nil
+        catalogs = (try? c.decodeIfPresent([ManifestCatalog].self, forKey: .catalogs)) ?? nil
+        resources = (try? c.decodeIfPresent([ManifestResource].self, forKey: .resources)) ?? nil
+    }
+
+    init(id: String, name: String, version: String?, description: String?,
+         logo: String?, types: [String]?, idPrefixes: [String]?,
+         catalogs: [ManifestCatalog]?, resources: [ManifestResource]?) {
+        self.id = id
+        self.name = name
+        self.version = version
+        self.description = description
+        self.logo = logo
+        self.types = types
+        self.idPrefixes = idPrefixes
+        self.catalogs = catalogs
+        self.resources = resources
+    }
+
     private func provides(_ resource: String) -> Bool {
         resources?.contains { $0.name == resource } ?? false
     }
@@ -163,9 +208,18 @@ struct InstalledAddon: Codable, Identifiable, Hashable {
         return base
     }
 
-    /// Whether this addon claims to resolve the given content id.
+    /// Whether this addon claims to resolve the given content id. Prefixes can
+    /// be declared at the manifest top level OR inside a detailed resource
+    /// entry ({"name":"stream","idPrefixes":[…]}) — union both; an addon that
+    /// declares neither is assumed to handle everything.
     func handles(id contentID: String) -> Bool {
-        guard let prefixes = manifest.idPrefixes, !prefixes.isEmpty else { return true }
+        var prefixes = manifest.idPrefixes ?? []
+        for resource in manifest.resources ?? [] {
+            if case .detailed(_, _, let resourcePrefixes) = resource {
+                prefixes.append(contentsOf: resourcePrefixes ?? [])
+            }
+        }
+        guard !prefixes.isEmpty else { return true }
         return prefixes.contains { contentID.hasPrefix($0) }
     }
 }
@@ -433,6 +487,32 @@ struct Stream: Codable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case name, title, description, url, infoHash, fileIdx, sources, behaviorHints, externalUrl
+    }
+
+    /// Tolerant decode: addons in the wild bend the spec (numbers where
+    /// strings belong, string fileIdx, malformed behaviorHints…). Any field
+    /// that doesn't parse becomes nil instead of throwing, so one odd field
+    /// can't invalidate the stream — and with the lossy array decode in
+    /// StremioAPI, one odd stream can't blank the whole addon.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        var decodedName: String? = (try? c.decodeIfPresent(String.self, forKey: .name)) ?? nil
+        if decodedName == nil, let numeric = (try? c.decodeIfPresent(Int.self, forKey: .name)) ?? nil {
+            decodedName = String(numeric)
+        }
+        name = decodedName
+        title = (try? c.decodeIfPresent(String.self, forKey: .title)) ?? nil
+        description = (try? c.decodeIfPresent(String.self, forKey: .description)) ?? nil
+        url = (try? c.decodeIfPresent(String.self, forKey: .url)) ?? nil
+        infoHash = (try? c.decodeIfPresent(String.self, forKey: .infoHash)) ?? nil
+        var decodedFileIdx: Int? = (try? c.decodeIfPresent(Int.self, forKey: .fileIdx)) ?? nil
+        if decodedFileIdx == nil, let string = (try? c.decodeIfPresent(String.self, forKey: .fileIdx)) ?? nil {
+            decodedFileIdx = Int(string)
+        }
+        fileIdx = decodedFileIdx
+        sources = (try? c.decodeIfPresent([String].self, forKey: .sources)) ?? nil
+        behaviorHints = (try? c.decodeIfPresent(StreamBehaviorHints.self, forKey: .behaviorHints)) ?? nil
+        externalUrl = (try? c.decodeIfPresent(String.self, forKey: .externalUrl)) ?? nil
     }
 
     init(
@@ -790,6 +870,49 @@ struct MetaResponse: Codable {
 
 struct StreamsResponse: Codable {
     let streams: [Stream]?
+
+    private enum CodingKeys: String, CodingKey { case streams }
+
+    /// Lossy array decode: one malformed entry from a loose addon drops just
+    /// that entry, not the addon's entire response (which previously made the
+    /// whole addon vanish from Sources).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        guard var array = try? c.nestedUnkeyedContainer(forKey: .streams) else {
+            streams = nil
+            return
+        }
+        var collected: [Stream] = []
+        while !array.isAtEnd {
+            if let stream = try? array.decode(Stream.self) {
+                collected.append(stream)
+            } else {
+                // Skip the malformed element (decode into a throwaway).
+                _ = try? array.decode(AnyIgnorable.self)
+            }
+        }
+        streams = collected
+    }
+
+    init(streams: [Stream]?) { self.streams = streams }
+}
+
+/// Decodes and discards any JSON value — used to skip malformed array
+/// elements during lossy decodes.
+struct AnyIgnorable: Codable {
+    init(from decoder: Decoder) throws {
+        let c = try decoder.singleValueContainer()
+        if c.decodeNil() { return }
+        if (try? c.decode(Bool.self)) != nil { return }
+        if (try? c.decode(Double.self)) != nil { return }
+        if (try? c.decode(String.self)) != nil { return }
+        if (try? c.decode([AnyIgnorable].self)) != nil { return }
+        _ = try? c.decode([String: AnyIgnorable].self)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.singleValueContainer()
+        try c.encodeNil()
+    }
 }
 
 struct ManifestEnvelope: Codable {

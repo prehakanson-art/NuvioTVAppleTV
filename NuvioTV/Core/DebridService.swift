@@ -211,6 +211,18 @@ final class DebridStore: ObservableObject {
         return configuredProviders.first
     }
 
+    /// Every configured provider with its key, preferred first — the order
+    /// `DebridService.resolveAcross` walks, so a torrent the preferred debrid
+    /// doesn't have cached still resolves through the others.
+    var orderedResolvers: [(provider: DebridProvider, apiKey: String)] {
+        var order = configuredProviders
+        if let preferred, let idx = order.firstIndex(of: preferred) {
+            order.remove(at: idx)
+            order.insert(preferred, at: 0)
+        }
+        return order.map { ($0, key(for: $0)) }
+    }
+
     private func saveKeys() {
         let raw = Dictionary(uniqueKeysWithValues: keys.map { ($0.key.rawValue, $0.value) })
         if let data = try? JSONEncoder().encode(raw) {
@@ -242,6 +254,30 @@ enum DebridService {
     }()
 
     private static let videoExtensions = ["mkv", "mp4", "avi", "mov", "m4v", "wmv", "flv", "ts", "webm"]
+
+    /// Resolve across EVERY configured provider, preferred first: the first
+    /// success wins; a provider that doesn't have the torrent cached (or
+    /// errors) falls through to the next. Returns the provider that actually
+    /// resolved so callers can label the source correctly. This is what makes
+    /// a multi-debrid setup (e.g. TorBox + RD) actually use all of them
+    /// instead of only the preferred one.
+    static func resolveAcross(
+        stream: Stream,
+        providers: [(provider: DebridProvider, apiKey: String)],
+        season: Int?,
+        episode: Int?
+    ) async -> (result: DebridResult, provider: DebridProvider?) {
+        var lastResult: DebridResult = .missingKey
+        for (provider, apiKey) in providers {
+            let result = await resolve(
+                stream: stream, provider: provider, apiKey: apiKey,
+                season: season, episode: episode
+            )
+            if case .success = result { return (result, provider) }
+            lastResult = result
+        }
+        return (lastResult, nil)
+    }
 
     /// Resolve a torrent stream to a direct URL using the given provider+key.
     static func resolve(
@@ -560,12 +596,32 @@ enum DebridService {
                 Task { _ = try? await self.delete("https://api.real-debrid.com/rest/1.0/torrents/delete/\(torrentID)", key: apiKey) }
             }
         }
-        let info1: TorrentInfo = try await bearerGET("https://api.real-debrid.com/rest/1.0/torrents/info/\(torrentID)", key: apiKey)
+        // RD parses the magnet asynchronously: immediately after addMagnet the
+        // torrent sits in "magnet_conversion" with an empty file list, so a
+        // single instant read declared genuinely-cached torrents .notCached.
+        // Poll briefly until the files appear.
+        var info1: TorrentInfo = try await bearerGET("https://api.real-debrid.com/rest/1.0/torrents/info/\(torrentID)", key: apiKey)
+        var waits = 0
+        while (info1.files ?? []).isEmpty,
+              ["magnet_conversion", "queued", "waiting_files_selection"].contains(info1.status.lowercased()),
+              waits < 5 {
+            waits += 1
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            info1 = try await bearerGET("https://api.real-debrid.com/rest/1.0/torrents/info/\(torrentID)", key: apiKey)
+        }
         guard let file = selectFile(info1.files ?? [], season: season, episode: episode, path: \.path, size: \.bytes) else {
             return .notCached
         }
         try? await formIgnore("https://api.real-debrid.com/rest/1.0/torrents/selectFiles/\(torrentID)", key: apiKey, fields: ["files": String(file.id)])
-        let info2: TorrentInfo = try await bearerGET("https://api.real-debrid.com/rest/1.0/torrents/info/\(torrentID)", key: apiKey)
+        // A cached torrent flips to "downloaded" almost immediately — give it a
+        // couple of beats before concluding it isn't cached.
+        var info2: TorrentInfo = try await bearerGET("https://api.real-debrid.com/rest/1.0/torrents/info/\(torrentID)", key: apiKey)
+        waits = 0
+        while info2.status.lowercased() != "downloaded", waits < 2 {
+            waits += 1
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            info2 = try await bearerGET("https://api.real-debrid.com/rest/1.0/torrents/info/\(torrentID)", key: apiKey)
+        }
         guard info2.status.lowercased() == "downloaded", let link = info2.links?.first else {
             return .notCached
         }
@@ -603,16 +659,42 @@ enum DebridService {
         struct TorrentFile: Decodable { let id: Int; let name: String; let size: Int64? }
         struct LinkData: Decodable { let data: String? }
 
-        // createtorrent is multipart; add_only_if_cached=true → 409 when not cached.
+        // INSTANT availability probe first (TorBox's dedicated endpoint):
+        // side-effect-free and fast, so an uncached torrent answers .notCached
+        // immediately instead of round-tripping createtorrent. Probe failure
+        // (endpoint change/outage) falls through to the create path.
+        if let infoHash = magnet.range(of: "btih:").map({ String(magnet[$0.upperBound...].prefix(40)) }) {
+            struct Cached: Decodable { let name: String? }
+            var probe = URLComponents(string: "https://api.torbox.app/v1/api/torrents/checkcached")!
+            probe.queryItems = [
+                .init(name: "hash", value: infoHash.lowercased()),
+                .init(name: "format", value: "object"),
+                .init(name: "list_files", value: "false")
+            ]
+            if let check: Envelope<[String: Cached]> = try? await decode(bearerRequest(probe.url!.absoluteString, key: apiKey)),
+               check.success == true, (check.data ?? [:]).isEmpty {
+                return .notCached
+            }
+        }
+
+        // createtorrent is multipart; add_only_if_cached=true → error when not cached.
         let create: Envelope<CreateData> = try await multipart(
             "https://api.torbox.app/v1/api/torrents/createtorrent", key: apiKey,
             parts: ["magnet": magnet, "add_only_if_cached": "true", "allow_zip": "false"]
         )
         guard let torrentID = create.data?.torrent_id ?? create.data?.id else { return .notCached }
-        var comps = URLComponents(string: "https://api.torbox.app/v1/api/torrents/mylist")!
-        comps.queryItems = [.init(name: "id", value: String(torrentID)), .init(name: "bypass_cache", value: "true")]
-        let list: Envelope<TorrentData> = try await decode(bearerRequest(comps.url!.absoluteString, key: apiKey))
-        guard let file = selectFile(list.data?.files ?? [], season: season, episode: episode, path: \.name, size: { $0.size ?? 0 }) else {
+        // A cached torrent can take a beat before mylist reports its files —
+        // retry briefly instead of declaring a genuinely cached torrent missing.
+        var files: [TorrentFile] = []
+        for attempt in 0..<4 {
+            var comps = URLComponents(string: "https://api.torbox.app/v1/api/torrents/mylist")!
+            comps.queryItems = [.init(name: "id", value: String(torrentID)), .init(name: "bypass_cache", value: "true")]
+            let list: Envelope<TorrentData> = try await decode(bearerRequest(comps.url!.absoluteString, key: apiKey))
+            files = list.data?.files ?? []
+            if !files.isEmpty { break }
+            if attempt < 3 { try? await Task.sleep(nanoseconds: 700_000_000) }
+        }
+        guard let file = selectFile(files, season: season, episode: episode, path: \.name, size: { $0.size ?? 0 }) else {
             return .notCached
         }
         var linkComps = URLComponents(string: "https://api.torbox.app/v1/api/torrents/requestdl")!

@@ -28,6 +28,10 @@ final class StreamsViewModel: ObservableObject {
     /// manifest or an id-prefix mismatch used to be completely invisible,
     /// which made "why isn't my addon showing?" undiagnosable from the UI.
     @Published var skippedAddons: [(name: String, reason: String)] = []
+    /// Addons whose stream request errored (timeout / bad response) this load —
+    /// rendered as "Not working" under the addon name, distinct from a healthy
+    /// addon that simply returned no links.
+    @Published var failedAddonNames: Set<String> = []
     /// Links kept per resolution×size cell (2160p·10–20 GB …) when filters on.
     private var perTier = 6
     /// Curated filters on (resolution → size tiers, cached first) vs raw
@@ -209,7 +213,7 @@ final class StreamsViewModel: ObservableObject {
         for addon in addonManager.addons where addon.enabled {
             let m = addon.manifest
             if m.isPlaceholder {
-                skipped.append((m.name, "Add-on didn't load (couldn't fetch its manifest) — check the URL or refresh add-ons"))
+                skipped.append((m.name, "Not working — couldn't load this add-on. Check its URL or refresh add-ons."))
             } else if m.providesStreams, !addon.handles(id: fetchID) {
                 let prefixes = (m.idPrefixes ?? []).joined(separator: ", ")
                 skipped.append((m.name, "Doesn't claim this title (id \(fetchID) vs prefixes [\(prefixes)])"))
@@ -236,13 +240,22 @@ final class StreamsViewModel: ObservableObject {
             return
         }
 
-        await withTaskGroup(of: [StreamEntry].self) { group in
+        failedAddonNames = []
+        await withTaskGroup(of: (entries: [StreamEntry], failedAddon: String?).self) { group in
             for addon in addons {
                 group.addTask { [meta] in
-                    let streams = (try? await StremioAPI.streams(addon: addon, type: meta.type, id: fetchID)) ?? []
-                    return streams
-                        .filter { $0.isPlayable || (debridEnabled && $0.isTorrent) || $0.isExternal }
-                        .map { StreamEntry(addonName: addon.manifest.name, stream: $0) }
+                    do {
+                        let streams = try await StremioAPI.streams(addon: addon, type: meta.type, id: fetchID)
+                        let entries = streams
+                            .filter { $0.isPlayable || (debridEnabled && $0.isTorrent) || $0.isExternal }
+                            .map { StreamEntry(addonName: addon.manifest.name, stream: $0) }
+                        return (entries, nil)
+                    } catch {
+                        // Request failed (timeout / HTTP error / unreachable) —
+                        // record it so the UI can say the addon isn't working
+                        // instead of silently showing nothing for it.
+                        return ([], addon.manifest.name)
+                    }
                 }
             }
             // Re-curate on throttled batches: recomputing the tier selection per
@@ -251,7 +264,8 @@ final class StreamsViewModel: ObservableObject {
             var lastFlush = Date.distantPast
             for await batch in group {
                 finishedAddons += 1
-                pool.append(contentsOf: batch)
+                pool.append(contentsOf: batch.entries)
+                if let failed = batch.failedAddon { failedAddonNames.insert(failed) }
                 let now = Date()
                 if !pool.isEmpty, now.timeIntervalSince(lastFlush) > 0.4 {
                     rebuildGroups()
@@ -583,13 +597,16 @@ struct StreamsView: View {
         }
         resolving = true
         Task {
-            let result = await DebridService.resolve(
+            // Try every configured debrid, preferred first — a torrent the
+            // preferred provider doesn't have cached still resolves via the
+            // others (TorBox / RD / PM / AD).
+            let (result, resolvedBy) = await DebridService.resolveAcross(
                 stream: entry.stream,
-                provider: provider,
-                apiKey: debrid.key(for: provider),
+                providers: debrid.orderedResolvers,
                 season: viewModel.video?.season,
                 episode: viewModel.video?.episode
             )
+            let provider = resolvedBy ?? provider
             resolving = false
             switch result {
             case .success(let url, let filename):
@@ -607,7 +624,9 @@ struct StreamsView: View {
             case .missingKey:
                 resolveError = "\(provider.displayName) API key is missing."
             case .notCached:
-                resolveError = "This torrent isn't cached on \(provider.displayName). Try another source."
+                resolveError = debrid.orderedResolvers.count > 1
+                    ? "This torrent isn't cached on any of your debrid services. Try another source."
+                    : "This torrent isn't cached on \(provider.displayName). Try another source."
             case .failed(let message):
                 resolveError = "\(provider.displayName): \(message)"
             }
@@ -710,10 +729,12 @@ struct StreamsView: View {
                                 }
                             }
                         }
-                        // Addon returned no usable link: show it anyway, marked
-                        // "None", so you can see it was checked (e.g. DMM Cast).
-                        if group.entries.isEmpty {
-                            Text("None")
+                        // Addon produced no rows: its NAME still shows (block
+                        // above); add text only when it actually failed —
+                        // an addon that answered with nothing stays name-only.
+                        if group.entries.isEmpty,
+                           viewModel.failedAddonNames.contains(group.addonName) {
+                            Text("Not working — the add-on didn't respond")
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundStyle(theme.palette.textSecondary)
                                 .padding(.leading, 8)
@@ -788,12 +809,13 @@ struct StreamsView: View {
             downloads.start(meta: viewModel.meta, video: viewModel.video, stream: entry.stream, addonName: entry.addonName)
             return
         }
-        // Torrent → resolve, then download the resolved direct stream.
-        if let provider = debrid.resolverProvider {
+        // Torrent → resolve (any configured debrid, preferred first), then
+        // download the resolved direct stream.
+        if debrid.resolverProvider != nil {
             resolving = true
             Task {
-                let result = await DebridService.resolve(
-                    stream: entry.stream, provider: provider, apiKey: debrid.key(for: provider),
+                let (result, _) = await DebridService.resolveAcross(
+                    stream: entry.stream, providers: debrid.orderedResolvers,
                     season: viewModel.video?.season, episode: viewModel.video?.episode
                 )
                 resolving = false

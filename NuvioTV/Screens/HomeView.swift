@@ -584,10 +584,15 @@ struct HomeView: View {
                 .padding(.vertical, NuvioSpacing.lg)
             }
             .scrollClipDisabled()
+            // The focus section wraps ONLY the card strip, not the header.
+            // Full-width, it catches any vertical move at zero horizontal
+            // offset, so up/down lands on the nearest card even when it isn't
+            // column-aligned with where focus came from — while the "See All"
+            // pill (outside the section) only wins a vertical move when focus
+            // is directly above/below it. Wrapping the whole row (header
+            // included) made the pill the nearest target for half the screen.
+            .focusSection()
         }
-        // Vertical D-pad moves land on the nearest card in this row even when
-        // it isn't column-aligned with the row you came from.
-        .focusSection()
     }
 
     private func posterGrid(_ row: HomeRow) -> some View {
@@ -619,6 +624,11 @@ struct HomeView: View {
             }
             .padding(.horizontal, NuvioSpacing.huge)
             .padding(.vertical, NuvioSpacing.md)
+            // Same rule as the horizontal rows: the grid (full width) is its
+            // own focus section, so vertical moves land on the nearest poster
+            // and the header's "See All" pill only catches focus when you're
+            // directly above/below it.
+            .focusSection()
         }
     }
 

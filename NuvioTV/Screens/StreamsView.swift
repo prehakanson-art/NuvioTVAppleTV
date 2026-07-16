@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 @MainActor
 final class StreamsViewModel: ObservableObject {
@@ -19,6 +20,10 @@ final class StreamsViewModel: ObservableObject {
     /// re-curate a SINGLE addon's full set (not just what survived the
     /// cross-addon per-tier cap).
     private var pool: [StreamEntry] = []
+    /// Every stream addon queried for this title (installed order), whether or
+    /// not it returned links — so an addon that came back empty (or with only a
+    /// cast action) is still shown, as the user asked ("addon name … None").
+    private var queriedAddonNames: [String] = []
     /// Links kept per resolution×size cell (2160p·10–20 GB …) when filters on.
     private var perTier = 6
     /// Curated filters on (resolution → size tiers, cached first) vs raw
@@ -183,6 +188,10 @@ final class StreamsViewModel: ObservableObject {
     func load(addonManager: AddonManager, debridEnabled: Bool, perTier: Int, filtersEnabled: Bool = true, forceRefresh: Bool = false) async {
         let fetchID = await effectiveStreamID()
         let addons = addonManager.streamAddons.filter { $0.handles(id: fetchID) }
+        var seenNames = Set<String>()
+        queriedAddonNames = addons.compactMap {
+            seenNames.insert($0.manifest.name).inserted ? $0.manifest.name : nil
+        }
         totalAddons = addons.count
         self.perTier = perTier
         self.filtersEnabled = filtersEnabled
@@ -205,7 +214,7 @@ final class StreamsViewModel: ObservableObject {
                 group.addTask { [meta] in
                     let streams = (try? await StremioAPI.streams(addon: addon, type: meta.type, id: fetchID)) ?? []
                     return streams
-                        .filter { $0.isPlayable || (debridEnabled && $0.isTorrent) }
+                        .filter { $0.isPlayable || (debridEnabled && $0.isTorrent) || $0.isExternal }
                         .map { StreamEntry(addonName: addon.manifest.name, stream: $0) }
                 }
             }
@@ -236,18 +245,35 @@ final class StreamsViewModel: ObservableObject {
     /// Recompute `addonNames` + `groups` from the raw pool, honoring the
     /// current addon filter. Called on every load flush and filter change.
     private func rebuildGroups() {
-        // First-seen order of the addons that actually returned links.
-        var seen = Set<String>()
-        addonNames = pool.compactMap { seen.insert($0.addonName).inserted ? $0.addonName : nil }
+        // Filter chips list EVERY queried addon (installed order), not just ones
+        // that returned links — so an empty/cast-only addon stays selectable.
+        addonNames = queriedAddonNames
         // Drop a stale filter (e.g. after a reload dropped that addon).
-        if let selected = selectedAddon, !addonNames.contains(selected) {
+        if let selected = selectedAddon, !queriedAddonNames.contains(selected) {
             selectedAddon = nil
         }
         let scoped0 = selectedAddon.map { name in pool.filter { $0.addonName == name } } ?? pool
         let scoped = SourceSelection.filter(scoped0, streamFilters)
-        groups = filtersEnabled
+        var built = filtersEnabled
             ? SourceSelection.byAddon(scoped, perTier: perTier)
             : SourceSelection.byAddonUnfiltered(scoped, cap: PlayerSettings.unfilteredPerAddonCap)
+
+        // Once the sweep is finished, add an empty (rendered as "None") group
+        // for every queried addon that produced no usable link — so each addon
+        // is always represented. Gated on completion so an addon still loading
+        // doesn't flash "None" before its links land.
+        if finishedAddons >= totalAddons {
+            let wanted = selectedAddon.map { [$0] } ?? queriedAddonNames
+            let present = Set(built.map(\.addonName))
+            for name in wanted where !present.contains(name) {
+                built.append(AddonSourceGroup(addonName: name, sections: []))
+            }
+        }
+        // Stable installed-order layout regardless of which addon replied first.
+        let order = Dictionary(
+            uniqueKeysWithValues: queriedAddonNames.enumerated().map { ($1, $0) }
+        )
+        groups = built.sorted { (order[$0.addonName] ?? .max) < (order[$1.addonName] ?? .max) }
     }
 
     /// User stream filters (min resolution, exclude AV1, HDR/DV/cached only).
@@ -492,6 +518,19 @@ struct StreamsView: View {
     /// Torrent entries resolve through the preferred debrid provider before
     /// playback; direct streams pass straight through.
     private func handleSelection(_ entry: StreamEntry, _ all: [StreamEntry]) {
+        // Cast / open-externally stream (DMM Cast): hand the link to the system
+        // rather than the in-app player. On tvOS this only succeeds for a URL
+        // scheme the platform can open — plain https has no browser to open, so
+        // report that instead of failing silently.
+        if entry.stream.isExternal, let ext = entry.stream.externalUrl,
+           let url = URL(string: ext) {
+            UIApplication.shared.open(url, options: [:]) { ok in
+                if !ok {
+                    resolveError = "Apple TV can't open this cast link directly. Open Debrid Media Manager on your phone or computer to cast."
+                }
+            }
+            return
+        }
         guard entry.stream.isTorrent else {
             viewModel.recordLastLink(entry)
             onSelect(entry, all)
@@ -634,6 +673,14 @@ struct StreamsView: View {
                                     sourceRow(entry)
                                 }
                             }
+                        }
+                        // Addon returned no usable link: show it anyway, marked
+                        // "None", so you can see it was checked (e.g. DMM Cast).
+                        if group.entries.isEmpty {
+                            Text("None")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(theme.palette.textSecondary)
+                                .padding(.leading, 8)
                         }
                     }
                 }

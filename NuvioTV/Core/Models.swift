@@ -426,15 +426,19 @@ struct Stream: Codable, Hashable {
     /// Tracker/DHT sources for building a magnet URI (Stremio torrent streams).
     let sources: [String]?
     let behaviorHints: StreamBehaviorHints?
+    /// Stremio's `externalUrl`: a link the client opens/hands off rather than
+    /// plays in-app. "Cast" addons (DMM Cast etc.) use it for their cast
+    /// action, so a stream can carry this INSTEAD of a playable `url`.
+    let externalUrl: String?
 
     private enum CodingKeys: String, CodingKey {
-        case name, title, description, url, infoHash, fileIdx, sources, behaviorHints
+        case name, title, description, url, infoHash, fileIdx, sources, behaviorHints, externalUrl
     }
 
     init(
         name: String?, title: String?, description: String?, url: String?,
         infoHash: String?, fileIdx: Int? = nil, sources: [String]? = nil,
-        behaviorHints: StreamBehaviorHints?
+        behaviorHints: StreamBehaviorHints?, externalUrl: String? = nil
     ) {
         self.name = name
         self.title = title
@@ -444,6 +448,7 @@ struct Stream: Codable, Hashable {
         self.fileIdx = fileIdx
         self.sources = sources
         self.behaviorHints = behaviorHints
+        self.externalUrl = externalUrl
     }
 
     var isPlayable: Bool {
@@ -452,6 +457,12 @@ struct Stream: Codable, Hashable {
     }
 
     var isTorrent: Bool { infoHash != nil && url == nil }
+
+    /// A cast / open-externally stream (e.g. DMM Cast): no in-app-playable url
+    /// and no torrent, but a link to hand off to the system / an external app.
+    var isExternal: Bool {
+        !isPlayable && !isTorrent && !(externalUrl?.isEmpty ?? true)
+    }
 
     /// Debrid-cached marker, e.g. "[RD+]", "[TB+]", "PM+" — the convention
     /// Torrentio/Comet/MediaFusion use for torrents the provider already has

@@ -114,6 +114,9 @@ struct RootView: View {
             .onChange(of: liveTV.enabled) { _, enabled in
                 if !enabled && selectedTab == 4 { selectedTab = 0 }
             }
+            // Refresh a QR-linked Real-Debrid token at launch (its device-flow
+            // access token is short-lived).
+            .task { await debrid.refreshRealDebridIfNeeded() }
             .onAppear {
                 NSLog("[NuvioPlayer] RootView content onAppear")
                 startPlayerDemoIfRequested()

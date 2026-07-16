@@ -9,9 +9,10 @@ struct IntegrationsDetail: View {
     @EnvironmentObject private var mdblist: MDBListSettingsStore
     @EnvironmentObject private var debrid: DebridStore
     @EnvironmentObject private var torrent: TorrentSettingsStore
+    @EnvironmentObject private var playerSettings: PlayerSettingsStore
     @State private var sheet: IntegrationSheet?
 
-    enum IntegrationSheet: String, Identifiable { case tmdb, mdblist, debrid, p2p; var id: String { rawValue } }
+    enum IntegrationSheet: String, Identifiable { case tmdb, mdblist, debrid, aniskip, p2p; var id: String { rawValue } }
 
     var body: some View {
         // APK layout: a single list of drill-in rows, each opening a sub-screen.
@@ -21,6 +22,7 @@ struct IntegrationsDetail: View {
                 integrationRow(title: "TMDB", subtitle: "Metadata enrichment controls", icon: "film.stack") { sheet = .tmdb }
                 integrationRow(title: "MDBList", subtitle: "External ratings providers", icon: "star.circle.fill") { sheet = .mdblist }
                 integrationRow(title: "Debrid", subtitle: "Cached torrent sources as direct streams", icon: "bolt.horizontal.circle.fill") { sheet = .debrid }
+                integrationRow(title: "Anime Skips", subtitle: "Auto-skip anime intros & outros (AniSkip)", icon: "forward.end.alt.fill") { sheet = .aniskip }
                 // P2P (TorrServer) hidden for now — the .p2p sheet + engine stay
                 // wired; re-add this row to surface it again.
                 // integrationRow(title: "P2P (TorrServer)", subtitle: "Stream torrents peer-to-peer via a TorrServer") { sheet = .p2p }
@@ -36,6 +38,7 @@ struct IntegrationsDetail: View {
             .environmentObject(mdblist)
             .environmentObject(debrid)
             .environmentObject(torrent)
+            .environmentObject(playerSettings)
             .onExitCommand { sheet = nil }
         }
     }
@@ -62,6 +65,10 @@ struct IntegrationsDetail: View {
             DetailScaffold(title: "Debrid", subtitle: "Cached torrent sources as direct, high-speed streams") {
                 SettingsGroupCard(title: "") { debridSection }
             }
+        case .aniskip:
+            DetailScaffold(title: "Anime Skips", subtitle: "Skip anime intros and outros automatically") {
+                SettingsGroupCard(title: "") { aniskipSection }
+            }
         case .p2p:
             DetailScaffold(title: "P2P (TorrServer)", subtitle: "Stream torrents peer-to-peer via a TorrServer instance") {
                 SettingsGroupCard(title: "") { P2PSection() }
@@ -87,6 +94,23 @@ struct IntegrationsDetail: View {
             }
 
             Text("Get a key at mdblist.com/preferences.")
+                .font(.system(size: 18))
+                .foregroundStyle(theme.palette.textTertiary)
+                .padding(.top, 2)
+        }
+    }
+
+    // MARK: - Anime Skips
+
+    private var aniskipSection: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
+            SettingsToggleCard(
+                title: "AniSkip",
+                subtitle: "Fetch anime intro/outro skip times so Skip Intro and Up Next work on anime episodes that carry no chapter markers.",
+                isOn: Binding(get: { playerSettings.settings.animeSkipEnabled },
+                              set: { playerSettings.settings.animeSkipEnabled = $0 })
+            )
+            Text("Uses the public AniSkip database (api.aniskip.com), matched to each title via MyAnimeList — no account or key needed. Also available under Playback → Seeking.")
                 .font(.system(size: 18))
                 .foregroundStyle(theme.palette.textTertiary)
                 .padding(.top, 2)
@@ -267,17 +291,38 @@ private struct DebridKeyEditor: View {
     @State private var key = ""
     @State private var validating = false
     @State private var status: String?
+    @State private var showQR = false
 
     var body: some View {
         ZStack {
             theme.palette.background.ignoresSafeArea()
             VStack(spacing: NuvioSpacing.xl) {
-                Text("\(provider.displayName) API Key")
+                Text("Connect \(provider.displayName)")
                     .font(.system(size: 40, weight: .bold))
                     .foregroundStyle(theme.palette.textPrimary)
-                Text("Get your key at \(provider.keyHint)")
-                    .font(.system(size: 22))
-                    .foregroundStyle(theme.palette.textSecondary)
+
+                // QR sign-in (RD/AllDebrid) — scan on your phone, like the APK.
+                if provider.supportsQRAuth {
+                    Button { showQR = true } label: {
+                        HStack(spacing: NuvioSpacing.sm) {
+                            Image(systemName: "qrcode")
+                            Text("Sign in with QR")
+                        }
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(theme.palette.onSecondary)
+                        .padding(.horizontal, NuvioSpacing.xl)
+                        .padding(.vertical, NuvioSpacing.md)
+                        .background(Capsule().fill(theme.palette.secondary))
+                    }
+                    .buttonStyle(PlainCardButtonStyle())
+                    Text("or paste an API key from \(provider.keyHint)")
+                        .font(.system(size: 20))
+                        .foregroundStyle(theme.palette.textTertiary)
+                } else {
+                    Text("Get your key at \(provider.keyHint)")
+                        .font(.system(size: 22))
+                        .foregroundStyle(theme.palette.textSecondary)
+                }
 
                 SecureField("Paste API key", text: $key)
                     .font(.system(size: 24))
@@ -310,6 +355,14 @@ private struct DebridKeyEditor: View {
         .onAppear { key = debrid.key(for: provider) }
         // Same as Cancel — dismiss without saving.
         .onExitCommand { onDone() }
+        .fullScreenCover(isPresented: $showQR) {
+            DebridConnectPage(provider: provider) { linked in
+                showQR = false
+                if linked { onDone() }
+            }
+            .environmentObject(theme)
+            .environmentObject(debrid)
+        }
     }
 
     private func verifyAndSave() {
@@ -325,6 +378,120 @@ private struct DebridKeyEditor: View {
                 onDone()
             } else {
                 status = "Invalid key or network error."
+            }
+        }
+    }
+}
+
+/// Full-screen QR device-login for a debrid provider (Real-Debrid OAuth device
+/// flow / AllDebrid PIN flow) — the APK's scan-to-connect. Menu/Back cancels.
+private struct DebridConnectPage: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var debrid: DebridStore
+    let provider: DebridProvider
+    /// `true` when the account was linked.
+    let onDone: (Bool) -> Void
+
+    @State private var code: DebridDeviceCode?
+    @State private var errorText: String?
+    @State private var expiresAt = Date()
+    @State private var pollTask: Task<Void, Never>?
+
+    var body: some View {
+        ZStack {
+            theme.palette.background.ignoresSafeArea()
+            VStack(spacing: NuvioSpacing.xl) {
+                Text("Connect \(provider.displayName)")
+                    .font(.system(size: 48, weight: .heavy))
+                    .foregroundStyle(theme.palette.textPrimary)
+
+                if let code {
+                    Text("Scan the code with your phone, or go to \(code.verificationURL) and enter the code below.")
+                        .font(.system(size: 24))
+                        .foregroundStyle(theme.palette.textSecondary)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 900)
+
+                    QRCodeView(string: code.qrURL, side: 360)
+
+                    Text(code.userCode)
+                        .font(.system(size: 60, weight: .heavy, design: .monospaced))
+                        .tracking(8)
+                        .foregroundStyle(theme.palette.secondary)
+
+                    HStack(spacing: NuvioSpacing.sm) {
+                        ProgressView().tint(theme.palette.secondary)
+                        Text("Waiting for authorization…")
+                            .font(.system(size: 22))
+                            .foregroundStyle(theme.palette.textTertiary)
+                    }
+
+                    TimelineView(.periodic(from: .now, by: 1)) { ctx in
+                        let remaining = max(0, Int(expiresAt.timeIntervalSince(ctx.date)))
+                        Text(remaining > 0
+                             ? "Code expires in \(remaining / 60):\(String(format: "%02d", remaining % 60))"
+                             : "Refreshing code…")
+                            .font(.system(size: 20))
+                            .foregroundStyle(theme.palette.textTertiary)
+                    }
+                } else if let errorText {
+                    Text(errorText)
+                        .font(.system(size: 24))
+                        .foregroundStyle(NuvioPrimitives.error)
+                        .multilineTextAlignment(.center)
+                        .frame(maxWidth: 900)
+                    Button("Try Again") { Task { await begin() } }
+                        .font(.system(size: 24, weight: .semibold))
+                } else {
+                    ProgressView().tint(theme.palette.secondary)
+                    Text("Starting sign-in…")
+                        .font(.system(size: 22))
+                        .foregroundStyle(theme.palette.textSecondary)
+                }
+
+                Text("Press Menu to cancel")
+                    .font(.system(size: 20))
+                    .foregroundStyle(theme.palette.textTertiary)
+            }
+            .padding(NuvioSpacing.huge)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .task { await begin() }
+        .onDisappear { pollTask?.cancel() }
+        .onExitCommand { pollTask?.cancel(); onDone(false) }
+    }
+
+    private func begin() async {
+        pollTask?.cancel()
+        errorText = nil
+        code = nil
+        guard let c = await DebridService.startDeviceAuth(provider) else {
+            errorText = "Couldn't start QR sign-in. Check your connection, or paste an API key instead."
+            return
+        }
+        code = c
+        expiresAt = Date().addingTimeInterval(TimeInterval(c.expiresIn))
+        startPolling(c)
+    }
+
+    private func startPolling(_ c: DebridDeviceCode) {
+        pollTask = Task {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: UInt64(max(c.interval, 3)) * 1_000_000_000)
+                if Task.isCancelled { return }
+                if Date() >= expiresAt { await begin(); return }   // expired → fresh code
+                switch await DebridService.pollDeviceAuth(provider, c) {
+                case .pending:
+                    continue
+                case .success(let s):
+                    debrid.applyDeviceAuth(s, for: provider)
+                    onDone(true)
+                    return
+                case .failed(let msg):
+                    errorText = msg
+                    code = nil
+                    return
+                }
             }
         }
     }

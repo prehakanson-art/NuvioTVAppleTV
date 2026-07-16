@@ -37,6 +37,49 @@ enum DebridProvider: String, CaseIterable, Identifiable, Codable {
         case .allDebrid: return "alldebrid.com/apikeys"
         }
     }
+
+    /// Whether this provider supports the scan-a-QR sign-in flow (like the APK).
+    /// Real-Debrid uses an OAuth device flow; AllDebrid a PIN flow. Premiumize
+    /// and TorBox have no usable public device flow, so they stay key-only.
+    var supportsQRAuth: Bool {
+        switch self {
+        case .realDebrid, .allDebrid: return true
+        case .premiumize, .torbox: return false
+        }
+    }
+}
+
+// MARK: - Device (QR) authentication
+
+/// Real-Debrid OAuth refresh bundle, stored locally so the (short-lived) access
+/// token can be refreshed without re-scanning.
+struct RDRefresh: Codable, Equatable {
+    let clientID: String
+    let clientSecret: String
+    let refreshToken: String
+}
+
+/// A pending device-login: what to show the user (code + QR) and the opaque
+/// tokens used to poll for completion.
+struct DebridDeviceCode {
+    let userCode: String        // shown big on screen
+    let verificationURL: String // where to enter it
+    let qrURL: String           // encoded in the QR
+    let pollPrimary: String     // RD: device_code · AD: check hash
+    let pollSecondary: String   // AD: pin · RD: ""
+    let interval: Int
+    let expiresIn: Int
+}
+
+struct DebridAuthSuccess {
+    let apiKey: String          // token/key to store + use as Bearer
+    let refresh: RDRefresh?     // RD only
+}
+
+enum DebridAuthPoll {
+    case pending
+    case success(DebridAuthSuccess)
+    case failed(String)
 }
 
 // MARK: - Store
@@ -58,8 +101,13 @@ final class DebridStore: ObservableObject {
     var onLocalChange: (() -> Void)?
     private var applyingRemote = false
 
+    /// Real-Debrid OAuth refresh bundle (device-login only). Stored locally,
+    /// NOT synced — it's device credentials, so each device refreshes its own.
+    @Published private(set) var rdRefresh: RDRefresh?
+
     private static let keysKey = "nuvio.debrid.keys.v1"
     private static let preferredKey = "nuvio.debrid.preferred.v1"
+    private static let rdRefreshKey = "nuvio.debrid.rdrefresh.v1"
 
     init() {
         if let data = UserDefaults.standard.data(forKey: Self.keysKey),
@@ -70,6 +118,41 @@ final class DebridStore: ObservableObject {
         }
         if let raw = UserDefaults.standard.string(forKey: Self.preferredKey) {
             preferred = DebridProvider(rawValue: raw)
+        }
+        if let data = UserDefaults.standard.data(forKey: Self.rdRefreshKey) {
+            rdRefresh = try? JSONDecoder().decode(RDRefresh.self, from: data)
+        }
+    }
+
+    /// Save the result of a QR device login: the token as the provider's key,
+    /// plus (for Real-Debrid) the refresh bundle for later token refreshes.
+    func applyDeviceAuth(_ success: DebridAuthSuccess, for provider: DebridProvider) {
+        setKey(success.apiKey, for: provider)
+        if provider == .realDebrid {
+            rdRefresh = success.refresh
+            saveRDRefresh()
+        }
+    }
+
+    /// Refresh the Real-Debrid access token (its device-flow token is short-
+    /// lived). Call on launch so a QR-linked RD keeps working. No-op if RD isn't
+    /// device-linked.
+    func refreshRealDebridIfNeeded() async {
+        guard configuredProviders.contains(.realDebrid), let refresh = rdRefresh else { return }
+        guard let result = await DebridService.refreshRealDebrid(refresh) else { return }
+        applyingRemote = true          // don't treat a token refresh as a user edit
+        keys[.realDebrid] = result.token
+        saveKeys()
+        applyingRemote = false
+        rdRefresh = result.refresh
+        saveRDRefresh()
+    }
+
+    private func saveRDRefresh() {
+        if let refresh = rdRefresh, let data = try? JSONEncoder().encode(refresh) {
+            UserDefaults.standard.set(data, forKey: Self.rdRefreshKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.rdRefreshKey)
         }
     }
 
@@ -83,7 +166,10 @@ final class DebridStore: ObservableObject {
 
     func setKey(_ key: String, for provider: DebridProvider) {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        if trimmed.isEmpty { keys.removeValue(forKey: provider) } else { keys[provider] = trimmed }
+        if trimmed.isEmpty {
+            keys.removeValue(forKey: provider)
+            if provider == .realDebrid { rdRefresh = nil; saveRDRefresh() }
+        } else { keys[provider] = trimmed }
         if preferred == nil, !trimmed.isEmpty { preferred = provider }
         if preferred != nil, keys[preferred!] == nil { preferred = configuredProviders.first }
         saveKeys()
@@ -186,6 +272,123 @@ enum DebridService {
         } catch {
             return .failed(error.localizedDescription)
         }
+    }
+
+    // MARK: - Device (QR) auth
+
+    /// Real-Debrid's public open-source device client id (same one the APK and
+    /// other RD-integrating clients use for device login).
+    static let rdClientID = "X245A4XAIBGVM"
+
+    /// Begin a device login; nil if the provider doesn't support it or the
+    /// request failed.
+    static func startDeviceAuth(_ provider: DebridProvider) async -> DebridDeviceCode? {
+        switch provider {
+        case .realDebrid: return await startRD()
+        case .allDebrid:  return await startAD()
+        default:          return nil
+        }
+    }
+
+    /// Poll for completion. `.pending` means keep waiting.
+    static func pollDeviceAuth(_ provider: DebridProvider, _ code: DebridDeviceCode) async -> DebridAuthPoll {
+        switch provider {
+        case .realDebrid: return await pollRD(code)
+        case .allDebrid:  return await pollAD(code)
+        default:          return .failed("QR sign-in isn't available for this provider.")
+        }
+    }
+
+    /// Refresh a Real-Debrid access token from its stored refresh bundle.
+    /// Returns the new access token (and updated refresh) or nil on failure.
+    static func refreshRealDebrid(_ r: RDRefresh) async -> (token: String, refresh: RDRefresh)? {
+        guard let t = try? await rdToken(clientID: r.clientID, clientSecret: r.clientSecret, code: r.refreshToken) else { return nil }
+        return (t.access_token, RDRefresh(clientID: r.clientID, clientSecret: r.clientSecret, refreshToken: t.refresh_token))
+    }
+
+    // Real-Debrid device flow ---------------------------------------------
+
+    private static func startRD() async -> DebridDeviceCode? {
+        struct Resp: Decodable {
+            let device_code: String; let user_code: String
+            let verification_url: String; let expires_in: Int; let interval: Int
+            let direct_verification_url: String?
+        }
+        var comps = URLComponents(string: "https://api.real-debrid.com/oauth/v2/device/code")!
+        comps.queryItems = [.init(name: "client_id", value: rdClientID), .init(name: "new_credentials", value: "yes")]
+        guard let (data, resp) = try? await session.data(from: comps.url!),
+              (resp as? HTTPURLResponse).map({ (200..<300).contains($0.statusCode) }) == true,
+              let r = try? JSONDecoder().decode(Resp.self, from: data) else { return nil }
+        return DebridDeviceCode(
+            userCode: r.user_code,
+            verificationURL: r.verification_url,
+            qrURL: r.direct_verification_url ?? r.verification_url,
+            pollPrimary: r.device_code, pollSecondary: "",
+            interval: max(r.interval, 3), expiresIn: r.expires_in
+        )
+    }
+
+    private static func pollRD(_ code: DebridDeviceCode) async -> DebridAuthPoll {
+        struct Creds: Decodable { let client_id: String; let client_secret: String }
+        var comps = URLComponents(string: "https://api.real-debrid.com/oauth/v2/device/credentials")!
+        comps.queryItems = [.init(name: "client_id", value: rdClientID), .init(name: "code", value: code.pollPrimary)]
+        guard let (data, resp) = try? await session.data(from: comps.url!),
+              let http = resp as? HTTPURLResponse else { return .pending }
+        // 200 with credentials = authorized; anything else = still waiting.
+        guard (200..<300).contains(http.statusCode),
+              let creds = try? JSONDecoder().decode(Creds.self, from: data) else { return .pending }
+        guard let token = try? await rdToken(clientID: creds.client_id, clientSecret: creds.client_secret, code: code.pollPrimary) else {
+            return .failed("Couldn't complete Real-Debrid sign-in.")
+        }
+        return .success(DebridAuthSuccess(
+            apiKey: token.access_token,
+            refresh: RDRefresh(clientID: creds.client_id, clientSecret: creds.client_secret, refreshToken: token.refresh_token)
+        ))
+    }
+
+    private struct RDToken: Decodable { let access_token: String; let refresh_token: String; let expires_in: Int }
+
+    private static func rdToken(clientID: String, clientSecret: String, code: String) async throws -> RDToken {
+        var req = URLRequest(url: URL(string: "https://api.real-debrid.com/oauth/v2/token")!)
+        req.httpMethod = "POST"
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        let fields = ["client_id": clientID, "client_secret": clientSecret, "code": code,
+                      "grant_type": "http://oauth.net/grant_type/device/1.0"]
+        req.httpBody = fields.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? $0.value)" }
+            .joined(separator: "&").data(using: .utf8)
+        let (data, _) = try await session.data(for: req)
+        return try JSONDecoder().decode(RDToken.self, from: data)
+    }
+
+    // AllDebrid PIN flow ---------------------------------------------------
+
+    private static func startAD() async -> DebridDeviceCode? {
+        struct Resp: Decodable { let data: D?; struct D: Decodable { let pin: String; let check: String; let user_url: String; let expires_in: Int? } }
+        var comps = URLComponents(string: "https://api.alldebrid.com/v4/pin/get")!
+        comps.queryItems = [.init(name: "agent", value: "nuvio")]
+        guard let (data, _) = try? await session.data(from: comps.url!),
+              let d = (try? JSONDecoder().decode(Resp.self, from: data))?.data else { return nil }
+        return DebridDeviceCode(
+            userCode: d.pin, verificationURL: "alldebrid.com/pin",
+            qrURL: d.user_url.hasPrefix("http") ? d.user_url : "https://\(d.user_url)",
+            pollPrimary: d.check, pollSecondary: d.pin,
+            interval: 4, expiresIn: d.expires_in ?? 600
+        )
+    }
+
+    private static func pollAD(_ code: DebridDeviceCode) async -> DebridAuthPoll {
+        struct Resp: Decodable { let data: D?; struct D: Decodable { let activated: Bool?; let apikey: String?; let expired: Bool? } }
+        var comps = URLComponents(string: "https://api.alldebrid.com/v4/pin/check")!
+        comps.queryItems = [.init(name: "agent", value: "nuvio"),
+                            .init(name: "check", value: code.pollPrimary),
+                            .init(name: "pin", value: code.pollSecondary)]
+        guard let (data, _) = try? await session.data(from: comps.url!),
+              let d = (try? JSONDecoder().decode(Resp.self, from: data))?.data else { return .pending }
+        if d.expired == true { return .failed("Code expired — try again.") }
+        if d.activated == true, let key = d.apikey, !key.isEmpty {
+            return .success(DebridAuthSuccess(apiKey: key, refresh: nil))
+        }
+        return .pending
     }
 
     /// Validate a key by hitting the provider's account endpoint.

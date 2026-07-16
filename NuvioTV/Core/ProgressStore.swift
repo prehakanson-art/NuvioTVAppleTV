@@ -68,10 +68,38 @@ final class ProgressStore: ObservableObject {
 
     /// Merges entries pulled from the account, keeping whichever side was
     /// updated more recently. Never triggers a push back.
+    /// Grace window protecting a just-created local row from deletion
+    /// reconciliation. A row's own push fires immediately on change but takes a
+    /// round-trip to land; if a pull's server snapshot was captured before that
+    /// push arrived, the row is legitimately absent from `remote` yet must NOT
+    /// be treated as deleted. Anything older than this is safe to reconcile.
+    private static let deletionGrace: TimeInterval = 120
+
+    /// Merge a FULL remote snapshot for the profile. Two-way: newer remote rows
+    /// are upserted, AND local rows the server no longer has are removed — so a
+    /// removal made on another device (or a prior session) propagates the same
+    /// way an addition does. Without the delete half, `mergeRemote` was
+    /// additive-only: adds synced, removes never did.
     func mergeRemote(_ remote: [WatchProgress]) {
         suppressChange = true
         defer { suppressChange = false }
         var changed = false
+
+        // ── Reconcile deletions ── remove local rows absent from the server
+        // snapshot, except ones updated within the grace window (their own push
+        // may still be in flight). This runs from a successful pull only, so an
+        // empty snapshot genuinely means "the account has no Continue Watching."
+        let remoteIDs = Set(remote.map(\.id))
+        let cutoff = Date().addingTimeInterval(-Self.deletionGrace)
+        // Collect first, then remove — mutating `items` mid-iteration is unsafe.
+        let staleIDs = items.compactMap { id, local in
+            (!remoteIDs.contains(id) && local.updatedAt < cutoff) ? id : nil
+        }
+        for id in staleIDs {
+            items.removeValue(forKey: id)
+            changed = true
+        }
+
         for entry in remote {
             if let local = items[entry.id], local.updatedAt >= entry.updatedAt { continue }
             // Remote wins on position/timestamps, but synced rows arrive bare

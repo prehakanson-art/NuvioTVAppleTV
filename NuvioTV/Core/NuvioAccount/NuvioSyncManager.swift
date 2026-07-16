@@ -384,7 +384,9 @@ final class NuvioSyncManager: ObservableObject {
         guard account.accessToken != nil else { return }
         let data = try await authedPost(RPC.url(RPC.pullWatchProgress), body: ["p_profile_id": pid])
         let rows = try JSONDecoder().decode([SupabaseWatchProgress].self, from: data)
-        guard !rows.isEmpty else { return }
+        // NB: no early return on an empty result — this is a full snapshot, so
+        // an empty (but successful) pull must still reach mergeRemote to
+        // reconcile deletions, e.g. when the last item was removed elsewhere.
 
         var pulled: [WatchProgress] = rows.map { row in
             WatchProgress(

@@ -231,6 +231,11 @@ final class NuvioSyncManager: ObservableObject {
             applyActiveProfileScope()
             // Pull first so remote wins on first login, then push the merged set.
             try await pullAddons()
+            // Flush removals queued in a previous session before pulling, and
+            // tombstone them, so a not-yet-deleted row can't come back here.
+            let pendingDel = loadPendingDeletes()
+            if !pendingDel.isEmpty { progressStore.tombstone(Array(pendingDel)) }
+            await drainPendingDeletes()
             try await pullWatchProgress()
             try await pullLibrary()
             try await pullWatchedItems()
@@ -315,26 +320,62 @@ final class NuvioSyncManager: ObservableObject {
     func refreshContinueWatching() {
         guard account.accessToken != nil else { return }
         Task { [weak self] in
-            try? await self?.pullWatchProgress()
-            try? await self?.pullLibrary()
+            guard let self else { return }
+            // Reassert not-yet-confirmed removals so the pull can't resurrect
+            // them, push the deletes to the server, THEN pull the snapshot.
+            let pending = self.loadPendingDeletes()
+            if !pending.isEmpty { self.progressStore.tombstone(Array(pending)) }
+            await self.drainPendingDeletes()
+            try? await self.pullWatchProgress()
+            try? await self.pullLibrary()
         }
     }
 
-    /// Delete watch-progress entries server-side so a removed Continue Watching
-    /// title doesn't come back on the next pull. Keys are the progress keys
-    /// (video_id / progress_key) captured before local deletion.
+    // Removals must reach the account durably — a fire-and-forget delete that
+    // hit a network blip would silently strand the row on the server, so it
+    // reappears on the next full pull ("removed it, it came back"). Instead we
+    // queue removals to a PERSISTED per-profile set and drain it (with the
+    // key surviving app restarts) until the server confirms the delete.
+    private func pendingDeletesKey() -> String { "nuvio.sync.pendingWatchProgressDeletes.p\(pid)" }
+
+    private func loadPendingDeletes() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: pendingDeletesKey()) ?? [])
+    }
+
+    private func savePendingDeletes(_ set: Set<String>) {
+        if set.isEmpty { UserDefaults.standard.removeObject(forKey: pendingDeletesKey()) }
+        else { UserDefaults.standard.set(Array(set), forKey: pendingDeletesKey()) }
+    }
+
+    /// Queue a Continue Watching removal for durable server deletion. Persists
+    /// immediately (survives offline / relaunch) and kicks a drain.
     private func deleteWatchProgress(keys: [String]) {
         let trimmed = keys.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        guard !trimmed.isEmpty, account.accessToken != nil else { return }
-        let profileID = pid
-        Task { [weak self] in
-            guard let self else { return }
-            let body: [String: Any] = [
-                "p_keys": trimmed,
-                "p_profile_id": profileID,
-                "p_origin_client_id": clientID
-            ]
-            _ = try? await self.authedPost(RPC.url(RPC.deleteWatchProgress), body: body)
+        guard !trimmed.isEmpty else { return }
+        var pending = loadPendingDeletes()
+        pending.formUnion(trimmed)
+        savePendingDeletes(pending)
+        Task { [weak self] in await self?.drainPendingDeletes() }
+    }
+
+    /// Send every queued removal to the account, clearing only what the server
+    /// confirmed. Anything left (a failure, or added mid-flight) retries on the
+    /// next drain — foreground, the 30s Home poll, or full sync.
+    private func drainPendingDeletes() async {
+        let pending = loadPendingDeletes()
+        guard !pending.isEmpty, account.accessToken != nil else { return }
+        let body: [String: Any] = [
+            "p_keys": Array(pending),
+            "p_profile_id": pid,
+            "p_origin_client_id": clientID
+        ]
+        do {
+            _ = try await authedPost(RPC.url(RPC.deleteWatchProgress), body: body)
+            var latest = loadPendingDeletes()
+            latest.subtract(pending)   // keep any queued while this call was in flight
+            savePendingDeletes(latest)
+        } catch {
+            // Leave the queue intact — a later drain retries it.
         }
     }
 

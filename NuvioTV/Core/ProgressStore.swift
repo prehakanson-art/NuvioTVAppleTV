@@ -55,6 +55,16 @@ final class ProgressStore: ObservableObject {
         tombstones = tombstones.filter { $0.value >= cutoff }
     }
 
+    /// Reassert tombstones from outside — the sync manager calls this before a
+    /// pull for removals whose server delete hasn't been confirmed yet, so a
+    /// full-snapshot pull can't resurrect them while the delete is still
+    /// pending/retrying. Renewing the timestamp keeps them protected across the
+    /// 30s poll for as long as the delete is outstanding.
+    func tombstone(_ ids: [String]) {
+        let now = Date()
+        for id in ids { tombstones[id] = now }
+    }
+
     /// Active profile scope. Profile 1 uses the original (unsuffixed) key so
     /// existing data is preserved; other profiles get a suffixed namespace.
     private var profileID = 1

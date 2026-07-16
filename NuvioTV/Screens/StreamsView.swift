@@ -24,6 +24,10 @@ final class StreamsViewModel: ObservableObject {
     /// not it returned links — so an addon that came back empty (or with only a
     /// cast action) is still shown, as the user asked ("addon name … None").
     private var queriedAddonNames: [String] = []
+    /// Installed addons that were NOT queried, with the reason — a broken
+    /// manifest or an id-prefix mismatch used to be completely invisible,
+    /// which made "why isn't my addon showing?" undiagnosable from the UI.
+    @Published var skippedAddons: [(name: String, reason: String)] = []
     /// Links kept per resolution×size cell (2160p·10–20 GB …) when filters on.
     private var perTier = 6
     /// Curated filters on (resolution → size tiers, cached first) vs raw
@@ -187,11 +191,34 @@ final class StreamsViewModel: ObservableObject {
     /// during load) choke.
     func load(addonManager: AddonManager, debridEnabled: Bool, perTier: Int, filtersEnabled: Bool = true, forceRefresh: Bool = false) async {
         let fetchID = await effectiveStreamID()
+        // Self-heal: an addon installed by account sync while its manifest
+        // fetch failed is a silent placeholder (no stream resource → never
+        // queried, no error anywhere). Retry those now, when the user actually
+        // needs them, so e.g. a DMM Cast that installed broken starts working.
+        if addonManager.addons.contains(where: { $0.enabled && $0.manifest.isPlaceholder }) {
+            _ = await addonManager.resolvePlaceholders()
+        }
         let addons = addonManager.streamAddons.filter { $0.handles(id: fetchID) }
         var seenNames = Set<String>()
         queriedAddonNames = addons.compactMap {
             seenNames.insert($0.manifest.name).inserted ? $0.manifest.name : nil
         }
+        // Surface every enabled addon that is NOT being queried, with why —
+        // and mirror it to the console for debugging.
+        var skipped: [(name: String, reason: String)] = []
+        for addon in addonManager.addons where addon.enabled {
+            let m = addon.manifest
+            if m.isPlaceholder {
+                skipped.append((m.name, "Add-on didn't load (couldn't fetch its manifest) — check the URL or refresh add-ons"))
+            } else if m.providesStreams, !addon.handles(id: fetchID) {
+                let prefixes = (m.idPrefixes ?? []).joined(separator: ", ")
+                skipped.append((m.name, "Doesn't claim this title (id \(fetchID) vs prefixes [\(prefixes)])"))
+            }
+        }
+        skippedAddons = skipped
+        NSLog("[NuvioSources] id=%@ querying=%@ skipped=%@",
+              fetchID, queriedAddonNames.joined(separator: "|"),
+              skipped.map { "\($0.name): \($0.reason)" }.joined(separator: "|"))
         totalAddons = addons.count
         self.perTier = perTier
         self.filtersEnabled = filtersEnabled
@@ -464,6 +491,15 @@ struct StreamsView: View {
                         title: "No sources found",
                         message: "None of your installed addons returned a playable link for this title. Install a stream addon in Settings."
                     )
+                    // Explain any addon that wasn't even queried, so an addon
+                    // that silently failed to install isn't a mystery here.
+                    ForEach(viewModel.skippedAddons, id: \.name) { skip in
+                        Text("\(skip.name): \(skip.reason)")
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(theme.palette.textSecondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, NuvioSpacing.huge)
+                    }
                     Button {
                         Task {
                             await viewModel.reload(
@@ -682,6 +718,20 @@ struct StreamsView: View {
                                 .foregroundStyle(theme.palette.textSecondary)
                                 .padding(.leading, 8)
                         }
+                    }
+                }
+                // Installed addons that were NOT queried, with why — a broken
+                // manifest or an id-prefix mismatch was previously invisible.
+                ForEach(viewModel.skippedAddons, id: \.name) { skip in
+                    VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
+                        Text(skip.name.uppercased())
+                            .font(.system(size: 24, weight: .heavy))
+                            .foregroundStyle(theme.palette.textSecondary)
+                            .padding(.leading, 4)
+                        Text(skip.reason)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(theme.palette.textSecondary)
+                            .padding(.leading, 8)
                     }
                 }
             }

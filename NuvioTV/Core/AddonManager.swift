@@ -78,6 +78,29 @@ final class AddonManager: ObservableObject {
         save()
     }
 
+    /// Re-fetch manifests for enabled PLACEHOLDER addons — ones installed (by
+    /// account sync) while their manifest fetch failed, which otherwise sit
+    /// silently contributing no streams/catalogs forever. Called when the
+    /// Sources page opens so a transient install-time failure self-heals the
+    /// next time the user actually needs the addon. Returns true if any
+    /// placeholder resolved into a real manifest.
+    func resolvePlaceholders() async -> Bool {
+        let stuck = addons.filter { $0.enabled && $0.manifest.isPlaceholder }
+        guard !stuck.isEmpty else { return false }
+        var resolvedAny = false
+        for addon in stuck {
+            guard let manifest = try? await StremioAPI.manifest(url: addon.manifestURL) else { continue }
+            if let index = addons.firstIndex(where: { $0.manifestURL == addon.manifestURL }) {
+                addons[index] = InstalledAddon(
+                    manifestURL: addon.manifestURL, manifest: manifest, enabled: addon.enabled
+                )
+                resolvedAny = true
+            }
+        }
+        if resolvedAny { save() }
+        return resolvedAny
+    }
+
     private static let lastRefreshKey = "nuvio.addons.lastRefresh.v1"
 
     init() {

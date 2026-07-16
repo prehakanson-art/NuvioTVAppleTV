@@ -1,7 +1,0 @@
-.DS_Store
-/.build
-/Packages
-xcuserdata
-.swiftpm
-Script
-FFmpegKit

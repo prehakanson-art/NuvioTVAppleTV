@@ -27,3 +27,4 @@ nodeserver/node_modules/
 Vendor/NodeMobile.xcframework/
 build-sim/
 build/
+Vendor/KSPlayer/.swiftpm/

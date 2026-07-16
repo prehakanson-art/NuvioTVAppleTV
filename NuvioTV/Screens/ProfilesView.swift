@@ -351,6 +351,11 @@ struct ProfileManageView: View {
     let onDone: () -> Void
 
     @State private var editing: UserProfile?
+    // Without an explicit focus binding the tiles' `@Environment(\.isFocused)`
+    // ring didn't light up inside this fullScreenCover — the "nothing is
+    // highlighted" bug. Driving focus explicitly (like the Who's-watching gate)
+    // makes the highlight reliable and lands focus on a tile, not "Done".
+    @FocusState private var focusedTile: Int?
 
     var body: some View {
         ZStack {
@@ -372,14 +377,18 @@ struct ProfileManageView: View {
                             }
                         }
                         .buttonStyle(PlainCardButtonStyle())
+                        .focused($focusedTile, equals: profile.id)
                     }
                     if profiles.canAddProfile {
                         Button { profiles.addProfile(name: "") } label: {
                             GateTile(title: "Add") { DashedCircle(systemName: "plus") }
                         }
                         .buttonStyle(PlainCardButtonStyle())
+                        .focused($focusedTile, equals: -1)
                     }
                 }
+                .focusSection()
+                .defaultFocus($focusedTile, profiles.active.id)
                 Spacer()
             }
             .padding(NuvioSpacing.huge)

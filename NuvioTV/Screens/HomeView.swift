@@ -585,6 +585,9 @@ struct HomeView: View {
             }
             .scrollClipDisabled()
         }
+        // Vertical D-pad moves land on the nearest card in this row even when
+        // it isn't column-aligned with the row you came from.
+        .focusSection()
     }
 
     private func posterGrid(_ row: HomeRow) -> some View {
@@ -738,6 +741,9 @@ private struct ContinueWatchingRow: View {
     @Namespace private var continueScope
 
     var body: some View {
+        // .focusSection() lets a vertical D-pad move land on the nearest card in
+        // this row even when it's not column-aligned with where focus came from
+        // (e.g. one CW card while you're 3 posters deep in the row below).
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             RowHeader(title: "Continue Watching")
             ScrollView(.horizontal) {
@@ -778,6 +784,17 @@ private struct ContinueWatchingRow: View {
             }
             .scrollClipDisabled()
             .focusScope(continueScope)
+            // A card removed while focused (hold-Select → Remove) must hand the
+            // highlight to the NEXT available card in this row, not drop it.
+            // Only acts when this row owns focus (focusedCWCard non-nil), so a
+            // background progress update never yanks focus here. If the row
+            // empties, focusSection re-homes focus to the row below.
+            .onChange(of: items.map(\.id)) { oldIDs, newIDs in
+                guard let focused = focusedCWCard, !newIDs.contains(focused),
+                      !newIDs.isEmpty else { return }
+                let oldIndex = oldIDs.firstIndex(of: focused) ?? 0
+                focusedCWCard = newIDs[min(oldIndex, newIDs.count - 1)]
+            }
             .onChange(of: focusedCWCard) { oldValue, newValue in
                 if let newValue {
                     // ENTERING the row on the wrong (geometric) card — snap
@@ -799,6 +816,7 @@ private struct ContinueWatchingRow: View {
                 }
             }
         }
+        .focusSection()
     }
 }
 

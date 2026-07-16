@@ -403,6 +403,7 @@ struct ProfileEditView: View {
     @State private var name = ""
     @State private var showSetPin = false
     @State private var pinError: String?
+    @State private var confirmingDelete = false
 
     private var current: UserProfile {
         profiles.profiles.first { $0.id == profile.id } ?? profile
@@ -500,8 +501,7 @@ struct ProfileEditView: View {
 
                     if profile.id != 1 {
                         Button(role: .destructive) {
-                            profiles.delete(id: profile.id)
-                            onDone()
+                            confirmingDelete = true
                         } label: {
                             Label("Delete Profile", systemImage: "trash").font(.system(size: 24, weight: .semibold))
                         }
@@ -535,6 +535,21 @@ struct ProfileEditView: View {
             )
             .environmentObject(theme)
             .environmentObject(profiles)
+        }
+        // Deleting also pushes to the Nuvio account (ProfileStore.delete →
+        // onLocalChange → profile sync).
+        .confirmationDialog(
+            "Delete “\(current.name)”?",
+            isPresented: $confirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Profile", role: .destructive) {
+                profiles.delete(id: profile.id)
+                onDone()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the profile and its settings from this device and your Nuvio account. This can't be undone.")
         }
     }
 

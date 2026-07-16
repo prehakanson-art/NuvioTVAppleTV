@@ -2,21 +2,61 @@ import SwiftUI
 import AVKit
 import YouTubeKit
 
-/// Resolves a YouTube video key to a stream URL AVPlayer can play. tvOS has no
-/// WebKit, so we can't use the YouTube iframe embed — YouTubeKit extracts a
-/// natively-playable progressive stream instead.
+/// Resolves a YouTube video key to something AVPlayer can play. tvOS has no
+/// WebKit, so the iframe embed is out — YouTubeKit extracts native streams.
+///
+/// YouTube only *muxes* audio+video up to ~720p; 1080p and up exist solely as
+/// separate adaptive tracks (DASH). To match the Android app's full-HD trailers
+/// we merge the best H.264 video-only stream with the best AAC audio-only
+/// stream into one composition instead of settling for the ≤720p muxed stream.
 enum TrailerResolver {
-    static func streamURL(youtubeKey: String) async -> URL? {
+    /// Highest-quality natively-playable item: a merged 1080p video + audio
+    /// composition when available, otherwise the best muxed (≤720p) stream.
+    static func playerItem(youtubeKey: String) async -> AVPlayerItem? {
+        guard let streams = try? await YouTube(videoID: youtubeKey).streams else { return nil }
+        // isNativelyPlayable keeps only codecs AVPlayer decodes (H.264/AAC),
+        // dropping VP9/AV1 webm — so the "highest" video-only is 1080p H.264.
+        let playable = streams.filter { $0.isNativelyPlayable }
+
+        if let video = playable.filterVideoOnly().highestResolutionStream(),
+           let audio = playable.filterAudioOnly().highestAudioBitrateStream(),
+           let merged = await mergedItem(video: video.url, audio: audio.url) {
+            return merged
+        }
+        if let muxed = playable.filterVideoAndAudio().highestResolutionStream() {
+            return AVPlayerItem(url: muxed.url)
+        }
+        return nil
+    }
+
+    /// Merge a remote video-only and audio-only track into one playable asset.
+    private static func mergedItem(video: URL, audio: URL) async -> AVPlayerItem? {
+        let videoAsset = AVURLAsset(url: video)
+        let audioAsset = AVURLAsset(url: audio)
+        let composition = AVMutableComposition()
         do {
-            let streams = try await YouTube(videoID: youtubeKey).streams
-            let best = streams
-                .filterVideoAndAudio()
-                .filter { $0.isNativelyPlayable }
-                .highestResolutionStream()
-            return best?.url
+            guard let vTrack = try await videoAsset.loadTracks(withMediaType: .video).first else { return nil }
+            let duration = try await videoAsset.load(.duration)
+            let range = CMTimeRange(start: .zero, duration: duration)
+            let vComp = composition.addMutableTrack(withMediaType: .video, preferredTrackID: kCMPersistentTrackID_Invalid)
+            try vComp?.insertTimeRange(range, of: vTrack, at: .zero)
+            if let aTrack = try await audioAsset.loadTracks(withMediaType: .audio).first {
+                let aComp = composition.addMutableTrack(withMediaType: .audio, preferredTrackID: kCMPersistentTrackID_Invalid)
+                try aComp?.insertTimeRange(range, of: aTrack, at: .zero)
+            }
+            return AVPlayerItem(asset: composition)
         } catch {
             return nil
         }
+    }
+
+    /// Silent backdrop trailer: no audio needed, so use the sharpest
+    /// natively-playable video-only stream (falls back to a muxed stream).
+    static func streamURL(youtubeKey: String) async -> URL? {
+        guard let streams = try? await YouTube(videoID: youtubeKey).streams else { return nil }
+        let playable = streams.filter { $0.isNativelyPlayable }
+        if let video = playable.filterVideoOnly().highestResolutionStream() { return video.url }
+        return playable.filterVideoAndAudio().highestResolutionStream()?.url
     }
 }
 
@@ -80,11 +120,11 @@ struct TrailerPlayerView: View {
         }
         .onExitCommand { dismiss() }
         .task {
-            guard let url = await TrailerResolver.streamURL(youtubeKey: trailer.youtubeKey) else {
+            guard let item = await TrailerResolver.playerItem(youtubeKey: trailer.youtubeKey) else {
                 failed = true
                 return
             }
-            let player = AVPlayer(url: url)
+            let player = AVPlayer(playerItem: item)
             self.player = player
             player.play()
         }

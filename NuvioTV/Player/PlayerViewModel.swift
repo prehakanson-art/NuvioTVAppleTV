@@ -390,6 +390,17 @@ final class PlayerViewModel: ObservableObject {
     private var dvFullDuration: Double = 0
     /// One attempt per stream URL; a failed/abandoned URL never re-enters.
     private var dvFailedURLs: Set<String> = []
+
+    /// Block-based NotificationCenter registrations, removed in deinit. The
+    /// blocks capture self weakly so the VM deallocates fine either way — but
+    /// without explicit removal every finished playback session leaves its
+    /// dead observer blocks registered forever, each still invoked on every
+    /// background/foreground/controller event.
+    private var notificationTokens: [NSObjectProtocol] = []
+
+    deinit {
+        for token in notificationTokens { NotificationCenter.default.removeObserver(token) }
+    }
     private var dvAttempted = false
     private var dvRestarting = false
     /// Old remuxers kept alive until teardown so their segment dirs survive
@@ -700,11 +711,11 @@ final class PlayerViewModel: ObservableObject {
             ? AudioRendererPlayer.self : AudioEnginePlayer.self
         fetchEnrichedMeta()
         configureWheelTracking()
-        NotificationCenter.default.addObserver(
+        notificationTokens.append(NotificationCenter.default.addObserver(
             forName: .GCControllerDidConnect, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.configureWheelTracking() }
-        }
+        })
         registerLifecycleObservers()
         // NB: the idle timer is managed by `isPlaying` (kept awake only while
         // actually playing) — NOT disabled for the whole session, which used
@@ -752,24 +763,24 @@ final class PlayerViewModel: ObservableObject {
         // us — the decoder keeps queuing frames and the audio session drops,
         // so on return the video races to catch up (fast-forward) against
         // dead/stale audio. Pause cleanly here instead.
-        nc.addObserver(
+        notificationTokens.append(nc.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.handleEnterBackground() }
-        }
-        nc.addObserver(
+        })
+        notificationTokens.append(nc.addObserver(
             forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.handleEnterForeground() }
-        }
+        })
         // Double-pressing the TV button opens the app switcher: the app only
         // goes INACTIVE — didEnterBackground never fires — yet it's no longer
         // what's on screen, so playback kept running over the switcher/menu.
-        nc.addObserver(
+        notificationTokens.append(nc.addObserver(
             forName: UIApplication.willResignActiveNotification, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.handleResignActive() }
-        }
+        })
     }
 
     /// App switcher / system overlay took the screen without backgrounding

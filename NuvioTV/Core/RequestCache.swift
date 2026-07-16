@@ -31,6 +31,20 @@ actor DiskCache<Value: Codable & Sendable> {
     private struct Entry: Codable { let value: Value; let time: Date }
     private let directory: URL
     private var memory: [String: Entry] = [:]
+    /// The in-RAM mirror exists only to skip repeat disk reads within a
+    /// session — uncapped it grows for the app's lifetime (every catalog /
+    /// meta / enrichment response ever touched stays decoded in memory).
+    /// Eviction is invisible: entries re-read from disk on the next hit.
+    private let memoryLimit = 64
+
+    private func capMemory() {
+        guard memory.count > memoryLimit else { return }
+        // Drop the oldest half so eviction is amortized, not per-insert.
+        let sorted = memory.sorted { $0.value.time < $1.value.time }
+        for (key, _) in sorted.prefix(memory.count - memoryLimit / 2) {
+            memory.removeValue(forKey: key)
+        }
+    }
 
     init(name: String) {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
@@ -47,6 +61,7 @@ actor DiskCache<Value: Codable & Sendable> {
         } else if let data = try? Data(contentsOf: fileURL(key)),
                   let decoded = try? JSONDecoder().decode(Entry.self, from: data) {
             memory[key] = decoded
+            capMemory()
             entry = decoded
         } else {
             entry = nil
@@ -58,6 +73,7 @@ actor DiskCache<Value: Codable & Sendable> {
     func store(_ value: Value, for key: String) {
         let entry = Entry(value: value, time: Date())
         memory[key] = entry
+        capMemory()
         if let data = try? JSONEncoder().encode(entry) {
             try? data.write(to: fileURL(key), options: .atomic)
         }

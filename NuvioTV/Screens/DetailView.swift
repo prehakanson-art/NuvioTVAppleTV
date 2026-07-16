@@ -159,6 +159,10 @@ struct DetailView: View {
     /// Trailer playing silently in the backdrop after the idle delay.
     @State private var backdropPlayer: AVPlayer?
     @State private var showBackdropTrailer = false
+    /// Loop observer for the backdrop trailer, removed on teardown — otherwise
+    /// every Detail visit leaves a dead block registered with the notification
+    /// center forever.
+    @State private var backdropLoopToken: NSObjectProtocol?
 
     init(
         item: MetaItem,
@@ -257,7 +261,10 @@ struct DetailView: View {
         player.isMuted = true
         // Loop so the preview keeps running while browsing the page.
         player.actionAtItemEnd = .none
-        NotificationCenter.default.addObserver(
+        // The task can re-run within one visit (autoTrailerKey change) —
+        // release the previous loop observer before installing a new one.
+        if let token = backdropLoopToken { NotificationCenter.default.removeObserver(token) }
+        backdropLoopToken = NotificationCenter.default.addObserver(
             forName: .AVPlayerItemDidPlayToEndTime,
             object: player.currentItem, queue: .main
         ) { [weak player] _ in
@@ -276,6 +283,10 @@ struct DetailView: View {
         backdropPlayer?.pause()
         backdropPlayer?.replaceCurrentItem(with: nil)
         backdropPlayer = nil
+        if let token = backdropLoopToken {
+            NotificationCenter.default.removeObserver(token)
+            backdropLoopToken = nil
+        }
         showBackdropTrailer = false
     }
 

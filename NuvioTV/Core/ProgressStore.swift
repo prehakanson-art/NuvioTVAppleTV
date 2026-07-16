@@ -74,7 +74,36 @@ final class ProgressStore: ObservableObject {
         var changed = false
         for entry in remote {
             if let local = items[entry.id], local.updatedAt >= entry.updatedAt { continue }
-            items[entry.id] = entry
+            // Remote wins on position/timestamps, but synced rows arrive bare
+            // (the backend stores no title/artwork/stream URL) and enrichment
+            // is best-effort — so keep whatever presentation fields the local
+            // entry already has instead of blanking the card. The remembered
+            // stream URL carries over only for the same episode, so instant
+            // resume keeps working after a pull.
+            var merged = entry
+            if let local = items[entry.id] {
+                merged = WatchProgress(
+                    id: entry.id,
+                    metaID: entry.metaID,
+                    type: entry.type,
+                    name: entry.name.isEmpty ? local.name : entry.name,
+                    poster: entry.poster ?? local.poster,
+                    background: entry.background ?? local.background,
+                    logo: entry.logo ?? local.logo,
+                    season: entry.season,
+                    episode: entry.episode,
+                    episodeTitle: entry.episodeTitle
+                        ?? (local.season == entry.season && local.episode == entry.episode ? local.episodeTitle : nil),
+                    episodeThumbnail: entry.episodeThumbnail
+                        ?? (local.season == entry.season && local.episode == entry.episode ? local.episodeThumbnail : nil),
+                    positionSeconds: entry.positionSeconds,
+                    durationSeconds: entry.durationSeconds,
+                    streamURL: entry.streamURL
+                        ?? (local.season == entry.season && local.episode == entry.episode ? local.streamURL : nil),
+                    updatedAt: entry.updatedAt
+                )
+            }
+            items[entry.id] = merged
             changed = true
         }
         if changed { save() }

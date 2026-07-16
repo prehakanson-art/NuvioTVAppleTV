@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 enum StremioAPIError: LocalizedError {
     case badURL(String)
@@ -22,6 +23,23 @@ final class StremioResponseCache: @unchecked Sendable {
     private struct Entry { let data: Data; let time: Date }
     private var store: [String: Entry] = [:]
     private let lock = NSLock()
+    /// Raw response bodies add up (a catalog page is easily 100s of KB) —
+    /// uncapped, a long browse session keeps every response ever fetched in
+    /// RAM. Eviction is invisible: a dropped entry is just one round-trip
+    /// again. Also emptied outright on a memory warning, same policy as the
+    /// image cache (cheapest bytes to give back).
+    private let entryLimit = 96
+
+    init() {
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil, queue: nil
+        ) { [weak self] _ in
+            guard let self else { return }
+            self.lock.lock(); defer { self.lock.unlock() }
+            self.store.removeAll()
+        }
+    }
 
     func data(for key: String, ttl: TimeInterval) -> Data? {
         lock.lock(); defer { lock.unlock() }
@@ -32,6 +50,12 @@ final class StremioResponseCache: @unchecked Sendable {
     func store(_ data: Data, for key: String) {
         lock.lock(); defer { lock.unlock() }
         store[key] = Entry(data: data, time: Date())
+        guard store.count > entryLimit else { return }
+        // Drop the oldest half so eviction is amortized, not per-insert.
+        let sorted = store.sorted { $0.value.time < $1.value.time }
+        for (key, _) in sorted.prefix(store.count - entryLimit / 2) {
+            store.removeValue(forKey: key)
+        }
     }
 }
 

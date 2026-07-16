@@ -99,6 +99,11 @@ struct RootView: View {
     // coming back keeps the query and results instead of clearing them.
     @StateObject private var searchViewModel = SearchViewModel()
     @State private var playback: PlaybackRequest?
+    /// An Auto Link Selector auto-play is on screen; pop its source page once the
+    /// player closes so Back returns to the title page, not the source list.
+    /// Deferred (not popped at play time) so StreamsView isn't torn down while
+    /// its resolve Task is still running.
+    @State private var pendingAutoPlayPop = false
     @State private var sync: NuvioSyncManager?
     @State private var showProfileGate = false
     @State private var selectedTab = 0
@@ -416,6 +421,12 @@ struct RootView: View {
                 progressStore: progressStore,
                 playerSettings: playerSettings.settings
             ) {
+                // Pop the auto-played source page (behind the cover) before
+                // dismissing, so Back lands on the title page.
+                if pendingAutoPlayPop {
+                    pendingAutoPlayPop = false
+                    popActivePathForAutoPlay()
+                }
                 playback = nil
             }
         }
@@ -617,9 +628,10 @@ struct RootView: View {
         case .streams(let meta, let video):
             StreamsView(
                 meta: meta, video: video,
-                // Auto Link Selector auto-played: pop the source page so backing
-                // out of the player returns to the title page, not the list.
-                onAutoDismiss: { if !path.wrappedValue.isEmpty { path.wrappedValue.removeLast() } }
+                // Auto Link Selector auto-played: flag a deferred pop; the real
+                // pop happens when the player closes (see the player cover),
+                // never while this view's resolve Task is still running.
+                onAutoDismiss: { pendingAutoPlayPop = true }
             ) { entry, all in
                 let key = ProgressStore.key(metaID: meta.id, video: video)
                 startPlayback(PlaybackRequest(
@@ -714,6 +726,20 @@ struct RootView: View {
         startPlayback(PlaybackRequest(
             meta: meta, video: nil, entry: entry, allEntries: [entry], resumePosition: nil
         ))
+    }
+
+    /// Pop the source page off the active tab's stack after an Auto Link
+    /// Selector auto-play, so backing out of the player returns to the title
+    /// page. Safe here because the player has fully closed by now. The player
+    /// covers the stack while it's up, so the top entry is still the source page.
+    private func popActivePathForAutoPlay() {
+        switch selectedTab {
+        case 0: if !homePath.isEmpty { homePath.removeLast() }
+        case 1: if !searchPath.isEmpty { searchPath.removeLast() }
+        case 2: if !libraryPath.isEmpty { libraryPath.removeLast() }
+        case 4: if !liveTVPath.isEmpty { liveTVPath.removeLast() }
+        default: break
+        }
     }
 
     private func startPlayback(_ request: PlaybackRequest) {

@@ -126,6 +126,7 @@ final class StreamsViewModel: ObservableObject {
         let maxBytes = prefs.maxSizeGB > 0 ? Int64(prefs.maxSizeGB * 1_073_741_824) : nil
         let pool = allEntries.filter { entry in
             if prefs.cachedOnly && !entry.stream.isCached { return false }
+            if prefs.avoidDolbyVision && entry.stream.isDolbyVision { return false }
             if let minTier, let label = entry.resolutionLabel,
                ResolutionTier.from(resolutionLabel: label).rawValue > minTier.rawValue { return false }
             if let maxBytes, let bytes = entry.sizeBytes, bytes > 0, bytes > maxBytes { return false }
@@ -370,8 +371,10 @@ struct StreamsView: View {
                let last = await viewModel.freshLastLink(hours: s.reuseLastLinkCacheHours) {
                 didAutoAct = true
                 await loadTask.value
-                if autoLinkResolving { onAutoDismiss() }
                 onSelect(last, viewModel.allEntries)
+                // Signals a deferred pop (handled when the player closes); does
+                // NOT tear down this view now, so the in-flight resolve is safe.
+                if autoLinkResolving { onAutoDismiss() }
                 return
             }
             await loadTask.value
@@ -383,10 +386,11 @@ struct StreamsView: View {
             if !didAutoAct, !forceManual, autoLink.enabled {
                 if let pick = viewModel.autoLinkPick(autoLink) {
                     didAutoAct = true
-                    // Pop this page so backing out of the player lands on the
-                    // title page, not the source list.
-                    onAutoDismiss()
                     handleSelection(pick, viewModel.allEntries)
+                    // Request a pop AFTER the player closes (not now) so backing
+                    // out lands on the title page, not the source list — popping
+                    // here would tear this view down mid-resolve and crash.
+                    onAutoDismiss()
                 } else {
                     // No source matched the prefs — reveal the list as a manual
                     // fallback instead of leaving the loading screen up.

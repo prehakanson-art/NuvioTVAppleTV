@@ -18,6 +18,27 @@ struct AutoLinkPreferences: Codable, Hashable {
     var maxSizeGB = 0.0
     /// Only pick a debrid-cached / instantly-playable source.
     var cachedOnly = false
+    /// Skip Dolby Vision sources when auto-picking. On by default: DV Profile 5
+    /// has no compatible base layer, so a source that isn't handled by the
+    /// (experimental) native-DV path plays back green/purple — better not to
+    /// auto-play one. Turn off to let auto-play choose DV sources.
+    var avoidDolbyVision = true
+
+    init() {}
+
+    // Tolerant decode so prefs saved before a field existed still load (a
+    // missing key falls back to the default instead of failing the whole
+    // profile decode).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = (try? c.decode(Bool.self, forKey: .enabled)) ?? false
+        preferredAddon = (try? c.decode(String.self, forKey: .preferredAddon)) ?? ""
+        secondaryAddon = (try? c.decode(String.self, forKey: .secondaryAddon)) ?? ""
+        minResolution = (try? c.decode(String.self, forKey: .minResolution)) ?? ""
+        maxSizeGB = (try? c.decode(Double.self, forKey: .maxSizeGB)) ?? 0
+        cachedOnly = (try? c.decode(Bool.self, forKey: .cachedOnly)) ?? false
+        avoidDolbyVision = (try? c.decode(Bool.self, forKey: .avoidDolbyVision)) ?? true
+    }
 }
 
 /// A viewer profile. `id` is the backend `profile_index`; profile 1 is the

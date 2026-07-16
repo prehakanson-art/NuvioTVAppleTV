@@ -722,6 +722,15 @@ struct ProfileEditView: View {
                     .font(.system(size: 24, weight: .medium))
                     .tint(theme.palette.secondary)
                     .frame(maxWidth: 560)
+
+                Toggle("Avoid Dolby Vision", isOn: autoBind(\.avoidDolbyVision))
+                    .font(.system(size: 24, weight: .medium))
+                    .tint(theme.palette.secondary)
+                    .frame(maxWidth: 560)
+                Text("Dolby Vision sources can play with green/purple colors on tvOS. Leave on unless your DV playback works.")
+                    .font(.system(size: 18))
+                    .foregroundStyle(theme.palette.textTertiary)
+                    .frame(maxWidth: 820, alignment: .leading)
             }
         }
         .padding(.top, NuvioSpacing.lg)

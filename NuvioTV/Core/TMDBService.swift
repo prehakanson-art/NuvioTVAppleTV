@@ -151,25 +151,6 @@ enum TMDBService {
         return "\(imageBase)/\(size)\(path)"
     }
 
-    /// Live map of TMDB watch-provider id → logo image URL (US region by
-    /// default), for the streaming-service collection tiles. Uses the embedded
-    /// key, so it works regardless of the TMDB integration toggle.
-    static func watchProviderLogos(region: String = "US") async -> [String: String] {
-        struct Resp: Decodable { let results: [P]? }
-        struct P: Decodable { let provider_id: Int; let logo_path: String? }
-        var out: [String: String] = [:]
-        for path in ["/watch/providers/movie", "/watch/providers/tv"] {
-            guard let resp: Resp = try? await get(path, query: ["watch_region": region, "language": "en-US"]) else { continue }
-            for p in resp.results ?? [] {
-                let key = String(p.provider_id)
-                if out[key] == nil, let logo = imageURL(p.logo_path, size: "original") {
-                    out[key] = logo
-                }
-            }
-        }
-        return out
-    }
-
     // MARK: - ID mapping
 
     /// Map a TMDB id to an IMDB tt id via /external_ids. Cached; nil on failure.

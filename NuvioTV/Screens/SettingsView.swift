@@ -906,7 +906,6 @@ private struct AddonsManagementView: View {
     @State private var showCatalogOrder = false
     @State private var showDiscover = false
     @State private var showCommunityCatalogs = false
-    @State private var showCommunityCollections = false
     @State private var refreshing = false
     @State private var showExport = false
     @State private var pendingRemoval: InstalledAddon?
@@ -983,16 +982,6 @@ private struct AddonsManagementView: View {
             }
             .buttonStyle(PlainCardButtonStyle())
 
-            // Community Collections — ready-made collections you can add.
-            Button { showCommunityCollections = true } label: {
-                SettingsActionRow(
-                    title: "Community Collections",
-                    subtitle: "Add ready-made collections that bundle popular catalogs into one Home row",
-                    leadingIcon: "square.stack.3d.up.fill"
-                )
-            }
-            .buttonStyle(PlainCardButtonStyle())
-
             // Refresh Add-ons
             Button { refresh() } label: {
                 SettingsActionRow(
@@ -1059,12 +1048,6 @@ private struct AddonsManagementView: View {
             AddonDiscoverView(onDone: { showCommunityCatalogs = false }, catalogsOnly: true)
                 .environmentObject(theme)
                 .environmentObject(addonManager)
-        }
-        .fullScreenCover(isPresented: $showCommunityCollections) {
-            CommunityCollectionsView(onDone: { showCommunityCollections = false })
-                .environmentObject(theme)
-                .environmentObject(addonManager)
-                .environmentObject(collections)
         }
         .alert("Remove Add-on?",
                isPresented: Binding(get: { pendingRemoval != nil },

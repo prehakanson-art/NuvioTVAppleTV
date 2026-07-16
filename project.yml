@@ -4,13 +4,9 @@ options:
     tvOS: "17.0"
   createIntermediateGroups: true
 packages:
-  # Vendored local copy of KSPlayer @ 10a40a1c (upstream
-  # github.com/kingslay/KSPlayer) with a patch to AudioSwresample.change that
-  # guards against a negative/huge audio-buffer allocation that aborted the
-  # app during FFmpeg audio decode. See Vendor/KSPlayer/Sources/KSPlayer/
-  # MEPlayer/Resample.swift ("NuvioTV patch").
   KSPlayer:
-    path: Vendor/KSPlayer
+    url: https://github.com/kingslay/KSPlayer
+    revision: 10a40a1c0001d75307ad5922d1d1bc0cb01c89b4
   # Pure-Swift YouTube stream extractor — the only way to play trailer
   # YouTube keys on tvOS (no WebKit/WKWebView, so no iframe embed).
   YouTubeKit:

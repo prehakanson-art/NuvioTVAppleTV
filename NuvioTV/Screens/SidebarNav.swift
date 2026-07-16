@@ -41,6 +41,7 @@ enum AppTab: Int, CaseIterable, Identifiable {
 struct SidebarNav: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var profiles: ProfileStore
+    @ObservedObject private var liveTV = LiveTVSettingsStore.shared
     @Binding var selected: Int
     var focusBinding: FocusState<Int?>.Binding
     var onProfileTap: () -> Void = {}
@@ -79,7 +80,7 @@ struct SidebarNav: View {
 
             // Nav items, vertically centered as a group (generous spacing like the APK).
             VStack(alignment: .leading, spacing: 22) {
-                ForEach(AppTab.sidebarOrder) { tab in
+                ForEach(AppTab.sidebarOrder.filter { $0 != .liveTV || liveTV.enabled }) { tab in
                     Button {
                         // Fire BEFORE mutating `selected` so the root can still
                         // see which tab we're coming FROM.

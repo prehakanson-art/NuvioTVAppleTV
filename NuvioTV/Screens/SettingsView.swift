@@ -804,22 +804,30 @@ private struct ContentDiscoveryDetail: View {
                     ]
                 ) { homeCatalogSettings.autoRefreshMinutes = Int($0) ?? 0 }
             }
-            SettingsGroupCard(title: "Live TV", subtitle: "Set your location and language — the built-in IPTV list only shows channels that apply to you") {
-                NuvioDropdown(
-                    title: "Location",
-                    subtitle: "Load channels for this country. All countries = the full global list.",
-                    icon: "globe",
-                    selection: liveTV.countryCode,
-                    options: LiveTVSettingsStore.countries.map { NuvioDropdownOption($0.code, $0.name) }
-                ) { liveTV.countryCode = $0 }
+            SettingsGroupCard(title: "Live TV", subtitle: "The Live TV tab, and which channels its built-in IPTV list shows") {
+                SettingsToggleCard(
+                    title: "Live TV tab",
+                    subtitle: "Show the Live TV tab in the sidebar. Off: it's hidden until you turn this back on.",
+                    isOn: $liveTV.enabled
+                )
 
-                NuvioDropdown(
-                    title: "Preferred language",
-                    subtitle: "Only show channels in this language. Combined with a location, keeps channels in both.",
-                    icon: "character.bubble",
-                    selection: liveTV.languageCode,
-                    options: LiveTVSettingsStore.languages.map { NuvioDropdownOption($0.code, $0.name) }
-                ) { liveTV.languageCode = $0 }
+                if liveTV.enabled {
+                    NuvioDropdown(
+                        title: "Location",
+                        subtitle: "Load channels for this country. All countries = the full global list.",
+                        icon: "globe",
+                        selection: liveTV.countryCode,
+                        options: LiveTVSettingsStore.countries.map { NuvioDropdownOption($0.code, $0.name) }
+                    ) { liveTV.countryCode = $0 }
+
+                    NuvioDropdown(
+                        title: "Preferred language",
+                        subtitle: "Only show channels in this language, wherever they're from. Location is used only when no language is set.",
+                        icon: "character.bubble",
+                        selection: liveTV.languageCode,
+                        options: LiveTVSettingsStore.languages.map { NuvioDropdownOption($0.code, $0.name) }
+                    ) { liveTV.languageCode = $0 }
+                }
             }
             SettingsGroupCard(title: "Badges", subtitle: "Badge packs from Badger (nintle.github.io/Badger) shown on source rows") {
                 badgeControls

@@ -9,15 +9,20 @@ import Foundation
 final class LiveTVSettingsStore: ObservableObject {
     static let shared = LiveTVSettingsStore()
 
+    /// Whether the Live TV tab is shown in the sidebar at all.
+    @Published var enabled: Bool { didSet { UserDefaults.standard.set(enabled, forKey: Self.enabledKey) } }
     /// ISO-3166 alpha-2 lowercase (iptv-org country file), "" = all.
     @Published var countryCode: String { didSet { UserDefaults.standard.set(countryCode, forKey: Self.countryKey) } }
     /// ISO-639-3 lowercase (iptv-org language file), "" = all.
     @Published var languageCode: String { didSet { UserDefaults.standard.set(languageCode, forKey: Self.langKey) } }
 
+    private static let enabledKey = "nuvio.livetv.enabled.v1"
     private static let countryKey = "nuvio.livetv.country.v1"
     private static let langKey = "nuvio.livetv.language.v1"
 
     private init() {
+        // Default ON (the tab ships enabled); only an explicit false hides it.
+        enabled = (UserDefaults.standard.object(forKey: Self.enabledKey) as? Bool) ?? true
         countryCode = UserDefaults.standard.string(forKey: Self.countryKey) ?? ""
         languageCode = UserDefaults.standard.string(forKey: Self.langKey) ?? ""
     }

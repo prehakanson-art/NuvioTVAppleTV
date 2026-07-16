@@ -64,6 +64,7 @@ enum Route: Hashable {
 struct RootView: View {
     @EnvironmentObject private var theme: ThemeManager
     @ObservedObject private var perf = PerformanceSettingsStore.shared
+    @ObservedObject private var liveTV = LiveTVSettingsStore.shared
     @EnvironmentObject private var addonManager: AddonManager
     @EnvironmentObject private var progressStore: ProgressStore
     @EnvironmentObject private var account: NuvioAccountManager
@@ -108,6 +109,11 @@ struct RootView: View {
     var body: some View {
         content
             .onOpenURL { handleDeepLink($0) }
+            // If Live TV is turned off while you're on it (or via sync), drop
+            // back to Home so you're not stranded on a now-hidden tab.
+            .onChange(of: liveTV.enabled) { _, enabled in
+                if !enabled && selectedTab == 4 { selectedTab = 0 }
+            }
             .onAppear {
                 NSLog("[NuvioPlayer] RootView content onAppear")
                 startPlayerDemoIfRequested()

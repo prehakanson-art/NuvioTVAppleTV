@@ -200,64 +200,115 @@ struct CatalogOrderSection: View {
     @State private var renamingRow: LayoutRowInfo?
     @State private var renameText = ""
 
-    private var rows: [LayoutRowInfo] {
-        var byKey: [String: LayoutRowInfo] = [:]
-        var catalogKeys: [String] = []
-        var collectionKeys: [String] = []
+    /// Keep a just-moved row in view (runs after the reorder re-lays-out).
+    private func follow(_ proxy: ScrollViewProxy, _ key: String) {
+        DispatchQueue.main.async {
+            withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo(key, anchor: .center) }
+        }
+    }
+
+    /// Real catalog keys, in nothing-special order (used for the block reorder).
+    private var catalogKeys: [String] {
+        var keys: [String] = []
+        var seen = Set<String>()
         for addon in addonManager.catalogAddons {
             for catalog in (addon.manifest.catalogs ?? []) where !catalog.requiresExtra {
                 let key = HomeCatalogSettingsStore.catalogKey(
-                    addonID: addon.manifest.id, type: catalog.type, catalogID: catalog.id
-                )
-                guard byKey[key] == nil else { continue }
-                catalogKeys.append(key)
-                byKey[key] = LayoutRowInfo(
-                    key: key,
-                    defaultTitle: catalog.displayName,
-                    subtitle: addon.manifest.name,
-                    isCollection: false
-                )
+                    addonID: addon.manifest.id, type: catalog.type, catalogID: catalog.id)
+                if seen.insert(key).inserted { keys.append(key) }
             }
         }
-        for collection in collections.collections {
-            let key = HomeCatalogSettingsStore.collectionKey(collection.id)
-            collectionKeys.append(key)
-            byKey[key] = LayoutRowInfo(
-                key: key,
-                defaultTitle: collection.title,
-                subtitle: "Collection · \(collection.folders.count) folder\(collection.folders.count == 1 ? "" : "s")",
-                isCollection: true
-            )
+        return keys
+    }
+
+    private var collectionKeys: [String] {
+        collections.collections.map { HomeCatalogSettingsStore.collectionKey($0.id) }
+    }
+
+    /// Display rows: catalog rows plus ONE "Collections" row (all collections
+    /// fold into it), positioned where the collections block sits.
+    private var rows: [LayoutRowInfo] {
+        var byKey: [String: LayoutRowInfo] = [:]
+        for addon in addonManager.catalogAddons {
+            for catalog in (addon.manifest.catalogs ?? []) where !catalog.requiresExtra {
+                let key = HomeCatalogSettingsStore.catalogKey(
+                    addonID: addon.manifest.id, type: catalog.type, catalogID: catalog.id)
+                if byKey[key] == nil {
+                    byKey[key] = LayoutRowInfo(key: key, defaultTitle: catalog.displayName,
+                                               subtitle: addon.manifest.name, isCollection: false)
+                }
+            }
         }
-        return settings
-            .mergedOrder(catalogKeys: catalogKeys, collectionKeys: collectionKeys)
-            .compactMap { byKey[$0] }
+        let cKeys = collectionKeys
+        let collectionsRow = LayoutRowInfo(
+            key: HomeCatalogSettingsStore.collectionsUnit,
+            defaultTitle: "Collections",
+            subtitle: "\(collections.collections.count) collection\(collections.collections.count == 1 ? "" : "s") · one Home row",
+            isCollection: true
+        )
+        var result: [LayoutRowInfo] = []
+        var insertedCollections = false
+        for key in settings.mergedOrder(catalogKeys: catalogKeys, collectionKeys: cKeys) {
+            if cKeys.contains(key) {
+                if !insertedCollections && !collections.collections.isEmpty {
+                    result.append(collectionsRow); insertedCollections = true
+                }
+            } else if let r = byKey[key] {
+                result.append(r)
+            }
+        }
+        return result
+    }
+
+    private var collectionsEnabled: Bool {
+        collectionKeys.contains { settings.isEnabled(key: $0) }
     }
 
     var body: some View {
         let rows = self.rows
-        let allKeys = rows.map(\.key)
-        SettingsGroupCard(title: "Home Rows", subtitle: "Reorder, rename and hide your catalog rows") {
-            ForEach(rows) { row in
-                LayoutRowView(
-                    row: row,
-                    title: settings.customTitle(for: row.key) ?? row.defaultTitle,
-                    isRenamed: settings.customTitle(for: row.key) != nil,
-                    enabled: settings.isEnabled(key: row.key),
-                    onMoveUp: { settings.move(key: row.key, up: true, within: allKeys) },
-                    onMoveDown: { settings.move(key: row.key, up: false, within: allKeys) },
-                    onToggle: { settings.setEnabled(!settings.isEnabled(key: row.key), key: row.key) },
-                    onRename: {
-                        renameText = settings.customTitle(for: row.key) ?? ""
-                        renamingRow = row
-                    }
-                )
-            }
+        let catalogKeys = self.catalogKeys
+        let collectionKeys = self.collectionKeys
+        // The proxy drives the enclosing DetailScaffold scroll, so after a
+        // move we scroll the row back into view — otherwise moving up pushed
+        // the row off the top of the screen.
+        ScrollViewReader { proxy in
+            SettingsGroupCard(title: "Home Rows", subtitle: "Reorder, rename and hide your catalog rows") {
+                ForEach(rows) { row in
+                    let isCollectionsUnit = row.key == HomeCatalogSettingsStore.collectionsUnit
+                    LayoutRowView(
+                        row: row,
+                        title: isCollectionsUnit ? row.defaultTitle : (settings.customTitle(for: row.key) ?? row.defaultTitle),
+                        isRenamed: !isCollectionsUnit && settings.customTitle(for: row.key) != nil,
+                        enabled: isCollectionsUnit ? collectionsEnabled : settings.isEnabled(key: row.key),
+                        onMoveUp: {
+                            settings.moveHomeUnit(up: true, unitKey: row.key, catalogKeys: catalogKeys, collectionKeys: collectionKeys)
+                            follow(proxy, row.key)
+                        },
+                        onMoveDown: {
+                            settings.moveHomeUnit(up: false, unitKey: row.key, catalogKeys: catalogKeys, collectionKeys: collectionKeys)
+                            follow(proxy, row.key)
+                        },
+                        onToggle: {
+                            if isCollectionsUnit {
+                                settings.setCollectionsEnabled(!collectionsEnabled, collectionKeys: collectionKeys)
+                            } else {
+                                settings.setEnabled(!settings.isEnabled(key: row.key), key: row.key)
+                            }
+                        },
+                        onRename: {
+                            guard !isCollectionsUnit else { return }   // the Collections row keeps its name
+                            renameText = settings.customTitle(for: row.key) ?? ""
+                            renamingRow = row
+                        }
+                    )
+                    .id(row.key)
+                }
 
-            if rows.isEmpty {
-                Text("No home rows yet — install a catalog add-on first.")
-                    .font(.system(size: 21))
-                    .foregroundStyle(theme.palette.textSecondary)
+                if rows.isEmpty {
+                    Text("No home rows yet — install a catalog add-on first.")
+                        .font(.system(size: 21))
+                        .foregroundStyle(theme.palette.textSecondary)
+                }
             }
         }
         .fullScreenCover(item: $renamingRow) { row in

@@ -464,8 +464,23 @@ struct HomeView: View {
             continueRow(continueItems)
         }
 
+        // All collections render as ONE headerless row, positioned where the
+        // first collection sits in the order. Other collection entries are
+        // skipped (folded into that single row).
+        let allCollections = viewModel.entries.compactMap { entry -> NuvioCollection? in
+            if case .collection(let c) = entry { return c } else { return nil }
+        }
+        let firstCollectionID = allCollections.first?.id
+
         ForEach(viewModel.entries) { entry in
-            rowEntry(entry)
+            switch entry {
+            case .catalog:
+                rowEntry(entry)
+            case .collection(let collection):
+                if collection.id == firstCollectionID {
+                    CollectionsRowSection(collections: allCollections, onOpen: onOpenCollection)
+                }
+            }
         }
     }
 

@@ -336,6 +336,44 @@ final class HomeCatalogSettingsStore: ObservableObject {
         setOrder(keys)
     }
 
+    /// Synthetic unit token for the single "Collections" reorder row — all
+    /// collections move together as one contiguous block on Home.
+    static let collectionsUnit = "COLLECTIONS"
+
+    /// Reorder Home treating every collection as ONE unit (they render as a
+    /// single row). `unitKey` is a catalog key or `collectionsUnit`.
+    func moveHomeUnit(up: Bool, unitKey: String, catalogKeys: [String], collectionKeys: [String]) {
+        let order = mergedOrder(catalogKeys: catalogKeys, collectionKeys: collectionKeys)
+        var units: [String] = []
+        var insertedCollections = false
+        for k in order {
+            if collectionKeys.contains(k) {
+                if !insertedCollections { units.append(Self.collectionsUnit); insertedCollections = true }
+            } else {
+                units.append(k)
+            }
+        }
+        guard let idx = units.firstIndex(of: unitKey) else { return }
+        let target = up ? idx - 1 : idx + 1
+        guard units.indices.contains(target) else { return }
+        units.swapAt(idx, target)
+        var result: [String] = []
+        for u in units {
+            if u == Self.collectionsUnit { result.append(contentsOf: collectionKeys) }
+            else { result.append(u) }
+        }
+        setOrder(result)
+    }
+
+    /// Show/hide ALL collections at once (the single Collections row).
+    func setCollectionsEnabled(_ enabled: Bool, collectionKeys: [String]) {
+        for k in collectionKeys {
+            if enabled { disabledKeys.remove(k) } else { disabledKeys.insert(k) }
+        }
+        save()
+        notifyLocalChange()
+    }
+
     func setEnabled(_ enabled: Bool, key: String) {
         if enabled { disabledKeys.remove(key) } else { disabledKeys.insert(key) }
         save()

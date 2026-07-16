@@ -151,6 +151,25 @@ enum TMDBService {
         return "\(imageBase)/\(size)\(path)"
     }
 
+    /// Live map of TMDB watch-provider id → logo image URL (US region by
+    /// default), for the streaming-service collection tiles. Uses the embedded
+    /// key, so it works regardless of the TMDB integration toggle.
+    static func watchProviderLogos(region: String = "US") async -> [String: String] {
+        struct Resp: Decodable { let results: [P]? }
+        struct P: Decodable { let provider_id: Int; let logo_path: String? }
+        var out: [String: String] = [:]
+        for path in ["/watch/providers/movie", "/watch/providers/tv"] {
+            guard let resp: Resp = try? await get(path, query: ["watch_region": region, "language": "en-US"]) else { continue }
+            for p in resp.results ?? [] {
+                let key = String(p.provider_id)
+                if out[key] == nil, let logo = imageURL(p.logo_path, size: "w300") {
+                    out[key] = logo
+                }
+            }
+        }
+        return out
+    }
+
     // MARK: - ID mapping
 
     /// Map a TMDB id to an IMDB tt id via /external_ids. Cached; nil on failure.
@@ -297,6 +316,13 @@ enum TMDBService {
         if let v = f?.withGenres { query["with_genres"] = v }
         if let v = f?.withKeywords { query["with_keywords"] = v }
         if let v = f?.withOriginalLanguage { query["with_original_language"] = v }
+        // Streaming-service filtering (Netflix, Hulu, Apple TV+, …): both keys
+        // are required together by TMDB. Limit to subscription/flatrate offers.
+        if let providers = f?.withWatchProviders, !providers.isEmpty {
+            query["with_watch_providers"] = providers
+            query["watch_region"] = (f?.watchRegion?.isEmpty == false) ? f!.watchRegion! : "US"
+            query["with_watch_monetization_types"] = "flatrate"
+        }
         if let v = f?.voteCountGte { query["vote_count.gte"] = String(v) }
         if let v = f?.voteAverageGte { query["vote_average.gte"] = String(v) }
         if let v = f?.year { query[useTV ? "first_air_date_year" : "year"] = String(v) }

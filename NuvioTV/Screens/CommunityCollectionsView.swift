@@ -1,8 +1,9 @@
 import SwiftUI
 
-/// Ready-made "collections" — one-tap groupings that bundle the catalogs you
-/// already have installed (by type) into a single Home collection row. Reached
-/// from Add-ons → Community Collections, mirroring Community Catalogs.
+/// Ready-made collections. Two kinds: streaming-service collections (Netflix,
+/// Apple TV+, Hulu…) that pull that service's movies & shows via TMDB, and
+/// type bundles built from the catalogs you already have installed. Reached
+/// from Add-ons → Community Collections.
 struct CommunityCollectionsView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var addonManager: AddonManager
@@ -11,7 +12,26 @@ struct CommunityCollectionsView: View {
 
     @FocusState private var focusedID: String?
     @State private var addedIDs: Set<String> = []
+    @State private var providerLogos: [String: String] = [:]
 
+    // MARK: Streaming services (TMDB watch-provider ids)
+    struct Service: Identifiable {
+        let id: String
+        let name: String
+        let providerID: String
+    }
+    static let services: [Service] = [
+        .init(id: "netflix",  name: "Netflix",      providerID: "8"),
+        .init(id: "appletv",  name: "Apple TV+",    providerID: "350"),
+        .init(id: "disney",   name: "Disney+",      providerID: "337"),
+        .init(id: "hulu",     name: "Hulu",         providerID: "15"),
+        .init(id: "max",      name: "Max",          providerID: "1899"),
+        .init(id: "paramount",name: "Paramount+",   providerID: "531"),
+        .init(id: "prime",    name: "Prime Video",  providerID: "9"),
+        .init(id: "peacock",  name: "Peacock",      providerID: "386"),
+    ]
+
+    // MARK: Type bundles (from installed catalogs)
     struct Preset: Identifiable {
         let id: String
         let title: String
@@ -20,7 +40,6 @@ struct CommunityCollectionsView: View {
         let emoji: String
         let types: Set<String>
     }
-
     static let presets: [Preset] = [
         .init(id: "movies", title: "Movies Hub", subtitle: "Every installed movie catalog in one row",
               icon: "film.fill", emoji: "🎬", types: ["movie"]),
@@ -37,34 +56,106 @@ struct CommunityCollectionsView: View {
             theme.palette.background.ignoresSafeArea()
             DetailScaffold(
                 title: "Community Collections",
-                subtitle: "Ready-made collections built from the catalogs you have installed"
+                subtitle: "Streaming-service rows and bundles built from your catalogs"
             ) {
-                LazyVStack(alignment: .leading, spacing: NuvioSpacing.sm) {
-                    ForEach(Self.presets) { preset in
-                        let count = sources(for: preset).count
-                        let added = addedIDs.contains(preset.id) || collectionExists(preset)
-                        Button {
-                            if count > 0 && !added { add(preset) }
-                        } label: {
-                            CommunityCollectionRow(preset: preset, catalogCount: count, added: added)
-                        }
-                        .buttonStyle(PlainCardButtonStyle())
-                        .focused($focusedID, equals: preset.id)
-                    }
-
-                    Text("Collections group several catalogs into a single Home row. Install more catalog add-ons from Community Catalogs to fill these out.")
+                LazyVStack(alignment: .leading, spacing: NuvioSpacing.xl) {
+                    servicesSection
+                    catalogSection
+                    Text("Streaming-service collections use TMDB to list what's on each service (needs the TMDB integration, which is on by default). Type bundles group the catalog add-ons you already have installed.")
                         .font(.system(size: 18))
                         .foregroundStyle(theme.palette.textTertiary)
                         .padding(.horizontal, 8)
-                        .padding(.top, NuvioSpacing.md)
                 }
             }
         }
         .onExitCommand { onDone() }
+        .task { providerLogos = await TMDBService.watchProviderLogos() }
         .task {
             try? await Task.sleep(nanoseconds: 250_000_000)
-            if focusedID == nil { focusedID = Self.presets.first?.id }
+            if focusedID == nil { focusedID = Self.services.first?.id }
         }
+    }
+
+    private var servicesSection: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
+            sectionHeader("Streaming Services")
+            ForEach(Self.services) { service in
+                let added = addedIDs.contains(service.id) || collectionExists(service.name)
+                Button {
+                    if !added { addService(service) }
+                } label: {
+                    CollectionPresetRow(
+                        title: service.name,
+                        subtitle: "Movies & shows on \(service.name)",
+                        logoURL: providerLogos[service.providerID],
+                        fallbackIcon: "play.tv.fill",
+                        added: added, disabled: false
+                    )
+                }
+                .buttonStyle(PlainCardButtonStyle())
+                .focused($focusedID, equals: service.id)
+            }
+        }
+    }
+
+    private var catalogSection: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
+            sectionHeader("From Your Catalogs")
+            ForEach(Self.presets) { preset in
+                let count = sources(for: preset).count
+                let added = addedIDs.contains(preset.id) || collectionExists(preset.title)
+                Button {
+                    if count > 0 && !added { addPreset(preset) }
+                } label: {
+                    CollectionPresetRow(
+                        title: preset.title,
+                        subtitle: count == 0
+                            ? "\(preset.subtitle) — no matching catalogs installed"
+                            : "\(preset.subtitle) · \(count) catalog\(count == 1 ? "" : "s")",
+                        logoURL: nil, fallbackIcon: preset.icon,
+                        added: added, disabled: count == 0
+                    )
+                }
+                .buttonStyle(PlainCardButtonStyle())
+                .focused($focusedID, equals: preset.id)
+            }
+        }
+    }
+
+    private func sectionHeader(_ t: String) -> some View {
+        Text(t.uppercased())
+            .font(.system(size: 18, weight: .bold))
+            .tracking(1.6)
+            .foregroundStyle(theme.palette.secondary)
+            .padding(.horizontal, 8)
+    }
+
+    // MARK: Actions
+
+    private func tmdbSource(providerID: String, media: String) -> CollectionSourceDTO {
+        var s = CollectionSourceDTO(addonId: "", type: "", catalogId: "")
+        s.provider = "tmdb"
+        s.tmdbSourceType = "DISCOVER"
+        s.mediaType = media
+        var f = TmdbFiltersDTO()
+        f.withWatchProviders = providerID
+        f.watchRegion = "US"
+        s.filters = f
+        return s
+    }
+
+    private func addService(_ service: Service) {
+        var folder = NuvioCollectionFolder(
+            id: UUID().uuidString, title: service.name,
+            sources: [tmdbSource(providerID: service.providerID, media: "movie"),
+                      tmdbSource(providerID: service.providerID, media: "tv")]
+        )
+        folder.tileShape = "SQUARE"
+        folder.coverImageUrl = providerLogos[service.providerID]
+        folder.hideTitle = false
+        let collection = NuvioCollection(id: UUID().uuidString, title: service.name, folders: [folder])
+        collections.add(collection)
+        addedIDs.insert(service.id)
     }
 
     private func sources(for preset: Preset) -> [CollectionSourceDTO] {
@@ -72,19 +163,13 @@ struct CommunityCollectionsView: View {
         for addon in addonManager.catalogAddons {
             for catalog in (addon.manifest.catalogs ?? [])
             where preset.types.contains(catalog.type) && !catalog.requiresExtra {
-                out.append(CollectionSourceDTO(
-                    addonId: addon.manifest.id, type: catalog.type, catalogId: catalog.id
-                ))
+                out.append(CollectionSourceDTO(addonId: addon.manifest.id, type: catalog.type, catalogId: catalog.id))
             }
         }
         return out
     }
 
-    private func collectionExists(_ preset: Preset) -> Bool {
-        collections.collections.contains { $0.title == preset.title }
-    }
-
-    private func add(_ preset: Preset) {
+    private func addPreset(_ preset: Preset) {
         let srcs = sources(for: preset)
         guard !srcs.isEmpty else { return }
         var folder = NuvioCollectionFolder(id: UUID().uuidString, title: preset.title, sources: srcs)
@@ -93,25 +178,30 @@ struct CommunityCollectionsView: View {
         collections.add(collection)
         addedIDs.insert(preset.id)
     }
+
+    private func collectionExists(_ title: String) -> Bool {
+        collections.collections.contains { $0.title == title }
+    }
 }
 
-private struct CommunityCollectionRow: View {
+private struct CollectionPresetRow: View {
     @EnvironmentObject private var theme: ThemeManager
     @Environment(\.isFocused) private var isFocused
-    let preset: CommunityCollectionsView.Preset
-    let catalogCount: Int
+    let title: String
+    let subtitle: String
+    let logoURL: String?
+    let fallbackIcon: String
     let added: Bool
+    let disabled: Bool
 
     var body: some View {
         HStack(alignment: .top, spacing: NuvioSpacing.md) {
-            SettingsIconTile(symbol: preset.icon)
+            tile
             VStack(alignment: .leading, spacing: 5) {
-                Text(preset.title)
+                Text(title)
                     .font(.system(size: 25, weight: .semibold))
                     .foregroundStyle(theme.palette.textPrimary)
-                Text(catalogCount == 0
-                     ? "\(preset.subtitle) — no matching catalogs installed yet"
-                     : "\(preset.subtitle) · \(catalogCount) catalog\(catalogCount == 1 ? "" : "s")")
+                Text(subtitle)
                     .font(.system(size: 20))
                     .foregroundStyle(theme.palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -128,6 +218,22 @@ private struct CommunityCollectionRow: View {
     }
 
     @ViewBuilder
+    private var tile: some View {
+        if let logoURL {
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(Color.white)
+                .frame(width: 48, height: 48)
+                .overlay(
+                    RemoteImage(url: logoURL, contentMode: .fit)
+                        .padding(5)
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                )
+        } else {
+            SettingsIconTile(symbol: fallbackIcon)
+        }
+    }
+
+    @ViewBuilder
     private var accessory: some View {
         if added {
             HStack(spacing: 6) {
@@ -136,7 +242,7 @@ private struct CommunityCollectionRow: View {
             }
             .font(.system(size: 20, weight: .semibold))
             .foregroundStyle(NuvioPrimitives.success)
-        } else if catalogCount == 0 {
+        } else if disabled {
             Text("Needs catalogs")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(theme.palette.textTertiary)

@@ -43,8 +43,80 @@ struct CollectionRowSection: View {
     }
 }
 
+/// ALL collections as a single headerless Home row — one tile per collection.
+/// (On Home there's deliberately no row title; the reorder screen labels the
+/// whole group "Collections".)
+struct CollectionsRowSection: View {
+    let collections: [NuvioCollection]
+    let onOpen: (NuvioCollection) -> Void
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
+                ForEach(collections) { collection in
+                    Button { onOpen(collection) } label: {
+                        CollectionTileCard(collection: collection)
+                    }
+                    .buttonStyle(PlainCardButtonStyle())
+                }
+            }
+            .padding(.horizontal, NuvioSpacing.huge)
+            .padding(.vertical, NuvioSpacing.lg)
+        }
+        .scrollClipDisabled()
+    }
+}
+
+/// A tile representing a whole collection (its first folder's cover/emoji plus
+/// the collection title), used in the combined Home collections row.
+struct CollectionTileCard: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var perf = PerformanceSettingsStore.shared
+    @Environment(\.isFocused) private var isFocused
+    let collection: NuvioCollection
+
+    private var cover: String? { collection.folders.first?.coverImageUrl }
+    private var emoji: String? { collection.folders.first?.coverEmoji }
+    private let size: CGFloat = 260
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
+            ZStack {
+                RoundedRectangle(cornerRadius: NuvioRadius.md).fill(theme.palette.surface)
+                if let cover, !cover.isEmpty {
+                    RemoteImage(url: cover, contentMode: .fill)
+                        .clipShape(RoundedRectangle(cornerRadius: NuvioRadius.md))
+                } else if let emoji, !emoji.isEmpty {
+                    Text(emoji).font(.system(size: 84))
+                } else {
+                    Image(systemName: "rectangle.stack.fill")
+                        .font(.system(size: 56))
+                        .foregroundStyle(theme.palette.textSecondary)
+                }
+            }
+            .frame(width: size, height: size)
+            .overlay(
+                RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                    .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
+            )
+            .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused ? 0.65 : 0),
+                    radius: perf.settings.cardShadows && isFocused ? 22 : 0, y: 10)
+
+            Text(collection.title)
+                .font(.system(size: 24, weight: .semibold))
+                .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
+                .lineLimit(1)
+                .frame(width: size, alignment: .leading)
+        }
+        .scaleEffect(perf.focusZoomEffective && isFocused ? 1.06 : 1.0)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
+    }
+}
+
 struct CollectionFolderCard: View {
     @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var perf = PerformanceSettingsStore.shared
+    @Environment(\.isFocused) private var isFocused
 
     let folder: NuvioCollectionFolder?
     var fallbackTitle: String = ""
@@ -65,7 +137,7 @@ struct CollectionFolderCard: View {
                 RoundedRectangle(cornerRadius: NuvioRadius.md)
                     .fill(theme.palette.surface)
                 if let cover = folder?.coverImageUrl, !cover.isEmpty {
-                    RemoteImage(url: cover)
+                    RemoteImage(url: cover, contentMode: .fill)
                         .clipShape(RoundedRectangle(cornerRadius: NuvioRadius.md))
                 } else if let emoji = folder?.coverEmoji, !emoji.isEmpty {
                     Text(emoji).font(.system(size: 84))
@@ -76,15 +148,23 @@ struct CollectionFolderCard: View {
                 }
             }
             .frame(width: cardSize.width, height: cardSize.height)
+            .overlay(
+                RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                    .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
+            )
+            .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused ? 0.65 : 0),
+                    radius: perf.settings.cardShadows && isFocused ? 22 : 0, y: 10)
 
             if folder?.hideTitle != true && !title.isEmpty {
                 Text(title)
                     .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(theme.palette.textPrimary)
+                    .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
                     .lineLimit(1)
                     .frame(width: cardSize.width, alignment: .leading)
             }
         }
+        .scaleEffect(perf.focusZoomEffective && isFocused ? 1.06 : 1.0)
+        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
     }
 }
 
@@ -116,8 +196,13 @@ struct CollectionView: View {
 
     private let columns = [GridItem(.adaptive(minimum: 220), spacing: NuvioSpacing.lg)]
 
+    private var hasTabs: Bool { collection.folders.count > 1 || !collection.showAllTab }
+    /// Height reserved for the pinned header (title + optional tabs) — the grid
+    /// starts below it and posters slide up UNDER the scrim/header.
+    private var headerInset: CGFloat { hasTabs ? 230 : 150 }
+
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             theme.palette.background.ignoresSafeArea()
             if let backdrop = collection.backdropImageUrl, !backdrop.isEmpty {
                 RemoteImage(url: backdrop)
@@ -125,50 +210,73 @@ struct CollectionView: View {
                     .opacity(0.25)
             }
 
+            // Scrolling posters (full-bleed; content padded to clear the header).
+            grid
+
+            // The "grain bar": a background-toned scrim over the top that hides
+            // posters as they scroll up under the header, matching the pinned
+            // treatment elsewhere. Title/tabs draw ON TOP of it.
+            LinearGradient(
+                stops: [
+                    .init(color: theme.palette.background, location: 0),
+                    .init(color: theme.palette.background, location: 0.62),
+                    .init(color: theme.palette.background.opacity(0), location: 1)
+                ],
+                startPoint: .top, endPoint: .bottom
+            )
+            .frame(height: headerInset)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .ignoresSafeArea(edges: .top)
+            .allowsHitTesting(false)
+
+            // Pinned header — drawn last so it's in FRONT of the posters.
             VStack(alignment: .leading, spacing: NuvioSpacing.lg) {
                 Text(collection.title)
                     .font(.system(size: 48, weight: .heavy))
                     .foregroundStyle(theme.palette.textPrimary)
                     .padding(.horizontal, NuvioSpacing.huge)
-
                 folderTabs
-
-                if isLoading {
-                    NuvioLoadingView(label: "Loading collection")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if visibleItems.isEmpty {
-                    NuvioEmptyState(
-                        icon: "rectangle.stack",
-                        title: "Nothing here yet",
-                        message: hasUnsupportedSources
-                            ? "This folder uses TMDB sources — enable TMDB in Settings → Integrations, or Trakt sources which need the Trakt integration."
-                            : "This folder has no items. Add catalog sources to it in Settings → Collections."
-                    )
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView(.vertical) {
-                        LazyVGrid(columns: columns, spacing: NuvioSpacing.xl) {
-                            ForEach(visibleItems) { item in
-                                Button {
-                                    onSelect(item)
-                                } label: {
-                                    PosterCard(item: item)
-                                }
-                                .buttonStyle(PlainCardButtonStyle())
-                            }
-                        }
-                        .padding(.horizontal, NuvioSpacing.huge)
-                        .padding(.vertical, NuvioSpacing.lg)
-                    }
-                    .scrollClipDisabled()
-                }
             }
             .padding(.top, NuvioSpacing.xl)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .task { await loadAll() }
         .onAppear {
             if !collection.showAllTab {
                 selectedFolderID = collection.folders.first?.id
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var grid: some View {
+        if isLoading {
+            NuvioLoadingView(label: "Loading collection")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if visibleItems.isEmpty {
+            NuvioEmptyState(
+                icon: "rectangle.stack",
+                title: "Nothing here yet",
+                message: hasUnsupportedSources
+                    ? "This folder uses TMDB sources — enable TMDB in Settings → Integrations, or Trakt sources which need the Trakt integration."
+                    : "This folder has no items. Add catalog sources to it in Settings → Collections."
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            ScrollView(.vertical) {
+                LazyVGrid(columns: columns, spacing: NuvioSpacing.xl) {
+                    ForEach(visibleItems) { item in
+                        Button {
+                            onSelect(item)
+                        } label: {
+                            PosterCard(item: item)
+                        }
+                        .buttonStyle(PlainCardButtonStyle())
+                    }
+                }
+                .padding(.horizontal, NuvioSpacing.huge)
+                .padding(.top, headerInset)
+                .padding(.bottom, NuvioSpacing.xxl)
             }
         }
     }

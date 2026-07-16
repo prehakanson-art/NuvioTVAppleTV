@@ -51,6 +51,9 @@ struct NuvioTVApp: App {
 enum Route: Hashable {
     case detail(MetaItem)
     case streams(MetaItem, MetaVideo?)
+    /// Source picker forced into manual mode (hold-Play / "Play Manually"):
+    /// always shows the list, even when Auto Link Selector is on.
+    case streamsManual(MetaItem, MetaVideo?)
     /// Source picker that plays from 0:00 (the Detail page's Start Over).
     case streamsFromStart(MetaItem, MetaVideo?)
     case collection(NuvioCollection)
@@ -581,6 +584,7 @@ struct RootView: View {
             DetailView(
                 item: item,
                 onPlay: { meta, video in path.wrappedValue.append(Route.streams(meta, video)) },
+                onPlayManually: { meta, video in path.wrappedValue.append(Route.streamsManual(meta, video)) },
                 onPlayFromBeginning: { meta, video in path.wrappedValue.append(Route.streamsFromStart(meta, video)) },
                 onSelectItem: { path.wrappedValue.append(Route.detail($0)) },
                 onSelectPerson: { id, name in path.wrappedValue.append(Route.person(id: id, name: name)) },
@@ -605,6 +609,17 @@ struct RootView: View {
             }
         case .streams(let meta, let video):
             StreamsView(meta: meta, video: video) { entry, all in
+                let key = ProgressStore.key(metaID: meta.id, video: video)
+                startPlayback(PlaybackRequest(
+                    meta: meta,
+                    video: video,
+                    entry: entry,
+                    allEntries: all,
+                    resumePosition: progressStore.progress(for: key)?.positionSeconds
+                ))
+            }
+        case .streamsManual(let meta, let video):
+            StreamsView(meta: meta, video: video, forceManual: true) { entry, all in
                 let key = ProgressStore.key(metaID: meta.id, video: video)
                 startPlayback(PlaybackRequest(
                     meta: meta,
@@ -750,13 +765,15 @@ struct RootView: View {
     }
 
 
-    /// Route to the Sources page, resolving a tmdb: identity first.
+    /// Route to the Sources page (manual), resolving a tmdb: identity first.
+    /// Always the manual list — this is the "Play Manually" affordance, so it
+    /// bypasses the Auto Link Selector even when a profile has it on.
     private func playManually(_ meta: MetaItem, _ video: MetaVideo?) {
         // Navigate immediately — don't block the transition on a tmdb→tt
         // lookup. StreamsView canonicalizes the id itself (effectiveStreamID),
         // so pushing the raw meta opens the Sources screen at once (with its
         // own loading state) instead of leaving the card on screen for ~2s.
-        homePath.append(Route.streams(meta, video))
+        homePath.append(Route.streamsManual(meta, video))
     }
 
     /// Continue Watching resume. TMDB-sourced items are stored as `tmdb:<n>`

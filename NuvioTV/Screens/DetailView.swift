@@ -118,6 +118,23 @@ final class DetailViewModel: ObservableObject {
     }
 }
 
+private extension View {
+    /// Adds a hold-Select "Play Manually" menu to the Play button when Auto
+    /// Link Selector is on; a no-op otherwise (Play already opens the list).
+    @ViewBuilder
+    func playManuallyMenu(enabled: Bool, action: @escaping () -> Void) -> some View {
+        if enabled {
+            contextMenu {
+                Button(action: action) {
+                    Label("Play Manually", systemImage: "list.and.film")
+                }
+            }
+        } else {
+            self
+        }
+    }
+}
+
 struct DetailView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var addonManager: AddonManager
@@ -128,9 +145,12 @@ struct DetailView: View {
     @EnvironmentObject private var tmdbSettings: TMDBSettingsStore
     @EnvironmentObject private var layout: HomeCatalogSettingsStore
     @EnvironmentObject private var playerSettings: PlayerSettingsStore
+    @EnvironmentObject private var profiles: ProfileStore
     @StateObject private var viewModel: DetailViewModel
 
     let onPlay: (MetaItem, MetaVideo?) -> Void
+    /// Open the manual source list, bypassing Auto Link Selector (hold-Play).
+    var onPlayManually: (MetaItem, MetaVideo?) -> Void = { _, _ in }
     let onPlayFromBeginning: (MetaItem, MetaVideo?) -> Void
     var onSelectItem: (MetaItem) -> Void = { _ in }
     var onSelectPerson: (Int, String) -> Void = { _, _ in }
@@ -143,6 +163,7 @@ struct DetailView: View {
     init(
         item: MetaItem,
         onPlay: @escaping (MetaItem, MetaVideo?) -> Void,
+        onPlayManually: @escaping (MetaItem, MetaVideo?) -> Void = { _, _ in },
         onPlayFromBeginning: @escaping (MetaItem, MetaVideo?) -> Void = { _, _ in },
         onSelectItem: @escaping (MetaItem) -> Void = { _ in },
         onSelectPerson: @escaping (Int, String) -> Void = { _, _ in },
@@ -150,11 +171,16 @@ struct DetailView: View {
     ) {
         _viewModel = StateObject(wrappedValue: DetailViewModel(item: item))
         self.onPlay = onPlay
+        self.onPlayManually = onPlayManually
         self.onPlayFromBeginning = onPlayFromBeginning
         self.onSelectItem = onSelectItem
         self.onSelectPerson = onSelectPerson
         self.onSelectCompany = onSelectCompany
     }
+
+    /// Whether the active profile's Auto Link Selector is on (Play auto-picks;
+    /// hold-Play offers "Play Manually").
+    private var autoLinkOn: Bool { profiles.activeAutoLink.enabled }
 
     var body: some View {
         ZStack {
@@ -278,6 +304,11 @@ struct DetailView: View {
                         PlayActionButton(title: seriesPlayTitle(target)) {
                             onPlay(viewModel.meta, target)
                         }
+                        // Auto Link Selector on: hold Play to pick a source
+                        // manually instead of auto-playing the best match.
+                        .playManuallyMenu(enabled: autoLinkOn) {
+                            onPlayManually(viewModel.meta, target)
+                        }
                         // Start Over sits right next to Resume: replay the
                         // in-progress episode from 0:00.
                         if episodeInProgress(target) {
@@ -289,6 +320,9 @@ struct DetailView: View {
                 } else {
                     PlayActionButton(title: playButtonTitle) {
                         onPlay(viewModel.meta, nil)
+                    }
+                    .playManuallyMenu(enabled: autoLinkOn) {
+                        onPlayManually(viewModel.meta, nil)
                     }
                     // Movie with saved progress → offer a fresh start.
                     if playButtonTitle == "Resume" {

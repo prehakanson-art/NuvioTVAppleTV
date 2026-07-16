@@ -1,6 +1,25 @@
 import Foundation
 import CryptoKit
 
+/// Per-profile "Auto Link Selector": when enabled, pressing Play resolves and
+/// plays the best matching source directly (no source list), honoring these
+/// preferences. Holding Play still opens the manual picker. Stored on the
+/// profile and preserved across account syncs (the shared profile backend has
+/// no columns for it, so it's device-local like `pinHash`).
+struct AutoLinkPreferences: Codable, Hashable {
+    var enabled = false
+    /// Preferred addon name; matched first. "" = any addon.
+    var preferredAddon = ""
+    /// Fallback addon name if the preferred one has no match. "" = none.
+    var secondaryAddon = ""
+    /// Minimum resolution ("2160p"/"1080p"/"720p"/"480p"), "" = any.
+    var minResolution = ""
+    /// Largest acceptable file size in GB; 0 = no limit.
+    var maxSizeGB = 0.0
+    /// Only pick a debrid-cached / instantly-playable source.
+    var cachedOnly = false
+}
+
 /// A viewer profile. `id` is the backend `profile_index`; profile 1 is the
 /// primary profile and maps to the app's original (unsuffixed) local storage.
 struct UserProfile: Codable, Identifiable, Hashable {
@@ -15,12 +34,15 @@ struct UserProfile: Codable, Identifiable, Hashable {
     /// SHA-256 of the PIN, cached on successful set/verify so a locked profile
     /// can still be unlocked offline. Device-local; never synced.
     var pinHash: String?
+    /// Auto Link Selector settings. Optional so profiles stored before this
+    /// shipped still decode; use `autoLinkPrefs` for a non-optional value.
+    var autoLink: AutoLinkPreferences?
 
     init(
         id: Int, name: String, avatarColorHex: String,
         usesPrimaryAddons: Bool = false, usesPrimaryPlugins: Bool = false,
         avatarID: String? = nil, avatarURL: String? = nil, pinEnabled: Bool = false,
-        pinHash: String? = nil
+        pinHash: String? = nil, autoLink: AutoLinkPreferences? = nil
     ) {
         self.id = id
         self.name = name
@@ -31,10 +53,14 @@ struct UserProfile: Codable, Identifiable, Hashable {
         self.avatarURL = avatarURL
         self.pinEnabled = pinEnabled
         self.pinHash = pinHash
+        self.autoLink = autoLink
     }
 
     /// First letter shown on the avatar circle.
     var initial: String { String(name.first ?? "?").uppercased() }
+
+    /// Non-optional auto-link settings (defaults when never configured).
+    var autoLinkPrefs: AutoLinkPreferences { autoLink ?? AutoLinkPreferences() }
 }
 
 /// A selectable avatar image from the backend catalog.
@@ -176,6 +202,16 @@ final class ProfileStore: ObservableObject {
         notifyChange()
     }
 
+    /// The active profile's Auto Link Selector settings (defaults if unset).
+    var activeAutoLink: AutoLinkPreferences { active.autoLinkPrefs }
+
+    func setAutoLink(id: Int, _ prefs: AutoLinkPreferences) {
+        guard let idx = profiles.firstIndex(where: { $0.id == id }) else { return }
+        profiles[idx].autoLink = prefs
+        saveList()
+        notifyChange()
+    }
+
     /// Resolves a profile's avatar image URL from the catalog (or its stored URL).
     func avatarURL(for profile: UserProfile) -> String? {
         if let direct = profile.avatarURL, !direct.isEmpty { return direct }
@@ -253,14 +289,19 @@ final class ProfileStore: ObservableObject {
         guard !remote.isEmpty else { return }
         suppressChange = true
         defer { suppressChange = false }
-        // Remote payloads never carry the device-local PIN hash — carry it over
-        // so offline unlock keeps working after a sync.
+        // Remote payloads never carry the device-local PIN hash or the Auto Link
+        // Selector prefs (no backend columns) — carry them over so offline
+        // unlock and each profile's auto-link config survive a sync.
         let localHashes = Dictionary(uniqueKeysWithValues: profiles.compactMap { p in
             p.pinHash.map { (p.id, $0) }
+        })
+        let localAutoLink = Dictionary(uniqueKeysWithValues: profiles.compactMap { p in
+            p.autoLink.map { (p.id, $0) }
         })
         profiles = remote.sorted { $0.id < $1.id }.map { p in
             var merged = p
             merged.pinHash = merged.pinHash ?? localHashes[p.id]
+            merged.autoLink = merged.autoLink ?? localAutoLink[p.id]
             return merged
         }
         saveList()

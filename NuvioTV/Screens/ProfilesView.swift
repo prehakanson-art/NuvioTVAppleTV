@@ -348,6 +348,7 @@ struct PinUnlockView: View {
 struct ProfileManageView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var profiles: ProfileStore
+    @EnvironmentObject private var addonManager: AddonManager
     let onDone: () -> Void
 
     @State private var editing: UserProfile?
@@ -399,6 +400,7 @@ struct ProfileManageView: View {
             ProfileEditView(profile: profile) { editing = nil }
                 .environmentObject(theme)
                 .environmentObject(profiles)
+                .environmentObject(addonManager)
         }
     }
 }
@@ -406,6 +408,7 @@ struct ProfileManageView: View {
 struct ProfileEditView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var profiles: ProfileStore
+    @EnvironmentObject private var addonManager: AddonManager
     let profile: UserProfile
     let onDone: () -> Void
 
@@ -508,6 +511,8 @@ struct ProfileEditView: View {
                             .foregroundStyle(theme.palette.textSecondary)
                     }
 
+                    autoLinkSection
+
                     if profile.id != 1 {
                         Button(role: .destructive) {
                             confirmingDelete = true
@@ -560,6 +565,92 @@ struct ProfileEditView: View {
         } message: {
             Text("This removes the profile and its settings from this device and your Nuvio account. This can't be undone.")
         }
+    }
+
+    // MARK: Auto Link Selector
+
+    /// Write-through binding to one field of this profile's auto-link prefs.
+    private func autoBind<T>(_ keyPath: WritableKeyPath<AutoLinkPreferences, T>) -> Binding<T> {
+        Binding(
+            get: { current.autoLinkPrefs[keyPath: keyPath] },
+            set: { newValue in
+                var prefs = current.autoLinkPrefs
+                prefs[keyPath: keyPath] = newValue
+                profiles.setAutoLink(id: profile.id, prefs)
+            }
+        )
+    }
+
+    /// Installed stream addons, as dropdown options (with a leading "Any"/"None").
+    private func addonOptions(includeNone: Bool) -> [NuvioDropdownOption] {
+        var names: [String] = []
+        for addon in addonManager.streamAddons {
+            let name = addon.manifest.name
+            if !name.isEmpty, !names.contains(name) { names.append(name) }
+        }
+        let head = NuvioDropdownOption("", includeNone ? "None" : "Any addon")
+        return [head] + names.map { NuvioDropdownOption($0) }
+    }
+
+    private var autoLinkSection: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
+            sectionLabel("Auto Link Selector")
+            Text("When on, pressing Play resolves and plays the best matching source directly — no source list. Hold Play to pick a source manually.")
+                .font(.system(size: 20))
+                .foregroundStyle(theme.palette.textSecondary)
+                .frame(maxWidth: 820, alignment: .leading)
+
+            Toggle("Auto Link Selector", isOn: autoBind(\.enabled))
+                .font(.system(size: 24, weight: .medium))
+                .tint(theme.palette.secondary)
+                .frame(maxWidth: 560)
+
+            if current.autoLinkPrefs.enabled {
+                NuvioDropdown(
+                    title: "Preferred addon",
+                    selection: current.autoLinkPrefs.preferredAddon,
+                    options: addonOptions(includeNone: false),
+                    onSelect: { autoBind(\.preferredAddon).wrappedValue = $0 }
+                )
+                NuvioDropdown(
+                    title: "Secondary addon",
+                    subtitle: "Used when the preferred addon has no match",
+                    selection: current.autoLinkPrefs.secondaryAddon,
+                    options: addonOptions(includeNone: true),
+                    onSelect: { autoBind(\.secondaryAddon).wrappedValue = $0 }
+                )
+                NuvioDropdown(
+                    title: "Minimum quality",
+                    selection: current.autoLinkPrefs.minResolution,
+                    options: [
+                        .init("", "Any"),
+                        .init("2160p", "4K (2160p)"),
+                        .init("1080p", "1080p"),
+                        .init("720p", "720p"),
+                        .init("480p", "480p")
+                    ],
+                    onSelect: { autoBind(\.minResolution).wrappedValue = $0 }
+                )
+                NuvioDropdown(
+                    title: "Maximum size",
+                    selection: String(Int(current.autoLinkPrefs.maxSizeGB)),
+                    options: [
+                        .init("0", "No limit"),
+                        .init("5", "5 GB"),
+                        .init("10", "10 GB"),
+                        .init("20", "20 GB"),
+                        .init("40", "40 GB"),
+                        .init("60", "60 GB")
+                    ],
+                    onSelect: { autoBind(\.maxSizeGB).wrappedValue = Double(Int($0) ?? 0) }
+                )
+                Toggle("Cached sources only", isOn: autoBind(\.cachedOnly))
+                    .font(.system(size: 24, weight: .medium))
+                    .tint(theme.palette.secondary)
+                    .frame(maxWidth: 560)
+            }
+        }
+        .padding(.top, NuvioSpacing.lg)
     }
 
     private func sectionLabel(_ text: String) -> some View {

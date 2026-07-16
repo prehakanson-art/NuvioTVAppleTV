@@ -707,6 +707,7 @@ private struct AccountSettingsDetail: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var account: NuvioAccountManager
     @EnvironmentObject private var profiles: ProfileStore
+    @EnvironmentObject private var addonManager: AddonManager
     @State private var showAccount = false
     @State private var showProfiles = false
 
@@ -752,6 +753,7 @@ private struct AccountSettingsDetail: View {
             ProfileManageView { showProfiles = false }
                 .environmentObject(theme)
                 .environmentObject(profiles)
+                .environmentObject(addonManager)
         }
     }
 

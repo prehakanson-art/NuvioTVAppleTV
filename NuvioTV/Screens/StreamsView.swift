@@ -114,6 +114,34 @@ final class StreamsViewModel: ObservableObject {
         rebuildGroups()
     }
 
+    /// Best source for a profile's Auto Link Selector. Entries are already
+    /// sorted best-first; we filter by the profile's cached-only / min-
+    /// resolution / max-size prefs, then prefer the chosen addon (then the
+    /// secondary), falling back to the best remaining link. Unknown
+    /// resolution/size never disqualifies a link (missing metadata shouldn't
+    /// hide a possibly-good source).
+    func autoLinkPick(_ prefs: AutoLinkPreferences) -> StreamEntry? {
+        let minTier = prefs.minResolution.isEmpty ? nil
+            : ResolutionTier.from(resolutionLabel: prefs.minResolution)
+        let maxBytes = prefs.maxSizeGB > 0 ? Int64(prefs.maxSizeGB * 1_073_741_824) : nil
+        let pool = allEntries.filter { entry in
+            if prefs.cachedOnly && !entry.stream.isCached { return false }
+            if let minTier, let label = entry.resolutionLabel,
+               ResolutionTier.from(resolutionLabel: label).rawValue > minTier.rawValue { return false }
+            if let maxBytes, let bytes = entry.sizeBytes, bytes > 0, bytes > maxBytes { return false }
+            return true
+        }
+        guard !pool.isEmpty else { return nil }
+        func firstFromAddon(_ name: String) -> StreamEntry? {
+            let q = name.trimmingCharacters(in: .whitespaces).lowercased()
+            guard !q.isEmpty else { return nil }
+            return pool.first { $0.addonName.lowercased().contains(q) }
+        }
+        return firstFromAddon(prefs.preferredAddon)
+            ?? firstFromAddon(prefs.secondaryAddon)
+            ?? pool.first
+    }
+
     /// First source to auto-play (entries are already sorted best-first),
     /// honoring cached-only and an optional case-insensitive title regex.
     func autoPlayPick(cachedOnly: Bool, regex: String) -> StreamEntry? {
@@ -234,7 +262,12 @@ struct StreamsView: View {
     @EnvironmentObject private var plugins: PluginStore
     @EnvironmentObject private var torrent: TorrentSettingsStore
     @EnvironmentObject private var downloads: DownloadManager
+    @EnvironmentObject private var profiles: ProfileStore
     @StateObject private var viewModel: StreamsViewModel
+
+    /// Manual mode (hold-Play / "Play Manually"): skip every auto-action so the
+    /// user always lands on the source list, even with Auto Link Selector on.
+    let forceManual: Bool
 
     @State private var resolving = false
     @State private var resolveError: String?
@@ -250,8 +283,10 @@ struct StreamsView: View {
 
     let onSelect: (StreamEntry, [StreamEntry]) -> Void
 
-    init(meta: MetaItem, video: MetaVideo?, onSelect: @escaping (StreamEntry, [StreamEntry]) -> Void) {
+    init(meta: MetaItem, video: MetaVideo?, forceManual: Bool = false,
+         onSelect: @escaping (StreamEntry, [StreamEntry]) -> Void) {
         _viewModel = StateObject(wrappedValue: StreamsViewModel(meta: meta, video: video))
+        self.forceManual = forceManual
         self.onSelect = onSelect
     }
 
@@ -318,7 +353,7 @@ struct StreamsView: View {
                     viewModel.addPluginStreams(entries)
                 }
             }
-            if !didAutoAct, s.reuseLastLinkEnabled,
+            if !didAutoAct, !forceManual, s.reuseLastLinkEnabled,
                let last = await viewModel.freshLastLink(hours: s.reuseLastLinkCacheHours) {
                 didAutoAct = true
                 await loadTask.value
@@ -327,9 +362,19 @@ struct StreamsView: View {
             }
             await loadTask.value
 
+            // Auto Link Selector (per profile): pick the best link matching the
+            // profile's preferred addon / quality / size and play it directly.
+            // Takes precedence over the global auto-play. Skipped in manual mode.
+            let autoLink = profiles.activeAutoLink
+            if !didAutoAct, !forceManual, autoLink.enabled,
+               let pick = viewModel.autoLinkPick(autoLink) {
+                didAutoAct = true
+                handleSelection(pick, viewModel.allEntries)
+            }
+
             // Auto-play best source: once the sweep is done, start the best
             // matching link without waiting for a manual pick.
-            if !didAutoAct, s.autoPlaySourceEnabled,
+            if !didAutoAct, !forceManual, s.autoPlaySourceEnabled,
                let best = viewModel.autoPlayPick(
                    cachedOnly: s.autoPlaySourceCachedOnly, regex: s.autoPlaySourceRegex
                ) {

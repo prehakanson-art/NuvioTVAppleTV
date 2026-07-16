@@ -69,6 +69,14 @@ enum StremioAPI {
         // stream request from one host; the default cap of 6 makes a Home load
         // fetch its rows 6-at-a-time. Let them all fire in parallel.
         config.httpMaximumConnectionsPerHost = 12
+        // Browser-style User-Agent on every addon request. The CFNetwork
+        // default UA trips bot protection on Cloudflare/Vercel-fronted addon
+        // hosts (e.g. debridmediamanager.com → 403/handshake drop), which made
+        // those addons "not respond" here while working from Android (okhttp
+        // sends a normal UA).
+        config.httpAdditionalHeaders = [
+            "User-Agent": "Mozilla/5.0 (AppleTV; CPU tvOS like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15"
+        ]
         return URLSession(configuration: config)
     }()
 

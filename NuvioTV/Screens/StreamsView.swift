@@ -28,10 +28,30 @@ final class StreamsViewModel: ObservableObject {
     /// manifest or an id-prefix mismatch used to be completely invisible,
     /// which made "why isn't my addon showing?" undiagnosable from the UI.
     @Published var skippedAddons: [(name: String, reason: String)] = []
-    /// Addons whose stream request errored (timeout / bad response) this load —
-    /// rendered as "Not working" under the addon name, distinct from a healthy
-    /// addon that simply returned no links.
-    @Published var failedAddonNames: Set<String> = []
+    /// Addons whose stream request errored this load, with a short reason
+    /// (HTTP code / timeout / …) — rendered as "Not working — <reason>" under
+    /// the addon name, distinct from a healthy addon that returned no links.
+    @Published var failedAddons: [String: String] = [:]
+
+    /// Compact human reason for a failed addon request.
+    nonisolated static func shortReason(for error: Error) -> String {
+        switch error {
+        case StremioAPIError.badResponse(let code):
+            return code == 403 ? "the add-on refused the request (HTTP 403)" : "the add-on returned HTTP \(code)"
+        case StremioAPIError.emptyBody:
+            return "the add-on sent an empty response"
+        case StremioAPIError.badURL:
+            return "the add-on's URL is invalid"
+        case let urlError as URLError where urlError.code == .timedOut:
+            return "the add-on timed out"
+        case let urlError as URLError:
+            return urlError.localizedDescription
+        case is DecodingError:
+            return "the add-on sent an unreadable response"
+        default:
+            return "the add-on didn't respond"
+        }
+    }
     /// Links kept per resolution×size cell (2160p·10–20 GB …) when filters on.
     private var perTier = 6
     /// Curated filters on (resolution → size tiers, cached first) vs raw
@@ -240,8 +260,8 @@ final class StreamsViewModel: ObservableObject {
             return
         }
 
-        failedAddonNames = []
-        await withTaskGroup(of: (entries: [StreamEntry], failedAddon: String?).self) { group in
+        failedAddons = [:]
+        await withTaskGroup(of: (entries: [StreamEntry], failure: (name: String, reason: String)?).self) { group in
             for addon in addons {
                 group.addTask { [meta] in
                     do {
@@ -252,9 +272,11 @@ final class StreamsViewModel: ObservableObject {
                         return (entries, nil)
                     } catch {
                         // Request failed (timeout / HTTP error / unreachable) —
-                        // record it so the UI can say the addon isn't working
-                        // instead of silently showing nothing for it.
-                        return ([], addon.manifest.name)
+                        // record the SPECIFIC reason so the UI can say what's
+                        // wrong instead of a generic "didn't respond".
+                        NSLog("[NuvioSources] %@ stream request failed: %@",
+                              addon.manifest.name, String(describing: error))
+                        return ([], (addon.manifest.name, Self.shortReason(for: error)))
                     }
                 }
             }
@@ -265,7 +287,7 @@ final class StreamsViewModel: ObservableObject {
             for await batch in group {
                 finishedAddons += 1
                 pool.append(contentsOf: batch.entries)
-                if let failed = batch.failedAddon { failedAddonNames.insert(failed) }
+                if let failure = batch.failure { failedAddons[failure.name] = failure.reason }
                 let now = Date()
                 if !pool.isEmpty, now.timeIntervalSince(lastFlush) > 0.4 {
                     rebuildGroups()
@@ -733,8 +755,8 @@ struct StreamsView: View {
                         // above); add text only when it actually failed —
                         // an addon that answered with nothing stays name-only.
                         if group.entries.isEmpty,
-                           viewModel.failedAddonNames.contains(group.addonName) {
-                            Text("Not working — the add-on didn't respond")
+                           let reason = viewModel.failedAddons[group.addonName] {
+                            Text("Not working — \(reason)")
                                 .font(.system(size: 18, weight: .semibold))
                                 .foregroundStyle(theme.palette.textSecondary)
                                 .padding(.leading, 8)

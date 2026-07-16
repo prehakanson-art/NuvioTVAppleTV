@@ -629,11 +629,14 @@ final class PlayerViewModel: ObservableObject {
         KSOptions.isSecondOpen = true
         KSOptions.preferredForwardBufferDuration = 6
         // The continuous ahead-cache: the reader keeps filling toward this cap
-        // the whole time — playing or paused. Capped at 45s: a high-bitrate
-        // remux at 120s could hold >1 GB of compressed packets, which is real
-        // memory pressure on the 3 GB Apple TV 4K (gen 1) — and memory
-        // pressure there reads as SYSTEM-WIDE lag, not just player lag.
-        KSOptions.maxBufferDuration = 45
+        // the whole time — playing or paused. A high-bitrate remux holds ~this
+        // many seconds of compressed packets in RAM (tvOS has no working disk
+        // cache), which is real memory pressure on RAM-limited boxes — the
+        // 3 GB Apple TV 4K gen-1 was getting jetsam-killed mid-playback. Scale
+        // the global default by device tier (the per-title tier logic further
+        // down caps the per-instance value the same way).
+        KSOptions.maxBufferDuration = PerformanceProfile.isLowPower ? 6
+            : (PerformanceProfile.isMidPower ? 12 : 45)
         // Decode off the render thread: the synchronous path stalls the video
         // loop under heavy 4K content on the A10X (the "jumpy" playback).
         KSOptions.asynchronousDecompression = true
@@ -999,6 +1002,23 @@ final class PlayerViewModel: ObservableObject {
             socketBuffer = max(socketBuffer / 2, 1 << 20)
         case .mb500, .gb1, .gb2, .max:
             socketBuffer = min(socketBuffer * 2, 16 << 20)
+        }
+
+        // Device-memory ceiling. tvOS keeps this read-ahead cache in RAM (no
+        // working disk cache), so on RAM-limited boxes a big buffer — on top of
+        // decode, the DV remuxer, and the rest of the app — jetsam-kills the
+        // process mid-playback. Worst on the 4K gen-1 (A10X, 3 GB) with a
+        // high-bitrate 4K/DV stream, which is uncapped on the default Auto
+        // profile (the byte-target profiles are separately bounded by
+        // maxBufferBytes). Cap the seconds-based cache hard here; a shallower
+        // cushion beats an out-of-memory crash. Applied AFTER the profile
+        // adjustments so it's the final word.
+        if PerformanceProfile.isLowPower {          // ~2 GB (Apple TV HD)
+            options.maxBufferDuration = min(options.maxBufferDuration, 6)
+            socketBuffer = min(socketBuffer, 2 << 20)
+        } else if PerformanceProfile.isMidPower {   // ~3 GB (4K gen 1/2)
+            options.maxBufferDuration = min(options.maxBufferDuration, 12)
+            socketBuffer = min(socketBuffer, 4 << 20)
         }
 
         // Native path: preferredForwardBufferDuration maps STRAIGHT into

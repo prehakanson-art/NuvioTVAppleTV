@@ -75,8 +75,8 @@ enum PerformanceProfile {
     /// can safely spare on top of decode + Metal render + the rest of the app.
     /// Apple TV HD (2 GB), 4K gen-1 (3 GB), 4K gen-2/3 (4 GB+).
     static var maxBufferBytes: Int {
-        if isLowPower { return 300 << 20 }   // ~300 MB
-        if isMidPower { return 600 << 20 }   // ~600 MB
-        return 1200 << 20                    // ~1.2 GB
+        if isLowPower { return 220 << 20 }   // ~220 MB (Apple TV HD, 2 GB)
+        if isMidPower { return 400 << 20 }   // ~400 MB (4K gen 1/2, 3 GB)
+        return 1000 << 20                    // ~1 GB (4K gen 3, 4 GB+)
     }
 }

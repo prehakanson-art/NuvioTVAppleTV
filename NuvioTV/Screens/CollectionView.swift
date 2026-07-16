@@ -75,16 +75,28 @@ struct CollectionTileCard: View {
     @Environment(\.isFocused) private var isFocused
     let collection: NuvioCollection
 
-    private var cover: String? { collection.folders.first?.coverImageUrl }
-    private var emoji: String? { collection.folders.first?.coverEmoji }
-    private let size: CGFloat = 260
+    private var firstFolder: NuvioCollectionFolder? { collection.folders.first }
+    private var cover: String? { firstFolder?.coverImageUrl }
+    private var emoji: String? { firstFolder?.coverEmoji }
+
+    /// Tile size follows the (editable) shape of the collection's first folder.
+    private var cardSize: CGSize {
+        switch firstFolder?.tileShape {
+        case "POSTER": return CGSize(width: 220, height: 330)
+        case "LANDSCAPE": return CGSize(width: 380, height: 214)
+        default: return CGSize(width: 260, height: 260)   // SQUARE
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
             ZStack {
                 RoundedRectangle(cornerRadius: NuvioRadius.md).fill(theme.palette.surface)
                 if let cover, !cover.isEmpty {
-                    RemoteImage(url: cover, contentMode: .fill)
+                    // .fit keeps a logo intact; a full landscape picture still
+                    // reads well centered on the branded surface.
+                    RemoteImage(url: cover, contentMode: .fit)
+                        .padding(NuvioSpacing.sm)
                         .clipShape(RoundedRectangle(cornerRadius: NuvioRadius.md))
                 } else if let emoji, !emoji.isEmpty {
                     Text(emoji).font(.system(size: 84))
@@ -94,7 +106,7 @@ struct CollectionTileCard: View {
                         .foregroundStyle(theme.palette.textSecondary)
                 }
             }
-            .frame(width: size, height: size)
+            .frame(width: cardSize.width, height: cardSize.height)
             .overlay(
                 RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
                     .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
@@ -106,7 +118,7 @@ struct CollectionTileCard: View {
                 .font(.system(size: 24, weight: .semibold))
                 .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
                 .lineLimit(1)
-                .frame(width: size, alignment: .leading)
+                .frame(width: cardSize.width, alignment: .leading)
         }
         .scaleEffect(perf.focusZoomEffective && isFocused ? 1.06 : 1.0)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
@@ -196,6 +208,14 @@ struct CollectionView: View {
 
     private let columns = [GridItem(.adaptive(minimum: 220), spacing: NuvioSpacing.lg)]
 
+    /// The collection's background picture — explicit backdrop, else the first
+    /// folder's cover (so it matches the tile).
+    private var backdropURL: String? {
+        if let b = collection.backdropImageUrl, !b.isEmpty { return b }
+        if let c = collection.folders.first?.coverImageUrl, !c.isEmpty { return c }
+        return nil
+    }
+
     private var hasTabs: Bool { collection.folders.count > 1 || !collection.showAllTab }
     /// Height reserved for the pinned header (title + optional tabs) — the grid
     /// starts below it and posters slide up UNDER the scrim/header.
@@ -204,10 +224,12 @@ struct CollectionView: View {
     var body: some View {
         ZStack(alignment: .top) {
             theme.palette.background.ignoresSafeArea()
-            if let backdrop = collection.backdropImageUrl, !backdrop.isEmpty {
-                RemoteImage(url: backdrop)
+            // Same HQ picture as the tile, used as the collection's background.
+            if let backdrop = backdropURL {
+                RemoteImage(url: backdrop, contentMode: .fill)
                     .ignoresSafeArea()
-                    .opacity(0.25)
+                    .opacity(0.3)
+                    .overlay(theme.palette.background.opacity(0.35).ignoresSafeArea())
             }
 
             // Scrolling posters (full-bleed; content padded to clear the header).

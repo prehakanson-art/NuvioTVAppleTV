@@ -751,6 +751,11 @@ private struct FolderEditorView: View {
     @State private var selectedSources: Set<String> = []
     /// Non-addon sources carried through untouched (TMDB/Trakt from Android).
     @State private var passthroughSources: [CollectionSourceDTO] = []
+    @State private var tileShape = "SQUARE"
+    @State private var coverURL = ""
+
+    private static let shapes: [(id: String, label: String)] =
+        [("SQUARE", "Square"), ("POSTER", "Poster"), ("LANDSCAPE", "Landscape")]
 
     private struct CatalogChoice: Identifiable {
         let source: CollectionSourceDTO
@@ -836,6 +841,31 @@ private struct FolderEditorView: View {
                             .frame(maxWidth: 900, alignment: .leading)
                     }
 
+                    // Tile shape — Square / Poster / Landscape.
+                    Text("Tile Shape")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(theme.palette.textPrimary)
+                    HStack(spacing: NuvioSpacing.md) {
+                        ForEach(Self.shapes, id: \.id) { shape in
+                            Button { tileShape = shape.id } label: {
+                                ShapeChip(label: shape.label, selected: tileShape == shape.id)
+                            }
+                            .buttonStyle(PlainCardButtonStyle())
+                        }
+                    }
+
+                    // Cover image — a high-quality picture used on the tile and
+                    // as the collection's background.
+                    Text("Cover Image URL")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(theme.palette.textPrimary)
+                    TextField("https://…/image.jpg", text: $coverURL)
+                        .font(.system(size: 24))
+                        .padding(.horizontal, NuvioSpacing.lg)
+                        .padding(.vertical, NuvioSpacing.md)
+                        .background(theme.palette.field, in: RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous))
+                        .frame(maxWidth: 900)
+
                     HStack(spacing: NuvioSpacing.lg) {
                         Button("Save", action: save)
                             .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
@@ -852,6 +882,8 @@ private struct FolderEditorView: View {
         .onAppear {
             guard let folder else { return }
             title = folder.title
+            tileShape = folder.tileShape
+            coverURL = folder.coverImageUrl ?? ""
             passthroughSources = folder.effectiveSources.filter { !$0.isAddonSource }
             selectedSources = Set(folder.addonSources.map {
                 "\($0.addonId ?? "")|\($0.type ?? "")|\($0.catalogId ?? "")"
@@ -869,6 +901,28 @@ private struct FolderEditorView: View {
         result.title = trimmed
         result.sources = picked + passthroughSources
         result.catalogSources = picked
+        result.tileShape = tileShape
+        let trimmedCover = coverURL.trimmingCharacters(in: .whitespaces)
+        result.coverImageUrl = trimmedCover.isEmpty ? nil : trimmedCover
         onDone(result)
+    }
+}
+
+/// Small selectable chip for the tile-shape picker.
+private struct ShapeChip: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.isFocused) private var isFocused
+    let label: String
+    let selected: Bool
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 23, weight: .semibold))
+            .foregroundStyle(selected ? theme.palette.onSecondary : theme.palette.textSecondary)
+            .padding(.horizontal, NuvioSpacing.lg)
+            .padding(.vertical, NuvioSpacing.md)
+            .background(Capsule().fill(selected ? theme.palette.secondary
+                                      : (isFocused ? theme.palette.focusBackground : Color.white.opacity(0.08))))
+            .overlay(Capsule().strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3))
     }
 }

@@ -145,15 +145,18 @@ struct CommunityCollectionsView: View {
     }
 
     private func addService(_ service: Service) {
+        let logo = providerLogos[service.providerID]
         var folder = NuvioCollectionFolder(
             id: UUID().uuidString, title: service.name,
             sources: [tmdbSource(providerID: service.providerID, media: "movie"),
                       tmdbSource(providerID: service.providerID, media: "tv")]
         )
-        folder.tileShape = "SQUARE"
-        folder.coverImageUrl = providerLogos[service.providerID]
-        folder.hideTitle = false
-        let collection = NuvioCollection(id: UUID().uuidString, title: service.name, folders: [folder])
+        folder.tileShape = "SQUARE"    // editable to Landscape in the folder editor
+        folder.coverImageUrl = logo    // HQ (original-size) service logo
+        folder.hideTitle = true
+        var collection = NuvioCollection(id: UUID().uuidString, title: service.name, folders: [folder])
+        // Same HQ picture as the collection's background when opened.
+        collection.backdropImageUrl = logo
         collections.add(collection)
         addedIDs.insert(service.id)
     }

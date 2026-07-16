@@ -162,7 +162,7 @@ enum TMDBService {
             guard let resp: Resp = try? await get(path, query: ["watch_region": region, "language": "en-US"]) else { continue }
             for p in resp.results ?? [] {
                 let key = String(p.provider_id)
-                if out[key] == nil, let logo = imageURL(p.logo_path, size: "w300") {
+                if out[key] == nil, let logo = imageURL(p.logo_path, size: "original") {
                     out[key] = logo
                 }
             }

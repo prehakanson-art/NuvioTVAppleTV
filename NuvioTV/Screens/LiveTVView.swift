@@ -43,9 +43,16 @@ final class LiveTVViewModel: ObservableObject {
         sections = addonSections
         if !addonSections.isEmpty { isLoading = false }
 
-        // 2) Embedded iptv-org playlist (larger; appends when ready).
+        // 2) Embedded IPTV list — from the country/language playlist chosen in
+        // Settings → Live TV, so channels that don't apply are simply absent.
         loadingIPTV = true
-        let m3u = await M3UService.channels(from: M3UService.iptvOrgURL)
+        let settings = LiveTVSettingsStore.shared
+        var m3u = await M3UService.channels(from: settings.primaryPlaylistURL)
+        if let langURL = settings.secondaryLanguageURL {
+            // Both country + language set → keep only channels in both lists.
+            let langURLs = Set(await M3UService.channels(from: langURL).map(\.url))
+            m3u = m3u.filter { langURLs.contains($0.url) }
+        }
         sections = addonSections + m3uSections(m3u)
         loadingIPTV = false
         isLoading = false
@@ -106,6 +113,7 @@ enum ChannelSort: String, CaseIterable, Identifiable {
 struct LiveTVView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var addonManager: AddonManager
+    @ObservedObject private var liveSettings = LiveTVSettingsStore.shared
     @StateObject private var viewModel = LiveTVViewModel()
 
     /// Add-on channel → source picker.
@@ -115,7 +123,10 @@ struct LiveTVView: View {
 
     @State private var searchText = ""
     @State private var sortMode: ChannelSort = .defaultOrder
-    @State private var selectedGroup = ""   // "" = all groups
+    /// A group opened via "Show All". "" = the grouped rows view.
+    @State private var selectedGroup = ""
+
+    private var settingsKey: String { "\(liveSettings.countryCode)|\(liveSettings.languageCode)" }
 
     var body: some View {
         ZStack {
@@ -123,6 +134,11 @@ struct LiveTVView: View {
             content
         }
         .task { await viewModel.loadIfNeeded(addonManager: addonManager) }
+        // Reload the IPTV list when the location/language changes in Settings.
+        .onChange(of: settingsKey) { _, _ in
+            selectedGroup = ""
+            Task { await viewModel.load(addonManager: addonManager) }
+        }
     }
 
     private func play(_ channel: LiveChannel) {
@@ -167,6 +183,7 @@ struct LiveTVView: View {
                     header
                     controls
                     if filtering {
+                        gridContext
                         filteredGrid
                     } else {
                         ForEach(viewModel.sections) { section in
@@ -177,6 +194,23 @@ struct LiveTVView: View {
                 .padding(.top, NuvioSpacing.xl)
                 .padding(.bottom, NuvioSpacing.huge)
             }
+        }
+    }
+
+    /// Above the grid: when viewing a single group ("Show All"), a back button
+    /// and the group name so you can return to the grouped rows.
+    @ViewBuilder
+    private var gridContext: some View {
+        if !selectedGroup.isEmpty {
+            HStack(spacing: NuvioSpacing.md) {
+                Button { selectedGroup = "" } label: { SeeAllLabel(text: "‹ All Channels") }
+                    .buttonStyle(PlainCardButtonStyle())
+                Text(selectedGroup)
+                    .font(.system(size: 30, weight: .bold))
+                    .foregroundStyle(theme.palette.textPrimary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, NuvioSpacing.huge)
         }
     }
 
@@ -215,15 +249,6 @@ struct LiveTVView: View {
                 triggerWidth: 240
             ) { sortMode = ChannelSort(rawValue: $0) ?? .defaultOrder }
 
-            if viewModel.sections.count > 1 {
-                NuvioDropdown(
-                    title: "Group",
-                    selection: selectedGroup.isEmpty ? "All groups" : selectedGroup,
-                    options: [NuvioDropdownOption("All groups")]
-                        + viewModel.sections.map { NuvioDropdownOption($0.title) },
-                    triggerWidth: 360
-                ) { selectedGroup = ($0 == "All groups") ? "" : $0 }
-            }
             Spacer(minLength: 0)
         }
         .padding(.horizontal, NuvioSpacing.huge)
@@ -258,7 +283,16 @@ struct LiveTVView: View {
 
     private func channelRow(_ section: LiveTVViewModel.Section) -> some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
-            RowHeader(title: section.title)
+            HStack(alignment: .firstTextBaseline) {
+                RowHeader(title: section.title)
+                Spacer()
+                // Every row can open its full channel list.
+                Button { selectedGroup = section.title } label: {
+                    SeeAllLabel(text: "Show All")
+                }
+                .buttonStyle(PlainCardButtonStyle())
+                .padding(.trailing, NuvioSpacing.huge)
+            }
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
                     ForEach(section.channels.prefix(40)) { channel in

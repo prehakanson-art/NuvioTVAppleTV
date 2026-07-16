@@ -773,6 +773,7 @@ private struct ContentDiscoveryDetail: View {
     @EnvironmentObject private var collections: CollectionsStore
     @EnvironmentObject private var homeCatalogSettings: HomeCatalogSettingsStore
     @EnvironmentObject private var streamBadges: StreamBadgeStore
+    @ObservedObject private var liveTV = LiveTVSettingsStore.shared
     @State private var showAddons = false
     @State private var badgeURLInput = ""
     @State private var badgeImporting = false
@@ -802,6 +803,23 @@ private struct ContentDiscoveryDetail: View {
                         NuvioDropdownOption("60", "Every hour")
                     ]
                 ) { homeCatalogSettings.autoRefreshMinutes = Int($0) ?? 0 }
+            }
+            SettingsGroupCard(title: "Live TV", subtitle: "Set your location and language — the built-in IPTV list only shows channels that apply to you") {
+                NuvioDropdown(
+                    title: "Location",
+                    subtitle: "Load channels for this country. All countries = the full global list.",
+                    icon: "globe",
+                    selection: liveTV.countryCode,
+                    options: LiveTVSettingsStore.countries.map { NuvioDropdownOption($0.code, $0.name) }
+                ) { liveTV.countryCode = $0 }
+
+                NuvioDropdown(
+                    title: "Preferred language",
+                    subtitle: "Only show channels in this language. Combined with a location, keeps channels in both.",
+                    icon: "character.bubble",
+                    selection: liveTV.languageCode,
+                    options: LiveTVSettingsStore.languages.map { NuvioDropdownOption($0.code, $0.name) }
+                ) { liveTV.languageCode = $0 }
             }
             SettingsGroupCard(title: "Badges", subtitle: "Badge packs from Badger (nintle.github.io/Badger) shown on source rows") {
                 badgeControls

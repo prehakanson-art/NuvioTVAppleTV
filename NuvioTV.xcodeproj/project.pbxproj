@@ -54,6 +54,7 @@
 		88FEDC4B3E55B7F1D0D065E1 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = F0510E8569C2B8AAC1E46969 /* Assets.xcassets */; };
 		8BEFD722640C2C3DCF9F0E71 /* StremioAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8E7D954FA6B8F52309A05490 /* StremioAPI.swift */; };
 		8C3C2D551DB191D562E74637 /* CastDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 260D75DAB36C83E9C3ABC4C6 /* CastDetailView.swift */; };
+		8CD8F022B9E892253F0139DE /* LiveTVSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = B1008C82BF4E819E8E025196 /* LiveTVSettingsStore.swift */; };
 		8D638E0114249DD36A1B140E /* DiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C01CCB128223FD098404765 /* DiscoverView.swift */; };
 		8E628727D4B4241A39973930 /* AddonDiscoverView.swift in Sources */ = {isa = PBXBuildFile; fileRef = D424F88952AF98F3DB682E76 /* AddonDiscoverView.swift */; };
 		8EEF224B9573AA3722E84B1D /* NuvioConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC76C716994706B4C8031E57 /* NuvioConfig.swift */; };
@@ -156,6 +157,7 @@
 		A4EA353DABA76B77A9FCA728 /* TraktService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraktService.swift; sourceTree = "<group>"; };
 		AD681267F7BC35D3CC1F797C /* RequestCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RequestCache.swift; sourceTree = "<group>"; };
 		ADBB2C0716736EF000BE1068 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
+		B1008C82BF4E819E8E025196 /* LiveTVSettingsStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveTVSettingsStore.swift; sourceTree = "<group>"; };
 		B526B12FF40C35C8286806C2 /* WatchedStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WatchedStore.swift; sourceTree = "<group>"; };
 		B6DB589DC0A8FBFAF5AE8C3F /* DoviConverter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoviConverter.swift; sourceTree = "<group>"; };
 		B849FFDB58E807B07C473367 /* TorrServerService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TorrServerService.swift; sourceTree = "<group>"; };
@@ -290,6 +292,7 @@
 				17D137BCE0827FF5B9EBCA42 /* ExternalPlayers.swift */,
 				A26744F92AC1D7E60BF3416E /* HomeCatalogSettingsStore.swift */,
 				40ED41BE6AC1AE734241A985 /* LibraryStore.swift */,
+				B1008C82BF4E819E8E025196 /* LiveTVSettingsStore.swift */,
 				9F731E55D56113BBF882CA93 /* M3UService.swift */,
 				414898F11CD091C483A70A67 /* MDBListService.swift */,
 				79E6F3DF03C6701BE4587833 /* Models.swift */,
@@ -503,6 +506,7 @@
 				96D2CB47BCA0FE3E4D612153 /* HomeView.swift in Sources */,
 				05E7F090FE1B9AC25B4A887D /* LibraryStore.swift in Sources */,
 				FAA75F676F4221AD4B32CD89 /* LibraryView.swift in Sources */,
+				8CD8F022B9E892253F0139DE /* LiveTVSettingsStore.swift in Sources */,
 				B99589BE4621E7B4EDD07A19 /* LiveTVView.swift in Sources */,
 				BD13A077790442A6DDB1867D /* M3UService.swift in Sources */,
 				26142DF8D7225D3AC3BEA184 /* MDBListService.swift in Sources */,

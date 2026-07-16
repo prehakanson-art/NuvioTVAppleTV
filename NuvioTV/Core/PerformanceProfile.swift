@@ -79,4 +79,14 @@ enum PerformanceProfile {
         if isMidPower { return 400 << 20 }   // ~400 MB (4K gen 1/2, 3 GB)
         return 1000 << 20                    // ~1 GB (4K gen 3, 4 GB+)
     }
+
+    /// Whether native Dolby Vision **Profile 7** (the dual-layer → 8.1 remux)
+    /// should default ON here. Unlike profiles 5/8 (cheap, tag-only), the DV7
+    /// path re-reads and RPU-rewrites the *entire* file with libdovi while
+    /// playback streams in parallel — a heavy CPU + memory + network load that
+    /// the 3 GB gen-1/2 4K (and the 2 GB HD) can't sustain, so it hangs the app
+    /// mid-play. Only the 4 GB+ boxes (gen-3) get it on by default. This gates
+    /// only the DEFAULT; the toggle stays user-flippable on every device, so an
+    /// older box can still opt in (at the risk of the freeze).
+    static var recommendsDolbyVisionProfile7: Bool { !isLowPower && !isMidPower }
 }

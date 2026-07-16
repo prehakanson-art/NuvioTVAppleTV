@@ -266,11 +266,13 @@ struct PlayerSettings: Codable, Equatable {
     var nativeDolbyVision: Bool = true
     /// EXPERIMENTAL: convert Dolby Vision Profile 7 (dual-layer) → 8.1 via
     /// libdovi so DV7 files also get native DV output (the base layer is kept,
-    /// the enhancement layer dropped, each RPU rewritten 7→8.1). Off by
-    /// default — needs a DV-capable TV to verify, and any conversion glitch is
-    /// safer to opt into than to ship on. Off = DV7 tone-maps to HDR10 (the
-    /// standard engine), exactly as before. Requires Native Dolby Vision on.
-    var dolbyVisionProfile7: Bool = false
+    /// the enhancement layer dropped, each RPU rewritten 7→8.1). The DEFAULT is
+    /// device-aware: ON on 4 GB+ Apple TVs (gen-3), OFF on the 3 GB gen-1/2 and
+    /// the 2 GB HD, where the whole-file remux can hang the box mid-play — but
+    /// the user can flip it either way and the choice persists. Off = DV7
+    /// tone-maps to HDR10 (the standard engine), exactly as before. Requires
+    /// Native Dolby Vision on.
+    var dolbyVisionProfile7: Bool = PerformanceProfile.recommendsDolbyVisionProfile7
     /// Render styled ASS/SSA subtitles fully (custom fonts, positioning,
     /// karaoke) by playing titles that carry them in the VLC engine, which
     /// includes libass. KSPlayer's built-in ASS parser drops embedded fonts

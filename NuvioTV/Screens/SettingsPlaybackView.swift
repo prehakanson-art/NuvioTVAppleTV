@@ -240,7 +240,7 @@ struct PlaybackSettingsDetail: View {
                     PlaybackToggleRow(
                         icon: "square.stack.3d.up.fill",
                         title: "Dolby Vision Profile 7 (experimental)",
-                        subtitle: "Also handle dual-layer Profile 7 files (UHD Blu-ray remuxes) by converting them to Profile 8.1 on the fly, for native DV instead of the HDR10 tone-map. Experimental — verify on your DV TV; if a P7 title looks wrong, turn this off and it reverts to HDR10. Needs Native Dolby Vision on.",
+                        subtitle: "Also handle dual-layer Profile 7 files (UHD Blu-ray remuxes) by converting them to Profile 8.1 on the fly, for native DV instead of the HDR10 tone-map. \(PerformanceProfile.recommendsDolbyVisionProfile7 ? "On by default on \(PerformanceProfile.tierLabel)." : "Off by default on \(PerformanceProfile.tierLabel): the on-the-fly conversion re-processes the whole file and can freeze playback on this box — turn on only if you accept that.") If a P7 title looks wrong, turn this off and it reverts to HDR10. Needs Native Dolby Vision on.",
                         isOn: s.dolbyVisionProfile7
                     )
                 }

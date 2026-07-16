@@ -36,7 +36,13 @@ enum AddonCategory: String, CaseIterable, Identifiable {
 
 enum AddonDirectory {
     /// Recommended quick-picks — the most-wanted add-ons across categories,
-    /// including a ready-to-go IPTV add-on (USA TV) that feeds the Live TV tab.
+    /// including a ready-to-go IPTV add-on that feeds the Live TV tab.
+    ///
+    /// These free/community-hosted manifest URLs occasionally go dark (the
+    /// previous Live TV pick, "USA TV", died between sessions — its host
+    /// stopped resolving entirely). If Install silently does nothing here
+    /// again, it's very likely another dead host, not an app bug — the row
+    /// now surfaces the actual fetch error instead of failing silently.
     static let featured: [AddonCatalogEntry] = [
         .init(name: "Cinemeta", tagline: "Official movie & series catalogs and metadata",
               category: .metadata, manifestURL: "https://v3-cinemeta.strem.io/manifest.json"),
@@ -44,8 +50,8 @@ enum AddonDirectory {
               category: .streams, manifestURL: "https://torrentio.strem.fun/manifest.json", needsSetup: true),
         .init(name: "Comet", tagline: "Debrid-focused stream scraper with strong caching",
               category: .streams, manifestURL: "https://comet.elfhosted.com/manifest.json", needsSetup: true),
-        .init(name: "USA TV", tagline: "Live US TV — news, sports and entertainment channels. Appears in the Live TV tab.",
-              category: .liveTV, manifestURL: "https://848b3516657c-usatv.baby-beamup.club/manifest.json"),
+        .init(name: "Watchio.live TV", tagline: "Free live TV channels from around the world, including US. Appears in the Live TV tab.",
+              category: .liveTV, manifestURL: "https://watchio-addon.pages.dev/manifest.json"),
         .init(name: "Anime Kitsu", tagline: "Anime catalogs & metadata via Kitsu",
               category: .anime, manifestURL: "https://anime-kitsu.strem.fun/manifest.json"),
         .init(name: "OpenSubtitles v3", tagline: "Community subtitles in most languages",
@@ -73,6 +79,10 @@ struct AddonDiscoverView: View {
     var catalogsOnly: Bool = false
 
     @State private var installingID: String?
+    /// Last install failure per row, shown inline so a dead add-on's host
+    /// (the manifest fetch throwing) is visible instead of Install just
+    /// silently reverting with no explanation.
+    @State private var errorsByURL: [String: String] = [:]
     @State private var remote: [RemoteAddon] = []
     @State private var loading = true
     // A freshly-presented cover doesn't self-focus a bare list on tvOS; drive
@@ -139,7 +149,8 @@ struct AddonDiscoverView: View {
                     AddonDiscoverRowLabel(
                         item: item,
                         installed: installed,
-                        installing: installingID == item.url
+                        installing: installingID == item.url,
+                        errorMessage: errorsByURL[item.url]
                     )
                 }
                 .buttonStyle(PlainCardButtonStyle())
@@ -214,8 +225,17 @@ struct AddonDiscoverView: View {
     private func install(_ url: String) {
         guard installingID == nil else { return }
         installingID = url
+        errorsByURL[url] = nil
         Task {
-            try? await addonManager.install(manifestURL: url)
+            do {
+                try await addonManager.install(manifestURL: url)
+            } catch {
+                // Almost always a dead/unreachable manifest host (the add-on's
+                // free hosting went down) rather than anything wrong on our
+                // end — say so plainly instead of leaving Install as the only
+                // visible state, which reads as "nothing happened."
+                errorsByURL[url] = "Couldn't install: \(error.localizedDescription). This add-on's server may be down."
+            }
             installingID = nil
         }
     }
@@ -238,6 +258,7 @@ private struct AddonDiscoverRowLabel: View {
     let item: DiscoverItem
     let installed: Bool
     let installing: Bool
+    var errorMessage: String? = nil
 
     var body: some View {
         HStack(alignment: .top, spacing: NuvioSpacing.md) {
@@ -262,6 +283,13 @@ private struct AddonDiscoverRowLabel: View {
                         .foregroundStyle(theme.palette.textSecondary)
                         .lineSpacing(3)
                         .lineLimit(3)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 1000, alignment: .leading)
+                }
+                if let errorMessage {
+                    Text(errorMessage)
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(NuvioPrimitives.error)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: 1000, alignment: .leading)
                 }

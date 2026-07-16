@@ -554,6 +554,10 @@ final class PlayerViewModel: ObservableObject {
     private var seekDebounceTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private var lastProgressSave = Date.distantPast
+    /// The first in-playback save publishes + syncs (so a started title appears
+    /// in Continue Watching and on other devices right away); later saves stay
+    /// transient to avoid re-rendering Home behind the player.
+    private var didInitialProgressPublish = false
     private var lastSubtitleSearchAt: Double = -1
     private var pendingResume: Double?
     /// Options of the stream currently loading, kept for open-timing logs.
@@ -2691,6 +2695,14 @@ final class PlayerViewModel: ObservableObject {
         // but never published — a publish re-renders the whole Home screen
         // behind the player, which was the periodic playback hiccup. The
         // exit/teardown paths call saveProgress(), which publishes once.
+        // First eligible save: publish + push so Continue Watching (locally and
+        // on the account) reflects the started title within seconds, not only
+        // when the player closes.
+        if !didInitialProgressPublish, duration > 60, position > 0 {
+            didInitialProgressPublish = true
+            saveProgress()
+            return
+        }
         guard Date().timeIntervalSince(lastProgressSave) > 30 else { return }
         lastProgressSave = Date()
         progressStore.updateTransient(

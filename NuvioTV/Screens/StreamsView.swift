@@ -268,6 +268,14 @@ struct StreamsView: View {
     /// Manual mode (hold-Play / "Play Manually"): skip every auto-action so the
     /// user always lands on the source list, even with Auto Link Selector on.
     let forceManual: Bool
+    /// Called when the Auto Link Selector auto-plays, so the caller can pop this
+    /// page off the stack — backing out of the player returns to the title, not
+    /// the source list.
+    var onAutoDismiss: () -> Void = {}
+
+    /// Auto Link Selector is resolving: show a loading screen instead of the
+    /// source list so Play goes straight to "loading" with no list flash.
+    @State private var autoLinkResolving = false
 
     @State private var resolving = false
     @State private var resolveError: String?
@@ -284,9 +292,11 @@ struct StreamsView: View {
     let onSelect: (StreamEntry, [StreamEntry]) -> Void
 
     init(meta: MetaItem, video: MetaVideo?, forceManual: Bool = false,
+         onAutoDismiss: @escaping () -> Void = {},
          onSelect: @escaping (StreamEntry, [StreamEntry]) -> Void) {
         _viewModel = StateObject(wrappedValue: StreamsViewModel(meta: meta, video: video))
         self.forceManual = forceManual
+        self.onAutoDismiss = onAutoDismiss
         self.onSelect = onSelect
     }
 
@@ -328,6 +338,9 @@ struct StreamsView: View {
         .task {
             let s = playerSettings.settings
             viewModel.streamFilters = s.streamFilterOptions
+            // Auto Link Selector on (and not forced manual): show the loading
+            // screen instead of the source list from the very first frame.
+            autoLinkResolving = profiles.activeAutoLink.enabled && !forceManual
 
             // Reuse last link: if we still have a fresh remembered source, play
             // it immediately, but keep loading so backing out shows the full
@@ -357,6 +370,7 @@ struct StreamsView: View {
                let last = await viewModel.freshLastLink(hours: s.reuseLastLinkCacheHours) {
                 didAutoAct = true
                 await loadTask.value
+                if autoLinkResolving { onAutoDismiss() }
                 onSelect(last, viewModel.allEntries)
                 return
             }
@@ -366,10 +380,18 @@ struct StreamsView: View {
             // profile's preferred addon / quality / size and play it directly.
             // Takes precedence over the global auto-play. Skipped in manual mode.
             let autoLink = profiles.activeAutoLink
-            if !didAutoAct, !forceManual, autoLink.enabled,
-               let pick = viewModel.autoLinkPick(autoLink) {
-                didAutoAct = true
-                handleSelection(pick, viewModel.allEntries)
+            if !didAutoAct, !forceManual, autoLink.enabled {
+                if let pick = viewModel.autoLinkPick(autoLink) {
+                    didAutoAct = true
+                    // Pop this page so backing out of the player lands on the
+                    // title page, not the source list.
+                    onAutoDismiss()
+                    handleSelection(pick, viewModel.allEntries)
+                } else {
+                    // No source matched the prefs — reveal the list as a manual
+                    // fallback instead of leaving the loading screen up.
+                    autoLinkResolving = false
+                }
             }
 
             // Auto-play best source: once the sweep is done, start the best
@@ -381,6 +403,10 @@ struct StreamsView: View {
                 didAutoAct = true
                 handleSelection(best, viewModel.allEntries)
             }
+
+            // Safety net: if we opened in auto-loading mode but nothing acted,
+            // drop the loading screen so the user isn't stuck on it.
+            if autoLinkResolving && !didAutoAct { autoLinkResolving = false }
         }
         .alert("Couldn't resolve stream", isPresented: Binding(
             get: { resolveError != nil }, set: { if !$0 { resolveError = nil } }
@@ -394,7 +420,10 @@ struct StreamsView: View {
     /// The right-hand source panel: loading / empty / grouped list.
     @ViewBuilder
     private var sourcesPanel: some View {
-        if viewModel.groups.isEmpty {
+        if autoLinkResolving {
+            NuvioLoadingView(label: "Finding the best source…")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if viewModel.groups.isEmpty {
             if viewModel.isLoading {
                 NuvioLoadingView(label: streamCountLabel)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

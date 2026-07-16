@@ -83,6 +83,7 @@ struct RootView: View {
     @EnvironmentObject private var debrid: DebridStore
     @EnvironmentObject private var plugins: PluginStore
     @EnvironmentObject private var torrent: TorrentSettingsStore
+    @Environment(\.scenePhase) private var scenePhase
 
     // One navigation stack per tab (tvOS expects TabView at the top level with
     // an independent NavigationStack inside each tab; a shared stack under one
@@ -179,6 +180,12 @@ struct RootView: View {
                 .environmentObject(theme)
                 .environmentObject(profiles)
                 .environmentObject(account)
+            }
+            // Returning to the app pulls the latest Continue Watching so changes
+            // made on another device show up without a relaunch (local edits
+            // already push immediately on every change).
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active { sync?.refreshContinueWatching() }
             }
     }
 
@@ -608,7 +615,12 @@ struct RootView: View {
                 ))
             }
         case .streams(let meta, let video):
-            StreamsView(meta: meta, video: video) { entry, all in
+            StreamsView(
+                meta: meta, video: video,
+                // Auto Link Selector auto-played: pop the source page so backing
+                // out of the player returns to the title page, not the list.
+                onAutoDismiss: { if !path.wrappedValue.isEmpty { path.wrappedValue.removeLast() } }
+            ) { entry, all in
                 let key = ProgressStore.key(metaID: meta.id, video: video)
                 startPlayback(PlaybackRequest(
                     meta: meta,

@@ -309,6 +309,17 @@ final class NuvioSyncManager: ObservableObject {
         Task { [weak self] in try? await self?.pushWatchProgressAll() }
     }
 
+    /// Pull the latest Continue Watching (and library) from the account — call
+    /// on foreground so changes made on other devices show up without a
+    /// relaunch. Local pushes already fire immediately on every change.
+    func refreshContinueWatching() {
+        guard account.accessToken != nil else { return }
+        Task { [weak self] in
+            try? await self?.pullWatchProgress()
+            try? await self?.pullLibrary()
+        }
+    }
+
     /// Delete watch-progress entries server-side so a removed Continue Watching
     /// title doesn't come back on the next pull. Keys are the progress keys
     /// (video_id / progress_key) captured before local deletion.

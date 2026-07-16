@@ -22,20 +22,42 @@ final class LiveTVSettingsStore: ObservableObject {
         languageCode = UserDefaults.standard.string(forKey: Self.langKey) ?? ""
     }
 
-    private static let base = "https://iptv-org.github.io/iptv"
+    static let base = "https://iptv-org.github.io/iptv"
 
-    /// Playlist to load: country wins, then language, then the global list.
+    /// Playlist to load. LANGUAGE wins over location: a preferred language means
+    /// "only channels in that language, wherever they're from" — so a US viewer
+    /// who prefers English still sees BBC (English/UK) but not Al Majd
+    /// (Arabic/Saudi). Location matters only when no language is chosen.
     var primaryPlaylistURL: String {
-        if !countryCode.isEmpty { return "\(Self.base)/countries/\(countryCode).m3u" }
         if !languageCode.isEmpty { return "\(Self.base)/languages/\(languageCode).m3u" }
+        if !countryCode.isEmpty { return "\(Self.base)/countries/\(countryCode).m3u" }
         return M3UService.iptvOrgURL
     }
 
-    /// When BOTH are set, the country list is narrowed to channels that also
-    /// appear in this language list (intersection).
-    var secondaryLanguageURL: String? {
-        guard !countryCode.isEmpty, !languageCode.isEmpty else { return nil }
-        return "\(Self.base)/languages/\(languageCode).m3u"
+    /// Countries where each language is a primary/common language — the curated
+    /// safety-net list. Used to filter the global playlist by a channel's
+    /// country code if the per-language iptv-org playlist can't be loaded, so
+    /// non-matching-language channels still get hidden.
+    static let languageCountries: [String: Set<String>] = [
+        "eng": ["us", "gb", "ca", "au", "ie", "nz", "za", "in", "jm", "tt", "ph", "sg", "ng", "ke", "gh", "bs", "bb", "bz", "gy"],
+        "spa": ["es", "mx", "ar", "co", "cl", "pe", "ve", "ec", "gt", "cu", "bo", "do", "hn", "py", "sv", "ni", "cr", "pa", "uy", "pr"],
+        "fra": ["fr", "ca", "be", "ch", "lu", "mc", "sn", "ci", "cd", "cm", "ml", "ht", "dz", "ma", "tn"],
+        "deu": ["de", "at", "ch", "li", "lu"],
+        "ita": ["it", "sm", "va", "ch"],
+        "por": ["pt", "br", "ao", "mz", "cv"],
+        "nld": ["nl", "be", "sr", "aw"],
+        "rus": ["ru", "by", "kz", "kg", "md"],
+        "tur": ["tr", "cy"],
+        "pol": ["pl"],
+        "ara": ["sa", "ae", "eg", "iq", "jo", "kw", "lb", "ly", "ma", "om", "qa", "sy", "tn", "ye", "dz", "bh", "sd", "ps"],
+        "hin": ["in"],
+        "jpn": ["jp"],
+        "kor": ["kr", "kp"],
+        "zho": ["cn", "tw", "hk", "sg", "mo"],
+    ]
+
+    func countriesForLanguage(_ code: String) -> Set<String> {
+        Self.languageCountries[code] ?? []
     }
 
     struct Option: Identifiable { let code: String; let name: String; var id: String { code } }

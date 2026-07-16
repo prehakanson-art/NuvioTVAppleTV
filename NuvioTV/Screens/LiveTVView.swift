@@ -43,16 +43,24 @@ final class LiveTVViewModel: ObservableObject {
         sections = addonSections
         if !addonSections.isEmpty { isLoading = false }
 
-        // 2) Embedded IPTV list — from the country/language playlist chosen in
+        // 2) Embedded IPTV list — from the language/country playlist chosen in
         // Settings → Live TV, so channels that don't apply are simply absent.
         loadingIPTV = true
         let settings = LiveTVSettingsStore.shared
         var m3u = await M3UService.channels(from: settings.primaryPlaylistURL)
-        if let langURL = settings.secondaryLanguageURL {
-            // Both country + language set → keep only channels in both lists.
-            let langURLs = Set(await M3UService.channels(from: langURL).map(\.url))
-            m3u = m3u.filter { langURLs.contains($0.url) }
+
+        // Safety net: if a language is chosen but its iptv-org playlist came
+        // back empty (unsupported/unavailable), pull the global list and keep
+        // only channels whose country is one where that language is spoken, so
+        // non-matching-language channels are still hidden.
+        if !settings.languageCode.isEmpty && m3u.isEmpty {
+            let allowed = settings.countriesForLanguage(settings.languageCode)
+            if !allowed.isEmpty {
+                let global = await M3UService.channels(from: M3UService.iptvOrgURL)
+                m3u = global.filter { ch in ch.country.map { allowed.contains($0) } ?? false }
+            }
         }
+
         sections = addonSections + m3uSections(m3u)
         loadingIPTV = false
         isLoading = false

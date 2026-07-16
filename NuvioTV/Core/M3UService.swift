@@ -7,6 +7,8 @@ struct M3UChannel: Identifiable, Hashable {
     let url: String
     let logo: String?
     let group: String
+    /// ISO country code from the tvg-id (e.g. "BBCAmerica.us@East" → "us"), if any.
+    let country: String?
     var id_: String { id }
 }
 
@@ -42,12 +44,14 @@ enum M3UService {
         var pendingName: String?
         var pendingLogo: String?
         var pendingGroup: String?
+        var pendingCountry: String?
 
         text.enumerateLines { line, _ in
             if line.hasPrefix("#EXTINF") {
                 pendingName = name(from: line)
                 pendingLogo = attribute("tvg-logo", in: line)
                 pendingGroup = attribute("group-title", in: line)
+                pendingCountry = country(fromTvgID: attribute("tvg-id", in: line))
             } else if line.hasPrefix("#") {
                 // #EXTVLCOPT / #EXTGRP etc. — ignore, keep pending.
                 if line.hasPrefix("#EXTGRP:") {
@@ -60,10 +64,11 @@ enum M3UService {
                     channels.append(M3UChannel(
                         id: url, name: nm, url: url,
                         logo: pendingLogo?.isEmpty == false ? pendingLogo : nil,
-                        group: (pendingGroup?.isEmpty == false ? pendingGroup! : "Other")
+                        group: (pendingGroup?.isEmpty == false ? pendingGroup! : "Other"),
+                        country: pendingCountry
                     ))
                 }
-                pendingName = nil; pendingLogo = nil; pendingGroup = nil
+                pendingName = nil; pendingLogo = nil; pendingGroup = nil; pendingCountry = nil
             }
         }
         return channels
@@ -75,6 +80,16 @@ enum M3UService {
         let rest = line[r.upperBound...]
         guard let end = rest.firstIndex(of: "\"") else { return nil }
         return String(rest[..<end])
+    }
+
+    /// The 2-letter country code embedded in a tvg-id like "BBCAmerica.us@East"
+    /// or "AlMajd.sa" — the segment after the last "." (before any "@").
+    private static func country(fromTvgID tvgID: String?) -> String? {
+        guard let raw = tvgID, !raw.isEmpty else { return nil }
+        let beforeAt = raw.split(separator: "@", maxSplits: 1).first.map(String.init) ?? raw
+        guard let cc = beforeAt.split(separator: ".").last.map(String.init),
+              cc.count == 2, cc.allSatisfy({ $0.isLetter }) else { return nil }
+        return cc.lowercased()
     }
 
     /// The channel name — the text after the first comma that isn't inside quotes.

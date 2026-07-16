@@ -2,9 +2,9 @@ import Foundation
 
 // MARK: - Providers
 
-/// A debrid provider. All four authenticate here with a user-supplied API
-/// key/token (from the provider's account page). Device-code login (as the
-/// Android app uses for TorBox/Premiumize) is a future enhancement.
+/// A debrid provider. All four authenticate here either by pasting an API
+/// key/token (from the provider's account page) or via a scan-a-QR device
+/// login — the same device flows the Android app uses.
 enum DebridProvider: String, CaseIterable, Identifiable, Codable {
     case realDebrid, premiumize, torbox, allDebrid
 
@@ -39,14 +39,11 @@ enum DebridProvider: String, CaseIterable, Identifiable, Codable {
     }
 
     /// Whether this provider supports the scan-a-QR sign-in flow (like the APK).
-    /// Real-Debrid uses an OAuth device flow; AllDebrid a PIN flow. Premiumize
-    /// and TorBox have no usable public device flow, so they stay key-only.
-    var supportsQRAuth: Bool {
-        switch self {
-        case .realDebrid, .allDebrid: return true
-        case .premiumize, .torbox: return false
-        }
-    }
+    /// All four do: Real-Debrid uses an OAuth device flow, AllDebrid a PIN flow,
+    /// Premiumize an OAuth device flow (client_id 450935904), and TorBox its
+    /// `user/auth/device` flow (app "Nuvio") — the same endpoints the Android app
+    /// uses.
+    var supportsQRAuth: Bool { true }
 }
 
 // MARK: - Device (QR) authentication
@@ -286,7 +283,8 @@ enum DebridService {
         switch provider {
         case .realDebrid: return await startRD()
         case .allDebrid:  return await startAD()
-        default:          return nil
+        case .premiumize: return await startPM()
+        case .torbox:     return await startTB()
         }
     }
 
@@ -295,7 +293,8 @@ enum DebridService {
         switch provider {
         case .realDebrid: return await pollRD(code)
         case .allDebrid:  return await pollAD(code)
-        default:          return .failed("QR sign-in isn't available for this provider.")
+        case .premiumize: return await pollPM(code)
+        case .torbox:     return await pollTB(code)
         }
     }
 
@@ -389,6 +388,110 @@ enum DebridService {
             return .success(DebridAuthSuccess(apiKey: key, refresh: nil))
         }
         return .pending
+    }
+
+    // Premiumize OAuth device flow ----------------------------------------
+    // Same as the Android app: POST /token with the app's registered client id.
+
+    /// Premiumize's registered device-flow client id (from the Nuvio app).
+    static let pmClientID = "450935904"
+
+    private static func startPM() async -> DebridDeviceCode? {
+        struct Resp: Decodable {
+            let device_code: String?; let user_code: String?
+            let verification_uri: String?; let verification_uri_complete: String?
+            let expires_in: Int?; let interval: Int?
+            let error: String?
+        }
+        guard let r: Resp = try? await decode(pmTokenRequest(fields: [
+            "response_type": "device_code", "client_id": pmClientID
+        ])), let deviceCode = r.device_code, let userCode = r.user_code else { return nil }
+        let verify = r.verification_uri ?? "premiumize.me/device"
+        return DebridDeviceCode(
+            userCode: userCode,
+            verificationURL: verify,
+            qrURL: r.verification_uri_complete ?? verify,
+            pollPrimary: deviceCode, pollSecondary: "",
+            interval: max(r.interval ?? 5, 3), expiresIn: r.expires_in ?? 600
+        )
+    }
+
+    private static func pollPM(_ code: DebridDeviceCode) async -> DebridAuthPoll {
+        struct Resp: Decodable {
+            let access_token: String?; let error: String?
+        }
+        guard let r: Resp = try? await decode(pmTokenRequest(fields: [
+            "grant_type": "device_code", "code": code.pollPrimary, "client_id": pmClientID
+        ])) else { return .pending }
+        if let token = r.access_token, !token.isEmpty {
+            return .success(DebridAuthSuccess(apiKey: token, refresh: nil))
+        }
+        // Standard OAuth device-flow statuses: keep waiting on these two.
+        switch r.error {
+        case "authorization_pending", "slow_down", nil: return .pending
+        case "access_denied": return .failed("Sign-in was denied.")
+        case "expired_token": return .failed("Code expired — try again.")
+        default: return .failed("Couldn't complete Premiumize sign-in.")
+        }
+    }
+
+    private static func pmTokenRequest(fields: [String: String]) -> URLRequest {
+        var request = URLRequest(url: URL(string: "https://www.premiumize.me/token")!)
+        request.httpMethod = "POST"
+        request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = fields.map { "\($0.key)=\($0.value.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? $0.value)" }
+            .joined(separator: "&").data(using: .utf8)
+        return request
+    }
+
+    // TorBox device flow --------------------------------------------------
+    // GET .../device/start?app=Nuvio → poll POST .../device/token {device_code}.
+
+    private static func startTB() async -> DebridDeviceCode? {
+        struct Resp: Decodable { let data: D?
+            struct D: Decodable {
+                let device_code: String?; let code: String?
+                let verification_url: String?; let friendly_verification_url: String?
+                let interval: Int?; let expires_at: String?
+            }
+        }
+        var comps = URLComponents(string: "https://api.torbox.app/v1/api/user/auth/device/start")!
+        comps.queryItems = [.init(name: "app", value: "Nuvio")]
+        var request = URLRequest(url: comps.url!)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        guard let d = (try? await decode(request) as Resp)?.data,
+              let deviceCode = d.device_code, let code = d.code,
+              let verify = d.verification_url ?? d.friendly_verification_url else { return nil }
+        return DebridDeviceCode(
+            userCode: code,
+            verificationURL: d.friendly_verification_url ?? verify,
+            qrURL: verify,
+            pollPrimary: deviceCode, pollSecondary: "",
+            interval: max(d.interval ?? 5, 3), expiresIn: tbExpiry(d.expires_at)
+        )
+    }
+
+    private static func pollTB(_ code: DebridDeviceCode) async -> DebridAuthPoll {
+        struct Resp: Decodable { let data: D?
+            struct D: Decodable { let access_token: String? }
+        }
+        var request = URLRequest(url: URL(string: "https://api.torbox.app/v1/api/user/auth/device/token")!)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try? JSONSerialization.data(withJSONObject: ["device_code": code.pollPrimary])
+        guard let r: Resp = try? await decode(request) else { return .pending }
+        if let token = r.data?.access_token, !token.isEmpty {
+            return .success(DebridAuthSuccess(apiKey: token, refresh: nil))
+        }
+        return .pending
+    }
+
+    /// Seconds until a TorBox `expires_at` ISO timestamp, or a sane default.
+    private static func tbExpiry(_ iso: String?) -> Int {
+        guard let iso, let date = ISO8601DateFormatter().date(from: iso) else { return 600 }
+        return max(Int(date.timeIntervalSinceNow), 60)
     }
 
     /// Validate a key by hitting the provider's account endpoint.

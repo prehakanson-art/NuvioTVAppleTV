@@ -301,7 +301,8 @@ private struct DebridKeyEditor: View {
                     .font(.system(size: 40, weight: .bold))
                     .foregroundStyle(theme.palette.textPrimary)
 
-                // QR sign-in (RD/AllDebrid) — scan on your phone, like the APK.
+                // QR sign-in — scan on your phone, like the APK. All four
+                // providers support it (RD/PM OAuth device, AD/TB device flows).
                 if provider.supportsQRAuth {
                     Button { showQR = true } label: {
                         HStack(spacing: NuvioSpacing.sm) {
@@ -383,8 +384,9 @@ private struct DebridKeyEditor: View {
     }
 }
 
-/// Full-screen QR device-login for a debrid provider (Real-Debrid OAuth device
-/// flow / AllDebrid PIN flow) — the APK's scan-to-connect. Menu/Back cancels.
+/// Full-screen QR device-login for a debrid provider (Real-Debrid & Premiumize
+/// OAuth device flows, AllDebrid PIN flow, TorBox device flow) — the APK's
+/// scan-to-connect. Menu/Back cancels.
 private struct DebridConnectPage: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var debrid: DebridStore

@@ -47,6 +47,62 @@ enum BufferProfile: String, Codable, CaseIterable {
     }
 }
 
+/// How hard the on-device Dolby Vision Profile 7 → 8.1 conversion is allowed
+/// to work. The remux re-reads and RPU-rewrites the whole file in the
+/// background while playback streams in parallel; at full tilt that saturates
+/// CPU / memory / network and can hang the UI on a RAM-limited box (the 3 GB
+/// gen-1 4K). "Smooth" runs the worker at a lower thread priority and paces it
+/// to a little above realtime (after a short head-start burst) so playback and
+/// the rest of the app keep breathing; "Fast" lets it run flat out (best on
+/// 4 GB+ boxes). The default is device-aware.
+enum DolbyVisionRemuxPace: String, Codable, CaseIterable {
+    case smooth, balanced, fast
+
+    var label: String {
+        switch self {
+        case .smooth:   return "Smooth (older Apple TVs)"
+        case .balanced: return "Balanced"
+        case .fast:     return "Fast (newer Apple TVs)"
+        }
+    }
+
+    /// Worker-thread priority. A lower QoS lets tvOS shed the conversion under
+    /// UI pressure instead of starving the main thread into a hang.
+    var qos: QualityOfService {
+        switch self {
+        case .smooth, .balanced: return .utility
+        case .fast:              return .userInitiated
+        }
+    }
+
+    /// Max processing speed as a multiple of realtime once past the head start
+    /// (0 = unbounded). Bounds the download/decode burst so it can't flood a
+    /// constrained box.
+    var speedFactor: Double {
+        switch self {
+        case .smooth:   return 1.5
+        case .balanced: return 3.0
+        case .fast:     return 0
+        }
+    }
+
+    /// Seconds of content the worker may get ahead before pacing kicks in — the
+    /// initial burst that lets playback start quickly.
+    var leadSeconds: Double {
+        switch self {
+        case .smooth:   return 20
+        case .balanced: return 45
+        case .fast:     return 0
+        }
+    }
+
+    /// Sensible default for this hardware tier: gentle on the 3 GB gen-1/2 and
+    /// 2 GB HD, flat-out on the 4 GB+ boxes.
+    static var deviceDefault: DolbyVisionRemuxPace {
+        (PerformanceProfile.isLowPower || PerformanceProfile.isMidPower) ? .smooth : .fast
+    }
+}
+
 /// Which playback engine opens a stream first.
 /// - auto: route by container — Apple's hardware AVPlayer for native formats
 ///   (MP4/HLS), FFmpeg (VideoToolbox-accelerated) for MKV & friends. The
@@ -273,6 +329,10 @@ struct PlayerSettings: Codable, Equatable {
     /// tone-maps to HDR10 (the standard engine), exactly as before. Requires
     /// Native Dolby Vision on.
     var dolbyVisionProfile7: Bool = PerformanceProfile.recommendsDolbyVisionProfile7
+    /// How aggressively the DV7 → 8.1 conversion runs. Defaults gentle on
+    /// RAM-limited boxes (so DV7 can be turned on there without hanging) and
+    /// flat-out on 4 GB+ boxes. See DolbyVisionRemuxPace.
+    var dolbyVisionProfile7Pace: DolbyVisionRemuxPace = .deviceDefault
     /// Render styled ASS/SSA subtitles fully (custom fonts, positioning,
     /// karaoke) by playing titles that carry them in the VLC engine, which
     /// includes libass. KSPlayer's built-in ASS parser drops embedded fonts
@@ -411,6 +471,7 @@ struct PlayerSettings: Codable, Equatable {
         matchFrameRate = (try? c.decode(Bool.self, forKey: .matchFrameRate)) ?? d.matchFrameRate
         nativeDolbyVision = (try? c.decode(Bool.self, forKey: .nativeDolbyVision)) ?? d.nativeDolbyVision
         dolbyVisionProfile7 = (try? c.decode(Bool.self, forKey: .dolbyVisionProfile7)) ?? d.dolbyVisionProfile7
+        dolbyVisionProfile7Pace = (try? c.decode(DolbyVisionRemuxPace.self, forKey: .dolbyVisionProfile7Pace)) ?? d.dolbyVisionProfile7Pace
         fullAssSubtitles = (try? c.decode(Bool.self, forKey: .fullAssSubtitles)) ?? d.fullAssSubtitles
     }
 }

@@ -55,6 +55,16 @@ final class DVRemuxer {
     /// Convert Profile 7 (dual-layer) → 8.1 via libdovi so DV7 also gets
     /// native output. Off = P7 is ineligible and falls back to HDR10.
     private let convertProfile7: Bool
+    /// Worker-thread QoS (set before start()). A lower QoS lets tvOS shed the
+    /// conversion under UI pressure instead of starving the main thread.
+    var qos: QualityOfService = .userInitiated
+    /// Cap processing at this multiple of realtime once past `paceLeadSeconds`
+    /// (0 = unbounded). Bounds the download/decode burst on constrained boxes.
+    var paceSpeedFactor: Double = 0
+    /// Seconds of content the worker may get ahead before pacing engages.
+    var paceLeadSeconds: Double = 0
+    /// Wall-clock anchor, captured when the first content packet is seen.
+    private var paceStartWall: Date?
 
     init(input: String, startAt: Double, preferredAudioLanguage: String = "",
          convertProfile7: Bool = false) {
@@ -69,7 +79,7 @@ final class DVRemuxer {
     func start() {
         let thread = Thread { [self] in run() }
         thread.name = "DVRemuxer"
-        thread.qualityOfService = .userInitiated
+        thread.qualityOfService = qos
         thread.start()
     }
 
@@ -333,7 +343,7 @@ final class DVRemuxer {
             let inTB = isVideo ? inVideoTB : inAudioTB
             if packet.pointee.pts != Int64.min {   // AV_NOPTS_VALUE
                 let ptsSec = Double(packet.pointee.pts) * av_q2d(inTB)
-                if firstWrittenPTS.isNaN { firstWrittenPTS = ptsSec }
+                if firstWrittenPTS.isNaN { firstWrittenPTS = ptsSec; paceStartWall = Date() }
                 if isVideo {
                     lastVideoPTS = ptsSec
                     if (packet.pointee.flags & 0x0001) != 0 {   // AV_PKT_FLAG_KEY
@@ -384,6 +394,19 @@ final class DVRemuxer {
                 packetsSinceProgress = 0
                 let written = max(lastVideoPTS - (firstWrittenPTS.isNaN ? 0 : firstWrittenPTS), 0)
                 report { self.onProgress?(written) }
+            }
+
+            // Read-ahead pacing. Once the worker is more than `paceLeadSeconds`
+            // of content ahead of a `paceSpeedFactor`× realtime budget, pause
+            // until wall-clock catches up — so the whole file isn't pulled,
+            // decoded and RPU-rewritten in one burst that floods the box. Uses
+            // wall clock only, so it can never deadlock waiting on the playhead.
+            if paceSpeedFactor > 0, let startWall = paceStartWall, !firstWrittenPTS.isNaN {
+                let contentAhead = lastVideoPTS - firstWrittenPTS
+                while !cancelled,
+                      contentAhead > Date().timeIntervalSince(startWall) * paceSpeedFactor + paceLeadSeconds {
+                    Thread.sleep(forTimeInterval: 0.2)
+                }
             }
         }
 

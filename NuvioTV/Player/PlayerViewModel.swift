@@ -469,6 +469,10 @@ final class PlayerViewModel: ObservableObject {
                 self.switchToNativeDV(playlist: playlist)
             }
         }
+        let pace = settings.dolbyVisionProfile7Pace
+        remuxer.qos = pace.qos
+        remuxer.paceSpeedFactor = pace.speedFactor
+        remuxer.paceLeadSeconds = pace.leadSeconds
         remuxer.start()
     }
 

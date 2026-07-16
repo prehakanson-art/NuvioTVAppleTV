@@ -243,6 +243,16 @@ struct PlaybackSettingsDetail: View {
                         subtitle: "Also handle dual-layer Profile 7 files (UHD Blu-ray remuxes) by converting them to Profile 8.1 on the fly, for native DV instead of the HDR10 tone-map. \(PerformanceProfile.recommendsDolbyVisionProfile7 ? "On by default on \(PerformanceProfile.tierLabel)." : "Off by default on \(PerformanceProfile.tierLabel): the on-the-fly conversion re-processes the whole file and can freeze playback on this box — turn on only if you accept that.") If a P7 title looks wrong, turn this off and it reverts to HDR10. Needs Native Dolby Vision on.",
                         isOn: s.dolbyVisionProfile7
                     )
+
+                    if s.dolbyVisionProfile7.wrappedValue {
+                        NuvioDropdown(
+                            title: "DV7 conversion speed",
+                            subtitle: "How hard the Profile 7 → 8.1 conversion is allowed to work. \"Smooth\" runs it at low priority and paces it to just above realtime after a short head start, so it won't starve a RAM-limited Apple TV (the 3 GB gen-1) into a freeze; \"Fast\" runs it flat out (best on 4 GB+ boxes). If DV7 hangs this box, choose Smooth.",
+                            icon: "speedometer",
+                            selection: store.settings.dolbyVisionProfile7Pace.rawValue,
+                            options: DolbyVisionRemuxPace.allCases.map { NuvioDropdownOption($0.rawValue, $0.label) }
+                        ) { store.settings.dolbyVisionProfile7Pace = DolbyVisionRemuxPace(rawValue: $0) ?? .deviceDefault }
+                    }
                 }
 
                 PlaybackToggleRow(

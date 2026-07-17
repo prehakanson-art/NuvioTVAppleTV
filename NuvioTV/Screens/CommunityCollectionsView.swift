@@ -151,12 +151,23 @@ enum CommunityCollections {
             id: idPrefix + "studio." + slug, group: .studios, kind: .studio, title: title, sources: [source]
         )
     }
+    /// `minVoteCount` matters specifically for `sort_by=vote_average.desc`:
+    /// verified live that without it, "Top Rated" is pure noise — obscure
+    /// titles with a single 10/10 vote outrank The Shawshank Redemption.
+    /// `recentDaysWindow` is for "Newest": plain release-date sorting
+    /// surfaces unreleased 2029-2099 placeholder entries with zero votes, so
+    /// this instead restricts to a rolling recent window (computed fresh at
+    /// query time) and sorts by popularity within it. Trending needs neither.
     private static func discover(_ slug: String, _ title: String, kind: CommunityCollectionPreset.Kind,
-                                  mediaType: String, sortBy: String) -> CommunityCollectionPreset {
-        CommunityCollectionPreset(
-            id: idPrefix + "trending." + slug, group: .trending, kind: kind, title: title,
-            sources: [CollectionSourceDTO(tmdbSourceType: "DISCOVER", title: title, tmdbId: nil,
-                                          mediaType: mediaType, sortBy: sortBy)]
+                                  mediaType: String, sortBy: String,
+                                  minVoteCount: Int? = nil, recentDaysWindow: Int? = nil) -> CommunityCollectionPreset {
+        var source = CollectionSourceDTO(tmdbSourceType: "DISCOVER", title: title, tmdbId: nil,
+                                          mediaType: mediaType, sortBy: sortBy)
+        if minVoteCount != nil || recentDaysWindow != nil {
+            source.filters = TmdbFiltersDTO(voteCountGte: minVoteCount, recentDays: recentDaysWindow)
+        }
+        return CommunityCollectionPreset(
+            id: idPrefix + "trending." + slug, group: .trending, kind: kind, title: title, sources: [source]
         )
     }
 
@@ -214,9 +225,23 @@ enum CommunityCollections {
         // MARK: Trending & Top Rated — each its own installable category.
         discover("moviesnow", "Trending Movies", kind: .trending, mediaType: "movie", sortBy: "popularity.desc"),
         discover("showsnow", "Trending Shows", kind: .trending, mediaType: "tv", sortBy: "popularity.desc"),
-        discover("moviestop", "Top Rated Movies", kind: .topRated, mediaType: "movie", sortBy: "vote_average.desc"),
-        discover("showstop", "Top Rated Shows", kind: .topRated, mediaType: "tv", sortBy: "vote_average.desc"),
-        discover("newest", "Newest Releases", kind: .newest, mediaType: "movie", sortBy: "primary_release_date.desc"),
+        // Verified live: sorting by vote_average with no vote-count floor is
+        // pure noise (obscure titles with a single 10/10 vote outrank The
+        // Shawshank Redemption). 1000 for movies / 800 for shows: clean,
+        // recognizable results (Shawshank, Godfather, Schindler's List /
+        // Breaking Bad, Arcane, Chernobyl) while still ~4900 / ~700 titles.
+        discover("moviestop", "Top Rated Movies", kind: .topRated, mediaType: "movie",
+                 sortBy: "vote_average.desc", minVoteCount: 1000),
+        discover("showstop", "Top Rated Shows", kind: .topRated, mediaType: "tv",
+                 sortBy: "vote_average.desc", minVoteCount: 800),
+        // Verified live: plain primary_release_date.desc surfaced unreleased
+        // 2029-2099 placeholder entries with zero votes (e.g. "Avatar 5",
+        // "100 Years"), not watchable new releases. recentDaysWindow instead
+        // restricts to the last 120 days (computed fresh at query time,
+        // excludes anything not yet released) sorted by popularity within
+        // that window — Toy Story 5, Supergirl, The Devil Wears Prada 2, etc.
+        discover("newest", "Newest Releases", kind: .newest, mediaType: "movie",
+                 sortBy: "popularity.desc", recentDaysWindow: 120),
     ]
 
     static func presets(in group: CommunityCollectionPreset.Group) -> [CommunityCollectionPreset] {

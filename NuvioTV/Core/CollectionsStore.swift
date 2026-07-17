@@ -131,6 +131,13 @@ struct TmdbFiltersDTO: Codable, Hashable {
     var year: Int?
     var watchRegion: String?
     var withWatchProviders: String?
+    /// Rolling "released in the last N days" window, computed fresh at query
+    /// time (not a fixed date, which would go stale) — pairs with sorting by
+    /// popularity instead of release date. Verified live that plain
+    /// `sort_by=primary_release_date.desc` surfaces unreleased 2029-2099
+    /// placeholder entries with zero votes, not watchable "newest releases".
+    /// tvOS-only; nil unless a preset explicitly opts in.
+    var recentDays: Int?
 }
 
 struct NuvioCollectionFolder: Codable, Identifiable, Hashable {

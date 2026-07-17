@@ -79,6 +79,16 @@ enum TMDBService {
     private static let base = "https://api.themoviedb.org/3"
     private static let imageBase = "https://image.tmdb.org/t/p"
 
+    /// Plain "yyyy-MM-dd" for TMDB's date-range discover params. Fixed UTC/
+    /// POSIX locale so it never reflects the device's calendar/locale.
+    private static let isoDateOnly: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.locale = Locale(identifier: "en_US_POSIX")
+        return f
+    }()
+
     private static let session: URLSession = {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 20
@@ -439,6 +449,19 @@ enum TMDBService {
         if let v = f?.voteCountGte { baseQuery["vote_count.gte"] = String(v) }
         if let v = f?.voteAverageGte { baseQuery["vote_average.gte"] = String(v) }
         if let v = f?.year { baseQuery[useTV ? "first_air_date_year" : "year"] = String(v) }
+        // "Newest Releases": a rolling window computed fresh THIS call (not a
+        // fixed date, which would go stale), sorted by popularity instead of
+        // release date. Verified live that plain sort_by=primary_release_date
+        // surfaces unreleased 2029-2099 placeholder entries with zero votes —
+        // not watchable "newest releases" at all.
+        if let days = f?.recentDays, days > 0 {
+            let today = Date()
+            let past = Calendar.current.date(byAdding: .day, value: -days, to: today) ?? today
+            let dateField = useTV ? "first_air_date" : "primary_release_date"
+            baseQuery["\(dateField).lte"] = Self.isoDateOnly.string(from: today)
+            baseQuery["\(dateField).gte"] = Self.isoDateOnly.string(from: past)
+            baseQuery["sort_by"] = "popularity.desc"
+        }
         if sourceType == "NETWORK", let tid = source.tmdbId, !hasWatchProviderOverride {
             baseQuery["with_networks"] = String(tid)
         }

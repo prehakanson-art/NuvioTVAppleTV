@@ -407,7 +407,20 @@ enum TMDBService {
             "sort_by": source.sortBy?.isEmpty == false ? source.sortBy! : "popularity.desc"
         ]
         let f = source.filters
-        if sourceType == "COMPANY", let tid = source.tmdbId { baseQuery["with_companies"] = String(tid) }
+        if sourceType == "COMPANY" {
+            // `filters.withCompanies` (pipe-separated, OR-match) overrides the
+            // single tmdbId when set — some franchises are legally fragmented
+            // across several TMDB company records (e.g. "DC Films" alone is
+            // only ~17 titles; DC Films + DC Entertainment combined is the
+            // real ~70-title DC catalog), so one company id badly undercounts
+            // them. Plain single-studio collections (Pixar, A24, etc.) are
+            // already complete under their one id and don't set this.
+            if let multi = f?.withCompanies, !multi.isEmpty {
+                baseQuery["with_companies"] = multi
+            } else if let tid = source.tmdbId {
+                baseQuery["with_companies"] = String(tid)
+            }
+        }
         if let v = f?.withGenres { baseQuery["with_genres"] = v }
         if let v = f?.withKeywords { baseQuery["with_keywords"] = v }
         if let v = f?.withOriginalLanguage { baseQuery["with_original_language"] = v }

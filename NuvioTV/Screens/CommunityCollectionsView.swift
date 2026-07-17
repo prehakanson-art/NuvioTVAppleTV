@@ -102,10 +102,19 @@ enum CommunityCollections {
             source: CollectionSourceDTO(tmdbSourceType: "NETWORK", title: title, tmdbId: tmdbId, mediaType: "tv")
         )
     }
-    private static func studio(_ slug: String, _ title: String, _ tmdbId: Int) -> CommunityCollectionPreset {
-        CommunityCollectionPreset(
-            id: idPrefix + "studio." + slug, group: .studios, kind: .studio, title: title,
-            source: CollectionSourceDTO(tmdbSourceType: "COMPANY", title: title, tmdbId: tmdbId, mediaType: "movie")
+    /// `extraCompanyIDs` combines several TMDB company records into one
+    /// OR-matched query (verified live against TMDB) for franchises legally
+    /// fragmented across multiple company entities — a single id badly
+    /// undercounts those. Plain single-studio collections leave this empty.
+    private static func studio(_ slug: String, _ title: String, _ tmdbId: Int,
+                                extraCompanyIDs: [Int] = []) -> CommunityCollectionPreset {
+        var source = CollectionSourceDTO(tmdbSourceType: "COMPANY", title: title, tmdbId: tmdbId, mediaType: "movie")
+        if !extraCompanyIDs.isEmpty {
+            let combined = ([tmdbId] + extraCompanyIDs).map(String.init).joined(separator: "|")
+            source.filters = TmdbFiltersDTO(withCompanies: combined)
+        }
+        return CommunityCollectionPreset(
+            id: idPrefix + "studio." + slug, group: .studios, kind: .studio, title: title, source: source
         )
     }
     private static func discover(_ slug: String, _ title: String, kind: CommunityCollectionPreset.Kind,
@@ -133,7 +142,11 @@ enum CommunityCollections {
         network("crunchyroll", "Crunchyroll", 1112),
 
         // MARK: Major Studios — each its own installable category.
-        studio("marvel", "Marvel Studios", 420),
+        // Marvel Studios (420) alone is MCU-only (~100 titles) and misses
+        // classic/crossover Marvel films still legally credited elsewhere
+        // (2002 Spider-Man, Into/Across the Spider-Verse, Logan, …). Combined
+        // with its other TMDB company records: ~142 titles, verified live.
+        studio("marvel", "Marvel Studios", 420, extraCompanyIDs: [19551, 7505, 108634, 160251]),
         studio("disney", "Walt Disney Pictures", 2),
         studio("pixar", "Pixar", 3),
         studio("lucasfilm", "Lucasfilm", 1),
@@ -142,7 +155,14 @@ enum CommunityCollections {
         studio("paramount", "Paramount Pictures", 4),
         studio("sony", "Sony Pictures", 34),
         studio("a24", "A24", 41077),
-        studio("dcfilms", "DC Films", 128064),
+        // "DC Films" (128064) alone is only ~17 titles — a narrow, recent
+        // production label. Combined with DC Entertainment (9993), the real
+        // DC catalog (Batman, Joker, Aquaman, Justice League, Wonder Woman,
+        // Shazam, Teen Titans, animated DC movies, …): ~69 titles, verified
+        // live. (Adding Atlas Entertainment — co-produced several DC films —
+        // was tried and rejected: it also makes many unrelated films, e.g.
+        // Oppenheimer, Uncharted, so it pollutes rather than completes this.)
+        studio("dcfilms", "DC Films", 128064, extraCompanyIDs: [9993]),
         studio("ghibli", "Studio Ghibli", 10342),
         studio("blumhouse", "Blumhouse", 3172),
 
@@ -235,6 +255,7 @@ struct CommunityCollectionsView: View {
         }
         .task {
             consolidateIndividualCollections()
+            resyncPresetSources()
             await remeasureInstalledLogos()
             await loadLogos()
         }
@@ -324,6 +345,26 @@ struct CommunityCollectionsView: View {
             collections.remove(id: preset.id)
             folder.id = preset.id
             addFolder(folder, to: preset.group)
+        }
+    }
+
+    /// One-time fix for categories installed BEFORE a preset's TMDB source was
+    /// corrected (e.g. Marvel/DC's single-company id was too narrow and
+    /// undercounted their real catalog — see the `studio()` builder). Already-
+    /// installed folders keep whatever source they were given at install
+    /// time, so without this they'd stay stuck on the old, incomplete query
+    /// even after the app fixes it. Finds each preset's folder (by its now-
+    /// stable id) across every community collection and re-syncs its
+    /// `sources` to the CURRENT preset definition when it's changed.
+    private func resyncPresetSources() {
+        for preset in CommunityCollections.presets {
+            for collection in collections.collections where collection.id.hasPrefix(CommunityCollections.idPrefix) {
+                guard let idx = collection.folders.firstIndex(where: { $0.id == preset.id }),
+                      collection.folders[idx].sources != [preset.source] else { continue }
+                var updated = collection
+                updated.folders[idx].sources = [preset.source]
+                collections.update(updated)
+            }
         }
     }
 

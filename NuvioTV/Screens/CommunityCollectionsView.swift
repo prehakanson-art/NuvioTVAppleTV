@@ -64,9 +64,23 @@ struct CommunityCollectionPreset: Identifiable {
     let group: Group
     let kind: Kind
     let title: String
-    let source: CollectionSourceDTO
+    /// Usually one source; a streaming service with a watch-provider override
+    /// gets TWO (movie + tv) since that filter — unlike TMDB's network-only
+    /// with_networks filter — works for both, so those categories can finally
+    /// show movies too, not just shows.
+    let sources: [CollectionSourceDTO]
 
-    var mediaLabel: String { (source.mediaType ?? "movie").lowercased() == "tv" ? "TV Shows" : "Movies" }
+    /// A single representative source for logo/id lookups — every source in
+    /// a multi-source preset shares the same tmdbId/tmdbSourceType, they only
+    /// differ in mediaType.
+    var primarySource: CollectionSourceDTO { sources[0] }
+
+    var mediaLabel: String {
+        let hasMovie = sources.contains { ($0.mediaType ?? "movie").lowercased() != "tv" }
+        let hasTV = sources.contains { ($0.mediaType ?? "movie").lowercased() == "tv" }
+        if hasMovie && hasTV { return "Movies & Shows" }
+        return hasTV ? "TV Shows" : "Movies"
+    }
 }
 
 enum CommunityCollections {
@@ -96,10 +110,30 @@ enum CommunityCollections {
         return json
     }
 
-    private static func network(_ slug: String, _ title: String, _ tmdbId: Int) -> CommunityCollectionPreset {
-        CommunityCollectionPreset(
-            id: idPrefix + "streaming." + slug, group: .streaming, kind: .network, title: title,
-            source: CollectionSourceDTO(tmdbSourceType: "NETWORK", title: title, tmdbId: tmdbId, mediaType: "tv")
+    /// `watchProviderID` (verified live against TMDB) switches the query from
+    /// TMDB's `with_networks` (originals only, TV-only) to `with_watch_providers`
+    /// (the platform's REAL streaming catalog including licensed content, and
+    /// works for movies too) — checked per-service since it isn't always
+    /// better (Apple TV+/FX/BBC's watch-provider data undercounts vs. their
+    /// network data, so those stay network-only with no override).
+    private static func network(_ slug: String, _ title: String, _ tmdbId: Int,
+                                 watchProviderID: Int? = nil) -> CommunityCollectionPreset {
+        var filters: TmdbFiltersDTO?
+        if let wpid = watchProviderID {
+            filters = TmdbFiltersDTO(watchRegion: "US", withWatchProviders: String(wpid))
+        }
+        func makeSource(mediaType: String) -> CollectionSourceDTO {
+            var s = CollectionSourceDTO(tmdbSourceType: "NETWORK", title: title, tmdbId: tmdbId, mediaType: mediaType)
+            s.filters = filters
+            return s
+        }
+        // A watch-provider override serves movies AND shows; network-only
+        // (TMDB's with_networks) is TV-only, full stop — so those categories
+        // only ever get the tv source, same as before.
+        let sources = filters != nil ? [makeSource(mediaType: "movie"), makeSource(mediaType: "tv")]
+                                      : [makeSource(mediaType: "tv")]
+        return CommunityCollectionPreset(
+            id: idPrefix + "streaming." + slug, group: .streaming, kind: .network, title: title, sources: sources
         )
     }
     /// `extraCompanyIDs` combines several TMDB company records into one
@@ -114,32 +148,43 @@ enum CommunityCollections {
             source.filters = TmdbFiltersDTO(withCompanies: combined)
         }
         return CommunityCollectionPreset(
-            id: idPrefix + "studio." + slug, group: .studios, kind: .studio, title: title, source: source
+            id: idPrefix + "studio." + slug, group: .studios, kind: .studio, title: title, sources: [source]
         )
     }
     private static func discover(_ slug: String, _ title: String, kind: CommunityCollectionPreset.Kind,
                                   mediaType: String, sortBy: String) -> CommunityCollectionPreset {
         CommunityCollectionPreset(
             id: idPrefix + "trending." + slug, group: .trending, kind: kind, title: title,
-            source: CollectionSourceDTO(tmdbSourceType: "DISCOVER", title: title, tmdbId: nil,
-                                        mediaType: mediaType, sortBy: sortBy)
+            sources: [CollectionSourceDTO(tmdbSourceType: "DISCOVER", title: title, tmdbId: nil,
+                                          mediaType: mediaType, sortBy: sortBy)]
         )
     }
 
     static let presets: [CommunityCollectionPreset] = [
         // MARK: Streaming Services — each its own installable category.
-        network("netflix", "Netflix", 213),
-        network("disneyplus", "Disney+", 2739),
-        network("max", "Max", 49),
-        network("primevideo", "Prime Video", 1024),
-        network("appletvplus", "Apple TV+", 2552),
-        network("hulu", "Hulu", 453),
-        network("paramountplus", "Paramount+", 4330),
-        network("peacock", "Peacock", 3353),
-        network("fx", "FX", 88),
-        network("amc", "AMC", 174),
-        network("bbc", "BBC", 4),
-        network("crunchyroll", "Crunchyroll", 1112),
+        // Every id below verified live against TMDB. `watchProviderID` set =
+        // that service's watch-provider data is a meaningfully bigger, still-
+        // accurate catalog than its network data (adds movies too, since
+        // watch-provider isn't TV-only); left unset = the network id already
+        // wins (Apple TV+ 238>221, FX 97>14, BBC 2644>9 — their watch-provider
+        // data is oddly sparse and would make those categories WORSE).
+        network("netflix", "Netflix", 213, watchProviderID: 8),              // 2798 -> 3426
+        network("disneyplus", "Disney+", 2739, watchProviderID: 337),        //  472 ->  931
+        network("max", "Max", 49, watchProviderID: 1899),                    //  378 -> 1798 (HBO Max)
+        network("primevideo", "Prime Video", 1024, watchProviderID: 9),      // 1455 -> 4907
+        network("appletvplus", "Apple TV+", 2552),                          // network wins, no override
+        network("hulu", "Hulu", 453, watchProviderID: 15),                   //  362 -> 1914
+        network("paramountplus", "Paramount+", 4330, watchProviderID: 2303), //  151 ->  712 (Premium tier)
+        network("peacock", "Peacock", 3353, watchProviderID: 386),           //  206 -> 1079 (Premium tier)
+        network("fx", "FX", 88),                                            // network wins, no override
+        network("amc", "AMC", 174, watchProviderID: 526),                    //   80 ->  263 (AMC+ bundle)
+        network("bbc", "BBC", 4),                                           // network wins, no override
+        // Crunchyroll's network id is its ORIGINALS only (RWBY, ...) — TMDB
+        // credits Crunchyroll's vast licensed anime catalog (One Piece,
+        // Naruto, Jujutsu Kaisen, ...) to their original Japanese broadcast
+        // networks, not to Crunchyroll. Watch-provider data (what's actually
+        // streamable on Crunchyroll) is the only correct source here.
+        network("crunchyroll", "Crunchyroll", 1112, watchProviderID: 283),   //   19 -> 1825
 
         // MARK: Major Studios — each its own installable category.
         // Marvel Studios (420) alone is MCU-only (~100 titles) and misses
@@ -302,11 +347,11 @@ struct CommunityCollectionsView: View {
     /// recognizable categories. DISCOVER-type entries (Trending/Top Rated/
     /// Newest) have no brand to fetch; they use their kind's emoji instead.
     private func loadLogos() async {
-        let targets = CommunityCollections.presets.filter { $0.source.tmdbId != nil }
+        let targets = CommunityCollections.presets.filter { $0.primarySource.tmdbId != nil }
         await withTaskGroup(of: (String, String?).self) { group in
             for preset in targets {
                 group.addTask {
-                    (preset.id, await Self.brandLogo(for: preset.source))
+                    (preset.id, await Self.brandLogo(for: preset.primarySource))
                 }
             }
             for await (id, url) in group {
@@ -360,9 +405,9 @@ struct CommunityCollectionsView: View {
         for preset in CommunityCollections.presets {
             for collection in collections.collections where collection.id.hasPrefix(CommunityCollections.idPrefix) {
                 guard let idx = collection.folders.firstIndex(where: { $0.id == preset.id }),
-                      collection.folders[idx].sources != [preset.source] else { continue }
+                      collection.folders[idx].sources != preset.sources else { continue }
                 var updated = collection
-                updated.folders[idx].sources = [preset.source]
+                updated.folders[idx].sources = preset.sources
                 collections.update(updated)
             }
         }
@@ -429,10 +474,10 @@ struct CommunityCollectionsView: View {
         // and across the consolidation migration above) — that's how
         // `installedPresetIDs` and `remove(_:)` find this exact category
         // again inside its shared group collection.
-        var folder = NuvioCollectionFolder(id: preset.id, title: preset.title, sources: [preset.source])
+        var folder = NuvioCollectionFolder(id: preset.id, title: preset.title, sources: preset.sources)
         var resolvedLogo = logos[preset.id]
         if resolvedLogo == nil {
-            resolvedLogo = await Self.brandLogo(for: preset.source)
+            resolvedLogo = await Self.brandLogo(for: preset.primarySource)
         }
         if let logo = resolvedLogo {
             folder.tileShape = await Self.measuredTileShape(for: logo)

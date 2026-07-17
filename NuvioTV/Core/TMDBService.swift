@@ -400,13 +400,18 @@ enum TMDBService {
     }
 
     private static func resolveDiscover(source: CollectionSourceDTO, sourceType: String, isMovie: Bool, language: String) async throws -> [TMDBRawItem] {
-        // NETWORK forces TV; COMPANY/DISCOVER honor the source media type.
-        let useTV = sourceType == "NETWORK" ? true : !isMovie
+        let f = source.filters
+        // NETWORK forces TV, because TMDB's with_networks filter is TV-only —
+        // UNLESS a watch-provider override is present. Watch-provider data
+        // works for movies too, so a network preset with one lets mediaType
+        // drive movie vs TV instead of being stuck TV-only, which is why every
+        // streaming-service category only ever showed shows, never movies.
+        let hasWatchProviderOverride = f?.withWatchProviders?.isEmpty == false
+        let useTV = (sourceType == "NETWORK" && !hasWatchProviderOverride) ? true : !isMovie
         var baseQuery: [String: String] = [
             "language": language,
             "sort_by": source.sortBy?.isEmpty == false ? source.sortBy! : "popularity.desc"
         ]
-        let f = source.filters
         if sourceType == "COMPANY" {
             // `filters.withCompanies` (pipe-separated, OR-match) overrides the
             // single tmdbId when set — some franchises are legally fragmented
@@ -434,7 +439,7 @@ enum TMDBService {
         if let v = f?.voteCountGte { baseQuery["vote_count.gte"] = String(v) }
         if let v = f?.voteAverageGte { baseQuery["vote_average.gte"] = String(v) }
         if let v = f?.year { baseQuery[useTV ? "first_air_date_year" : "year"] = String(v) }
-        if useTV, sourceType == "NETWORK", let tid = source.tmdbId {
+        if sourceType == "NETWORK", let tid = source.tmdbId, !hasWatchProviderOverride {
             baseQuery["with_networks"] = String(tid)
         }
 

@@ -141,6 +141,7 @@ struct DetailView: View {
     @EnvironmentObject private var progressStore: ProgressStore
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var watched: WatchedStore
+    @EnvironmentObject private var ratings: RatingsStore
     @EnvironmentObject private var mdblist: MDBListSettingsStore
     @EnvironmentObject private var tmdbSettings: TMDBSettingsStore
     @EnvironmentObject private var layout: HomeCatalogSettingsStore
@@ -156,6 +157,7 @@ struct DetailView: View {
     var onSelectPerson: (Int, String) -> Void = { _, _ in }
     var onSelectCompany: (Int, String) -> Void = { _, _ in }
     @State private var activeTrailer: TMDBService.Trailer?
+    @State private var showRatingPicker = false
     /// Trailer playing silently in the backdrop after the idle delay.
     @State private var backdropPlayer: AVPlayer?
     @State private var showBackdropTrailer = false
@@ -222,6 +224,16 @@ struct DetailView: View {
         .fullScreenCover(item: $activeTrailer) { trailer in
             TrailerPlayerView(trailer: trailer)
                 .environmentObject(theme)
+        }
+        .fullScreenCover(isPresented: $showRatingPicker) {
+            RatingPickerOverlay(
+                title: viewModel.meta.name,
+                current: ratings.rating(for: viewModel.meta.id)
+            ) { newRating in
+                ratings.setRating(newRating, for: viewModel.meta.id, type: viewModel.meta.type)
+                showRatingPicker = false
+            } onCancel: { showRatingPicker = false }
+            .environmentObject(theme)
         }
     }
 
@@ -353,6 +365,11 @@ struct DetailView: View {
                         active: watched.isWatched(viewModel.meta)
                     ) { watched.toggleMovie(viewModel.meta) }
                 }
+                // Rate (Trakt) — star fills when you've rated; opens a 1–10 picker.
+                CircleIconButton(
+                    systemName: ratings.rating(for: viewModel.meta.id) != nil ? "star.fill" : "star",
+                    active: ratings.rating(for: viewModel.meta.id) != nil
+                ) { showRatingPicker = true }
                 if layout.detailPageTrailerButtonEnabled, let trailer = viewModel.trailers.first {
                     CircleIconButton(systemName: "play.rectangle.fill", active: false) {
                         activeTrailer = trailer
@@ -1140,5 +1157,79 @@ private struct DescriptionOverlay: View {
         }
         .onExitCommand { onClose() }
         .onPlayPauseCommand { onClose() }
+    }
+}
+
+/// A 1–10 Trakt-style rating picker: a row of ten number buttons plus Clear.
+/// tvOS-focusable, dismisses on selection.
+private struct RatingPickerOverlay: View {
+    @EnvironmentObject private var theme: ThemeManager
+    let title: String
+    let current: Int?
+    let onRate: (Int?) -> Void
+    let onCancel: () -> Void
+    @FocusState private var focus: Int?
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.7).ignoresSafeArea()
+                .onTapGesture { onCancel() }
+            VStack(spacing: NuvioSpacing.xl) {
+                Text("Rate")
+                    .font(.system(size: 40, weight: .bold))
+                    .foregroundStyle(theme.palette.textPrimary)
+                Text(title)
+                    .font(.system(size: 24))
+                    .foregroundStyle(theme.palette.textSecondary)
+                    .lineLimit(1)
+
+                HStack(spacing: NuvioSpacing.md) {
+                    ForEach(1...10, id: \.self) { n in
+                        Button { onRate(n) } label: {
+                            Text("\(n)")
+                                .font(.system(size: 30, weight: .heavy))
+                                .foregroundStyle(current == n ? theme.palette.onSecondary : theme.palette.textPrimary)
+                                .frame(width: 74, height: 90)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .fill(current == n ? theme.palette.secondary : theme.palette.backgroundElevated)
+                                )
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                        .strokeBorder(focus == n ? theme.palette.secondary : .clear, lineWidth: 4)
+                                )
+                                .scaleEffect(focus == n ? 1.08 : 1)
+                        }
+                        .buttonStyle(.plain)
+                        .focused($focus, equals: n)
+                    }
+                }
+                .animation(.easeOut(duration: 0.12), value: focus)
+
+                if current != nil {
+                    Button { onRate(nil) } label: {
+                        Text("Clear rating")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(NuvioPrimitives.error)
+                            .padding(.horizontal, 28).padding(.vertical, 12)
+                            .background(Capsule().fill(theme.palette.backgroundElevated))
+                            .overlay(Capsule().strokeBorder(focus == 0 ? NuvioPrimitives.error : .clear, lineWidth: 4))
+                    }
+                    .buttonStyle(.plain)
+                    .focused($focus, equals: 0)
+                }
+
+                Text("Press Menu to cancel")
+                    .font(.system(size: 18))
+                    .foregroundStyle(theme.palette.textTertiary)
+            }
+            .padding(NuvioSpacing.huge)
+            .background(
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .fill(theme.palette.background)
+            )
+        }
+        .onExitCommand { onCancel() }
+        .onAppear { focus = current ?? 8 }
     }
 }

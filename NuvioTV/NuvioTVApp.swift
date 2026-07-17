@@ -20,6 +20,7 @@ struct NuvioTVApp: App {
     @StateObject private var plugins = PluginStore()
     @StateObject private var torrent = TorrentSettingsStore()
     @StateObject private var downloads = DownloadManager()
+    @StateObject private var ratings = RatingsStore()
 
     var body: some Scene {
         WindowGroup {
@@ -43,6 +44,7 @@ struct NuvioTVApp: App {
                 .environmentObject(plugins)
                 .environmentObject(torrent)
                 .environmentObject(downloads)
+                .environmentObject(ratings)
                 .preferredColorScheme(.dark)
         }
     }
@@ -87,6 +89,7 @@ struct RootView: View {
     @EnvironmentObject private var debrid: DebridStore
     @EnvironmentObject private var plugins: PluginStore
     @EnvironmentObject private var torrent: TorrentSettingsStore
+    @EnvironmentObject private var ratings: RatingsStore
     @Environment(\.scenePhase) private var scenePhase
 
     // One navigation stack per tab (tvOS expects TabView at the top level with
@@ -173,8 +176,8 @@ struct RootView: View {
                     // Trakt two-way sync (history / watched badges + Continue
                     // Watching). Separate opt-in destination from the account.
                     traktSync = TraktSyncManager(
-                        trakt: trakt, watched: watched,
-                        progress: progressStore, addonManager: addonManager
+                        trakt: trakt, watched: watched, progress: progressStore,
+                        library: library, ratings: ratings, addonManager: addonManager
                     )
                     traktSync?.syncNow(force: true)
                     // "Who's watching?" gate on cold launch when 2+ profiles.

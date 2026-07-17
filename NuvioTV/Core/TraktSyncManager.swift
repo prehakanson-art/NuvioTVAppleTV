@@ -11,6 +11,8 @@ final class TraktSyncManager: ObservableObject {
     private let trakt: TraktStore
     private let watched: WatchedStore
     private let progress: ProgressStore
+    private let library: LibraryStore
+    private let ratings: RatingsStore
     private let addonManager: AddonManager
 
     private var cancellables = Set<AnyCancellable>()
@@ -18,15 +20,22 @@ final class TraktSyncManager: ObservableObject {
     /// Throttle full syncs so foreground + timer + sign-in don't stack up.
     private var lastFullSync = Date.distantPast
 
-    init(trakt: TraktStore, watched: WatchedStore, progress: ProgressStore, addonManager: AddonManager) {
+    init(trakt: TraktStore, watched: WatchedStore, progress: ProgressStore,
+         library: LibraryStore, ratings: RatingsStore, addonManager: AddonManager) {
         self.trakt = trakt
         self.watched = watched
         self.progress = progress
+        self.library = library
+        self.ratings = ratings
         self.addonManager = addonManager
 
-        // LOCAL → TRAKT: a mark / un-mark pushes to Trakt history immediately.
+        // LOCAL → TRAKT: immediate push on each kind of local change.
         watched.onTraktMark = { [weak self] item in self?.pushMark(item) }
         watched.onTraktRemove = { [weak self] items in self?.pushRemove(items) }
+        library.onTraktAdd = { [weak self] item in self?.pushWatchlistAdd(item) }
+        library.onTraktRemove = { [weak self] item in self?.pushWatchlistRemove(item) }
+        ratings.onTraktRate = { [weak self] id, type, r in self?.pushRating(id, type, r) }
+        ratings.onTraktUnrate = { [weak self] id, type in self?.pushUnrate(id, type) }
         // Toggling a Trakt sync setting on kicks a full sync.
         trakt.onTraktSettingChange = { [weak self] in self?.syncNow(force: true) }
     }
@@ -56,6 +65,14 @@ final class TraktSyncManager: ObservableObject {
         if trakt.syncPlayback {
             let n = await pullPlayback(token: token)
             if n > 0 { parts.append("\(n) in-progress") }
+        }
+        if trakt.syncWatchlist {
+            let n = await syncWatchlist(token: token)
+            parts.append("\(n) watchlist")
+        }
+        if trakt.syncRatings {
+            let n = await syncRatings(token: token)
+            parts.append("\(n) ratings")
         }
         trakt.setSyncStatus(parts.isEmpty ? "Trakt: nothing to sync" : "Trakt synced (\(parts.joined(separator: ", ")))")
     }
@@ -119,6 +136,81 @@ final class TraktSyncManager: ObservableObject {
         return rows.count
     }
 
+    /// Two-way watchlist ↔ Library. Pull Trakt → add missing to Library
+    /// (enriched); push local-only Library items to the watchlist.
+    private func syncWatchlist(token: String) async -> Int {
+        let remote = await TraktService.watchlist(accessToken: token)
+        var added: [SavedLibraryItem] = []
+        var enriched = 0
+        for s in remote {
+            guard let id = localID(from: s) else { continue }
+            guard !library.contains(id: id, type: s.type) else { continue }
+            var name = s.title
+            var poster: String?
+            var background: String?
+            if enriched < 25, let addon = addonManager.metaAddon(for: s.type, id: id),
+               let meta = try? await StremioAPI.meta(addon: addon, type: s.type, id: id) {
+                enriched += 1
+                if !meta.name.isEmpty { name = meta.name }
+                poster = meta.poster
+                background = meta.background
+            }
+            added.append(SavedLibraryItem(id: id, type: s.type, name: name,
+                                          poster: poster, background: background))
+        }
+        if !added.isEmpty { library.mergeRemote(added, reconcile: false) }
+
+        // Push local-only.
+        let remoteKeys = Set(remote.compactMap { s -> String? in
+            localID(from: s).map { "\(s.type)|\($0)" }
+        })
+        let localOnly = library.allForSync()
+            .filter { !remoteKeys.contains($0.key) }
+            .compactMap { syncItem(fromLibrary: $0) }
+        if !localOnly.isEmpty { _ = await TraktService.addToWatchlist(localOnly, accessToken: token) }
+        return remote.count
+    }
+
+    /// Two-way ratings ↔ Trakt (additive pull + push local-only).
+    private func syncRatings(token: String) async -> Int {
+        let remote = await TraktService.ratings(accessToken: token)
+        let mapped: [(metaID: String, type: String, rating: Int)] = remote.compactMap { s in
+            guard let id = localID(from: s), let r = s.rating else { return nil }
+            return (id, s.type, r)
+        }
+        if !mapped.isEmpty { ratings.mergeRemote(mapped) }
+
+        let remoteIDs = Set(mapped.map(\.metaID))
+        let pushable = ratings.allForSync()
+            .filter { !remoteIDs.contains($0.metaID) }
+            .compactMap { r -> TraktService.SyncItem? in syncItem(metaID: r.metaID, type: r.type, rating: r.rating) }
+        if !pushable.isEmpty { _ = await TraktService.addRatings(pushable, accessToken: token) }
+        return remote.count
+    }
+
+    // MARK: - Immediate push (watchlist / ratings)
+
+    private func pushWatchlistAdd(_ item: SavedLibraryItem) {
+        guard trakt.isSignedIn, trakt.syncWatchlist, let token = trakt.accessToken,
+              let s = syncItem(fromLibrary: item) else { return }
+        Task { _ = await TraktService.addToWatchlist([s], accessToken: token) }
+    }
+    private func pushWatchlistRemove(_ item: SavedLibraryItem) {
+        guard trakt.isSignedIn, trakt.syncWatchlist, let token = trakt.accessToken,
+              let s = syncItem(fromLibrary: item) else { return }
+        Task { _ = await TraktService.removeFromWatchlist([s], accessToken: token) }
+    }
+    private func pushRating(_ metaID: String, _ type: String, _ rating: Int) {
+        guard trakt.isSignedIn, trakt.syncRatings, let token = trakt.accessToken,
+              let s = syncItem(metaID: metaID, type: type, rating: rating) else { return }
+        Task { _ = await TraktService.addRatings([s], accessToken: token) }
+    }
+    private func pushUnrate(_ metaID: String, _ type: String) {
+        guard trakt.isSignedIn, trakt.syncRatings, let token = trakt.accessToken,
+              let s = syncItem(metaID: metaID, type: type, rating: nil) else { return }
+        Task { _ = await TraktService.removeRatings([s], accessToken: token) }
+    }
+
     // MARK: - Immediate mark/un-mark push
 
     private func pushMark(_ item: WatchedItem) {
@@ -167,6 +259,18 @@ final class TraktSyncManager: ObservableObject {
         if let imdb = s.imdb, imdb.hasPrefix("tt") { return imdb }
         if let tmdb = s.tmdb { return "tmdb:\(tmdb)" }
         return nil
+    }
+
+    private func syncItem(fromLibrary item: SavedLibraryItem) -> TraktService.SyncItem? {
+        let (imdb, tmdb) = Self.ids(from: item.id)
+        guard imdb != nil || tmdb != nil else { return nil }
+        return TraktService.SyncItem(imdb: imdb, tmdb: tmdb, type: item.type, title: item.name)
+    }
+
+    private func syncItem(metaID: String, type: String, rating: Int?) -> TraktService.SyncItem? {
+        let (imdb, tmdb) = Self.ids(from: metaID)
+        guard imdb != nil || tmdb != nil else { return nil }
+        return TraktService.SyncItem(imdb: imdb, tmdb: tmdb, type: type, title: "", rating: rating)
     }
 
     private static func ids(from contentID: String) -> (imdb: String?, tmdb: Int?) {

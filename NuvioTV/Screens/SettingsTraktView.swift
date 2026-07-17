@@ -78,6 +78,22 @@ struct TraktDetail: View {
                     set: { trakt.syncPlayback = $0; trakt.onTraktSettingChange?() }
                 )
             )
+            SettingsToggleCard(
+                title: "Sync watchlist",
+                subtitle: "Two-way sync between your Library and your Trakt watchlist",
+                isOn: Binding(
+                    get: { trakt.syncWatchlist },
+                    set: { trakt.syncWatchlist = $0; trakt.onTraktSettingChange?() }
+                )
+            )
+            SettingsToggleCard(
+                title: "Sync ratings",
+                subtitle: "Two-way sync of your 1–10 star ratings with Trakt (rate from any title's page)",
+                isOn: Binding(
+                    get: { trakt.syncRatings },
+                    set: { trakt.syncRatings = $0; trakt.onTraktSettingChange?() }
+                )
+            )
 
             Button {
                 trakt.onTraktSettingChange?()

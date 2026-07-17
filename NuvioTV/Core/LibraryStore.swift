@@ -77,6 +77,10 @@ final class LibraryStore: ObservableObject {
     /// Called after a local change so account sync can push. Suppressed while
     /// merging remote data.
     var onLocalChange: (() -> Void)?
+    /// Trakt watchlist hooks (separate owner from account-sync): fired on a
+    /// genuine local add / remove so the Trakt manager can push to the watchlist.
+    var onTraktAdd: ((SavedLibraryItem) -> Void)?
+    var onTraktRemove: ((SavedLibraryItem) -> Void)?
     private var suppressChange = false
 
     /// Recently-removed keys → removal time. The library push is full-replace
@@ -134,17 +138,24 @@ final class LibraryStore: ObservableObject {
         // Re-saving something you'd removed clears its tombstone so the fresh
         // row survives the next pull's reconcile.
         tombstones.removeValue(forKey: item.key)
+        let isNew = items[item.key] == nil
         items[item.key] = item
         save()
-        if !suppressChange { onLocalChange?() }
+        if !suppressChange {
+            if isNew { onTraktAdd?(item) }
+            onLocalChange?()
+        }
     }
 
     func remove(id: String, type: String) {
         let key = "\(type)|\(id)"
-        guard items.removeValue(forKey: key) != nil else { return }
+        guard let removed = items.removeValue(forKey: key) else { return }
         tombstones[key] = Date()
         save()
-        if !suppressChange { onLocalChange?() }
+        if !suppressChange {
+            onTraktRemove?(removed)
+            onLocalChange?()
+        }
     }
 
     // MARK: - Sync bridge

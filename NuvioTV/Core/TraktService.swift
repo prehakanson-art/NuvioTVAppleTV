@@ -23,6 +23,14 @@ final class TraktStore: ObservableObject {
     @Published var syncPlayback: Bool {
         didSet { UserDefaults.standard.set(syncPlayback, forKey: Self.playbackKey) }
     }
+    /// Two-way sync of the Library with the Trakt watchlist.
+    @Published var syncWatchlist: Bool {
+        didSet { UserDefaults.standard.set(syncWatchlist, forKey: Self.watchlistKey) }
+    }
+    /// Two-way sync of personal star ratings with Trakt.
+    @Published var syncRatings: Bool {
+        didSet { UserDefaults.standard.set(syncRatings, forKey: Self.ratingsKey) }
+    }
     /// Last full-sync outcome, shown in Settings → Trakt.
     @Published private(set) var lastSyncStatus: String?
     /// Fired when a Trakt sync-related setting changes, so the manager can react.
@@ -46,6 +54,8 @@ final class TraktStore: ObservableObject {
     private static let secretKey = "nuvio.trakt.secret.v1"
     private static let histKey = "nuvio.trakt.synchistory.v1"
     private static let playbackKey = "nuvio.trakt.syncplayback.v1"
+    private static let watchlistKey = "nuvio.trakt.syncwatchlist.v1"
+    private static let ratingsKey = "nuvio.trakt.syncratings.v1"
 
     private struct Tokens: Codable { let access: String; let refresh: String }
 
@@ -53,6 +63,8 @@ final class TraktStore: ObservableObject {
         scrobbleEnabled = UserDefaults.standard.object(forKey: Self.scrobbleKey) as? Bool ?? true
         syncWatchHistory = UserDefaults.standard.object(forKey: Self.histKey) as? Bool ?? true
         syncPlayback = UserDefaults.standard.object(forKey: Self.playbackKey) as? Bool ?? true
+        syncWatchlist = UserDefaults.standard.object(forKey: Self.watchlistKey) as? Bool ?? true
+        syncRatings = UserDefaults.standard.object(forKey: Self.ratingsKey) as? Bool ?? true
         clientSecret = UserDefaults.standard.string(forKey: Self.secretKey) ?? ""
         username = UserDefaults.standard.string(forKey: Self.userKey)
         if let data = UserDefaults.standard.data(forKey: Self.tokenKey),
@@ -295,14 +307,15 @@ enum TraktService {
 
     /// One synced item, normalized across movies and episodes.
     struct SyncItem: Hashable {
-        var imdb: String?
-        var tmdb: Int?
+        var imdb: String? = nil
+        var tmdb: Int? = nil
         var type: String        // "movie" | "series"
         var title: String
-        var season: Int?
-        var episode: Int?
-        var progress: Double?    // playback only, 0–100
-        var watchedAt: Date?     // history / paused_at
+        var season: Int? = nil
+        var episode: Int? = nil
+        var progress: Double? = nil    // playback only, 0–100
+        var watchedAt: Date? = nil     // history / paused_at
+        var rating: Int? = nil         // ratings sync, 1–10
     }
 
     private static let iso: ISO8601DateFormatter = {
@@ -439,5 +452,92 @@ enum TraktService {
         guard let (data, response) = try? await session.data(for: req),
               let http = response as? HTTPURLResponse else { return nil }
         return (data, http.statusCode)
+    }
+
+    // MARK: Watchlist
+
+    /// Trakt watchlist (movies + shows), title-level.
+    static func watchlist(accessToken: String) async -> [SyncItem] {
+        var out: [SyncItem] = []
+        struct MovieRow: Decodable { let movie: TraktMedia? }
+        struct ShowRow: Decodable { let show: TraktMedia? }
+        if let (data, code) = await get("/sync/watchlist/movies", accessToken), code == 200,
+           let rows = try? JSONDecoder().decode([MovieRow].self, from: data) {
+            for r in rows where r.movie != nil {
+                out.append(SyncItem(imdb: r.movie?.ids?.imdb, tmdb: r.movie?.ids?.tmdb,
+                                    type: "movie", title: r.movie?.title ?? ""))
+            }
+        }
+        if let (data, code) = await get("/sync/watchlist/shows", accessToken), code == 200,
+           let rows = try? JSONDecoder().decode([ShowRow].self, from: data) {
+            for r in rows where r.show != nil {
+                out.append(SyncItem(imdb: r.show?.ids?.imdb, tmdb: r.show?.ids?.tmdb,
+                                    type: "series", title: r.show?.title ?? ""))
+            }
+        }
+        return out
+    }
+
+    @discardableResult
+    static func addToWatchlist(_ items: [SyncItem], accessToken: String) async -> Bool {
+        await postTitles("/sync/watchlist", items, accessToken, includeRating: false)
+    }
+    @discardableResult
+    static func removeFromWatchlist(_ items: [SyncItem], accessToken: String) async -> Bool {
+        await postTitles("/sync/watchlist/remove", items, accessToken, includeRating: false)
+    }
+
+    // MARK: Ratings
+
+    /// Trakt personal ratings (movies + shows), 1–10.
+    static func ratings(accessToken: String) async -> [SyncItem] {
+        var out: [SyncItem] = []
+        struct MovieRow: Decodable { let rating: Int?; let movie: TraktMedia? }
+        struct ShowRow: Decodable { let rating: Int?; let show: TraktMedia? }
+        if let (data, code) = await get("/sync/ratings/movies", accessToken), code == 200,
+           let rows = try? JSONDecoder().decode([MovieRow].self, from: data) {
+            for r in rows where r.movie != nil {
+                out.append(SyncItem(imdb: r.movie?.ids?.imdb, tmdb: r.movie?.ids?.tmdb,
+                                    type: "movie", title: r.movie?.title ?? "", rating: r.rating))
+            }
+        }
+        if let (data, code) = await get("/sync/ratings/shows", accessToken), code == 200,
+           let rows = try? JSONDecoder().decode([ShowRow].self, from: data) {
+            for r in rows where r.show != nil {
+                out.append(SyncItem(imdb: r.show?.ids?.imdb, tmdb: r.show?.ids?.tmdb,
+                                    type: "series", title: r.show?.title ?? "", rating: r.rating))
+            }
+        }
+        return out
+    }
+
+    @discardableResult
+    static func addRatings(_ items: [SyncItem], accessToken: String) async -> Bool {
+        await postTitles("/sync/ratings", items, accessToken, includeRating: true)
+    }
+    @discardableResult
+    static func removeRatings(_ items: [SyncItem], accessToken: String) async -> Bool {
+        await postTitles("/sync/ratings/remove", items, accessToken, includeRating: false)
+    }
+
+    /// Title-level POST (watchlist / ratings): {movies:[…], shows:[…]}.
+    private static func postTitles(_ path: String, _ items: [SyncItem], _ token: String, includeRating: Bool) async -> Bool {
+        var movies: [[String: Any]] = []
+        var shows: [[String: Any]] = []
+        for it in items {
+            guard let ids = traktIDs(it) else { continue }
+            var obj: [String: Any] = ["ids": ids]
+            if includeRating, let r = it.rating { obj["rating"] = r }
+            if it.type == "movie" { movies.append(obj) } else { shows.append(obj) }
+        }
+        var body: [String: Any] = [:]
+        if !movies.isEmpty { body["movies"] = movies }
+        if !shows.isEmpty { body["shows"] = shows }
+        guard !body.isEmpty else { return false }
+        var req = request(path, method: "POST", bearer: token)
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        guard let (_, response) = try? await session.data(for: req),
+              let http = response as? HTTPURLResponse else { return false }
+        return (200..<300).contains(http.statusCode)
     }
 }

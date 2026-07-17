@@ -179,6 +179,22 @@ struct RootView: View {
                         trakt: trakt, watched: watched, progress: progressStore,
                         library: library, ratings: ratings, addonManager: addonManager
                     )
+                    // Fix up any already-installed Community Collections
+                    // categories (a corrected Marvel/DC query, a Top Rated
+                    // quality filter, ...) at launch — not only if the user
+                    // happens to reopen the Community Collections screen,
+                    // which could otherwise leave a fix installed in code but
+                    // never actually reaching a category the user already
+                    // has (that was the actual bug: Marvel/DC's query was
+                    // correct, but a stale, already-installed folder just
+                    // never got told to use it). The data-correctness parts
+                    // are synchronous/local — run them NOW, before the user
+                    // could possibly navigate into a collection this launch.
+                    // Only the network-bound logo re-measurement (cosmetic,
+                    // not correctness) is backgrounded.
+                    CommunityCollections.consolidateIndividualCollections(collections: collections)
+                    CommunityCollections.resyncPresetSources(collections: collections)
+                    Task { await CommunityCollections.remeasureInstalledLogos(collections: collections) }
                     // "Who's watching?" gate on cold launch when 2+ profiles.
                     // Skipped in the demo modes so the screen isn't covered.
                     let args = ProcessInfo.processInfo.arguments

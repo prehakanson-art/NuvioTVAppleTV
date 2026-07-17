@@ -247,6 +247,115 @@ enum CommunityCollections {
     static func presets(in group: CommunityCollectionPreset.Group) -> [CommunityCollectionPreset] {
         presets.filter { $0.group == group }
     }
+
+    static func groupCollectionID(for group: CommunityCollectionPreset.Group) -> String {
+        switch group {
+        case .streaming: return "community.streaming"
+        case .studios: return "community.studios"
+        case .trending: return "community.trending"
+        }
+    }
+
+    /// Insert/replace a category's folder in its group's collection, creating
+    /// that group collection on first use.
+    @MainActor
+    static func addFolder(_ folder: NuvioCollectionFolder, to group: CommunityCollectionPreset.Group,
+                           collections: CollectionsStore) {
+        let groupID = groupCollectionID(for: group)
+        if var existing = collections.collections.first(where: { $0.id == groupID }) {
+            if let idx = existing.folders.firstIndex(where: { $0.id == folder.id }) {
+                existing.folders[idx] = folder
+            } else {
+                existing.folders.append(folder)
+            }
+            collections.update(existing)
+        } else {
+            var newCollection = NuvioCollection(id: groupID, title: group.rawValue, folders: [folder])
+            newCollection.focusGlowEnabled = true
+            collections.add(newCollection)
+        }
+    }
+
+    /// Declares the tileShape that actually matches a logo's real proportions.
+    /// tvOS renders a folder cover with `.fill` (crop-to-cover); the real
+    /// Nuvio Android app renders it with `ContentScale.FillBounds` (stretch to
+    /// EXACTLY fill the declared shape's aspect ratio, no crop) — so a logo
+    /// whose real aspect ratio doesn't match the declared shape gets visibly
+    /// warped on Android and cropped on tvOS.
+    static func measuredTileShape(for urlString: String) async -> String {
+        guard let url = URL(string: urlString),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let image = UIImage(data: data), image.size.height > 0 else { return "SQUARE" }
+        let ratio = image.size.width / image.size.height
+        return ratio >= 1.5 ? "LANDSCAPE" : "SQUARE"
+    }
+
+    /// One-time migration: an earlier build installed each category as its OWN
+    /// standalone collection (its own Home row per category, and its own
+    /// folder id — a random UUID). Fold any of those still around into their
+    /// group's collection, normalizing the folder id to the stable preset id.
+    @MainActor
+    static func consolidateIndividualCollections(collections: CollectionsStore) {
+        for preset in presets {
+            guard let standalone = collections.collections.first(where: { $0.id == preset.id }),
+                  var folder = standalone.folders.first else { continue }
+            collections.remove(id: preset.id)
+            folder.id = preset.id
+            addFolder(folder, to: preset.group, collections: collections)
+        }
+    }
+
+    /// One-time fix for categories installed BEFORE a preset's TMDB source was
+    /// corrected (e.g. Marvel/DC's single-company id was too narrow, or Top
+    /// Rated/Newest had no quality filter). Already-installed folders keep
+    /// whatever source they were given at install time, so without this
+    /// they'd stay stuck on the old query even after the app fixes it.
+    @MainActor
+    static func resyncPresetSources(collections: CollectionsStore) {
+        for preset in presets {
+            for collection in collections.collections where collection.id.hasPrefix(idPrefix) {
+                guard let idx = collection.folders.firstIndex(where: { $0.id == preset.id }),
+                      collection.folders[idx].sources != preset.sources else { continue }
+                var updated = collection
+                updated.folders[idx].sources = preset.sources
+                collections.update(updated)
+            }
+        }
+    }
+
+    /// One-time fix for categories installed BEFORE tileShape was measured:
+    /// every logo-covered folder was hardcoded "LANDSCAPE" regardless of its
+    /// real proportions. Re-measures each already-installed community
+    /// folder's actual logo and corrects its declared shape.
+    @MainActor
+    static func remeasureInstalledLogos(collections: CollectionsStore) async {
+        for collection in collections.collections where collection.id.hasPrefix(idPrefix) {
+            var changed = false
+            var updated = collection
+            for i in updated.folders.indices {
+                guard let cover = updated.folders[i].coverImageUrl, !cover.isEmpty else { continue }
+                let correctShape = await measuredTileShape(for: cover)
+                if updated.folders[i].tileShape != correctShape {
+                    updated.folders[i].tileShape = correctShape
+                    changed = true
+                }
+            }
+            if changed { collections.update(updated) }
+        }
+    }
+
+    /// Runs every one-time consolidation/fix pass. Called from BOTH the app's
+    /// launch sequence (so an already-installed category picks up a fix — a
+    /// corrected Marvel/DC query, a Top Rated quality filter, etc. — the very
+    /// next time the app opens, not only if the user happens to revisit the
+    /// Community Collections screen) and from that screen itself (so it's
+    /// also current if the app was already running when a fix shipped).
+    @MainActor
+    static func runStartupMigrations(collections: CollectionsStore) async {
+        consolidateIndividualCollections(collections: collections)
+        resyncPresetSources(collections: collections)
+        await remeasureInstalledLogos(collections: collections)
+    }
 }
 
 struct CommunityCollectionsView: View {
@@ -324,9 +433,11 @@ struct CommunityCollectionsView: View {
             }
         }
         .task {
-            consolidateIndividualCollections()
-            resyncPresetSources()
-            await remeasureInstalledLogos()
+            // Also run at app launch (NuvioTVApp.swift) so an already-
+            // installed category picks up a fix even if this screen is never
+            // revisited — running it again here too covers the case where
+            // the app was already open when the fix shipped.
+            await CommunityCollections.runStartupMigrations(collections: collections)
             await loadLogos()
         }
         .onExitCommand { onDone() }
@@ -386,107 +497,16 @@ struct CommunityCollectionsView: View {
         logosLoaded = true
     }
 
-    /// A category's group collection id: one shared collection per group
-    /// (Streaming Services / Major Studios / Trending & Top Rated), with each
-    /// installed category as a folder inside it. The real Nuvio Android app
-    /// renders exactly one Home row per collection with no way to merge
-    /// several into one row — so this is what makes Home look the same
-    /// (folder tabs within one row) on both platforms, instead of a separate
-    /// row per category there. You still pick categories individually below;
-    /// only where they land groups them.
-    private static func groupCollectionID(for group: CommunityCollectionPreset.Group) -> String {
-        switch group {
-        case .streaming: return "community.streaming"
-        case .studios: return "community.studios"
-        case .trending: return "community.trending"
-        }
-    }
-
-    /// One-time migration: an earlier build installed each category as its OWN
-    /// standalone collection (its own Home row per category, and its own
-    /// folder id — a random UUID). Fold any of those still around into their
-    /// group's collection, normalizing the folder id to the stable preset id
-    /// so future installs/removals/re-runs of this migration all agree on
-    /// identity.
-    private func consolidateIndividualCollections() {
-        for preset in CommunityCollections.presets {
-            guard let standalone = collections.collections.first(where: { $0.id == preset.id }),
-                  var folder = standalone.folders.first else { continue }
-            collections.remove(id: preset.id)
-            folder.id = preset.id
-            addFolder(folder, to: preset.group)
-        }
-    }
-
-    /// One-time fix for categories installed BEFORE a preset's TMDB source was
-    /// corrected (e.g. Marvel/DC's single-company id was too narrow and
-    /// undercounted their real catalog — see the `studio()` builder). Already-
-    /// installed folders keep whatever source they were given at install
-    /// time, so without this they'd stay stuck on the old, incomplete query
-    /// even after the app fixes it. Finds each preset's folder (by its now-
-    /// stable id) across every community collection and re-syncs its
-    /// `sources` to the CURRENT preset definition when it's changed.
-    private func resyncPresetSources() {
-        for preset in CommunityCollections.presets {
-            for collection in collections.collections where collection.id.hasPrefix(CommunityCollections.idPrefix) {
-                guard let idx = collection.folders.firstIndex(where: { $0.id == preset.id }),
-                      collection.folders[idx].sources != preset.sources else { continue }
-                var updated = collection
-                updated.folders[idx].sources = preset.sources
-                collections.update(updated)
-            }
-        }
-    }
-
-    /// Insert/replace a category's folder in its group's collection, creating
-    /// that group collection on first use.
-    private func addFolder(_ folder: NuvioCollectionFolder, to group: CommunityCollectionPreset.Group) {
-        let groupID = Self.groupCollectionID(for: group)
-        if var existing = collections.collections.first(where: { $0.id == groupID }) {
-            if let idx = existing.folders.firstIndex(where: { $0.id == folder.id }) {
-                existing.folders[idx] = folder
-            } else {
-                existing.folders.append(folder)
-            }
-            collections.update(existing)
-        } else {
-            var newCollection = NuvioCollection(id: groupID, title: group.rawValue, folders: [folder])
-            newCollection.focusGlowEnabled = true
-            collections.add(newCollection)
-        }
-    }
-
     /// Remove a single category's folder from its group's collection —
     /// deleting the whole group collection only if it was the last one left.
     private func remove(_ preset: CommunityCollectionPreset) {
-        let groupID = Self.groupCollectionID(for: preset.group)
+        let groupID = CommunityCollections.groupCollectionID(for: preset.group)
         guard var existing = collections.collections.first(where: { $0.id == groupID }) else { return }
         existing.folders.removeAll { $0.id == preset.id }
         if existing.folders.isEmpty {
             collections.remove(id: groupID)
         } else {
             collections.update(existing)
-        }
-    }
-
-    /// One-time fix for categories installed BEFORE tileShape was measured:
-    /// every logo-covered folder was hardcoded "LANDSCAPE" regardless of its
-    /// real proportions, which is what warped/cropped the pictures both here
-    /// and on the real Nuvio Android app. Re-measures each already-installed
-    /// community folder's actual logo and corrects its declared shape.
-    private func remeasureInstalledLogos() async {
-        for collection in collections.collections where collection.id.hasPrefix(CommunityCollections.idPrefix) {
-            var changed = false
-            var updated = collection
-            for i in updated.folders.indices {
-                guard let cover = updated.folders[i].coverImageUrl, !cover.isEmpty else { continue }
-                let correctShape = await Self.measuredTileShape(for: cover)
-                if updated.folders[i].tileShape != correctShape {
-                    updated.folders[i].tileShape = correctShape
-                    changed = true
-                }
-            }
-            if changed { collections.update(updated) }
         }
     }
 
@@ -505,14 +525,14 @@ struct CommunityCollectionsView: View {
             resolvedLogo = await Self.brandLogo(for: preset.primarySource)
         }
         if let logo = resolvedLogo {
-            folder.tileShape = await Self.measuredTileShape(for: logo)
+            folder.tileShape = await CommunityCollections.measuredTileShape(for: logo)
             folder.coverImageUrl = logo
         } else {
             folder.tileShape = "SQUARE"
             folder.coverEmoji = preset.kind.emoji
         }
 
-        addFolder(folder, to: preset.group)
+        CommunityCollections.addFolder(folder, to: preset.group, collections: collections)
     }
 
     /// Official studio/network logo for a preset source, when TMDB has one.
@@ -523,29 +543,6 @@ struct CommunityCollectionsView: View {
         case "COMPANY": return await TMDBService.companyBrand(id: id)?.logoURL
         default: return nil
         }
-    }
-
-    /// Declares the tileShape that actually matches a logo's real proportions.
-    /// tvOS renders a folder cover with `.fill` (crop-to-cover); the real
-    /// Nuvio Android app renders it with `ContentScale.FillBounds` (stretch to
-    /// EXACTLY fill the declared shape's aspect ratio, no crop) — so a logo
-    /// whose real aspect ratio doesn't match the declared shape gets visibly
-    /// warped on Android and cropped on tvOS. Both were hardcoded to
-    /// "LANDSCAPE" (16:9) regardless of the actual image, which is why
-    /// pictures came in "the wrong format": most brand marks are much closer
-    /// to square (or a wide-but-not-16:9 wordmark) than true 16:9. Measuring
-    /// the real image once at install time and declaring the closest-matching
-    /// shape makes the stretch/crop a no-op (or minimal) on both platforms.
-    private static func measuredTileShape(for urlString: String) async -> String {
-        guard let url = URL(string: urlString),
-              let (data, _) = try? await URLSession.shared.data(from: url),
-              let image = UIImage(data: data), image.size.height > 0 else { return "SQUARE" }
-        let ratio = image.size.width / image.size.height
-        // LANDSCAPE's declared ratio is 16:9 (≈1.78); only choose it when the
-        // logo is genuinely close to that. Most brand marks are much nearer
-        // square (or a moderately wide wordmark), which SQUARE (1:1) fits far
-        // better than forcing a 16:9 stretch/crop on them.
-        return ratio >= 1.5 ? "LANDSCAPE" : "SQUARE"
     }
 }
 

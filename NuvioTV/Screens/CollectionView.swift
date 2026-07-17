@@ -246,13 +246,69 @@ struct CollectionView: View {
     @State private var isLoading = true
     @State private var hasUnsupportedSources = false
 
-    private var visibleItems: [MetaItem] {
+    private enum SortMode: String { case popular, topRated, az, newest }
+    private enum TypeFilter: String { case all, movies, shows }
+    @State private var sortMode: SortMode = .popular
+    @State private var typeFilter: TypeFilter = .all
+    @State private var genreFilter: String?   // nil = All genres
+
+    /// The current folder/"All" selection, before type/genre/sort — everything
+    /// downstream (type filter, genre filter, sort) narrows or reorders this.
+    private var folderItems: [MetaItem] {
         if let selectedFolderID {
             return itemsByFolder[selectedFolderID] ?? []
         }
         // "All" preserves folder order and de-dupes across folders.
         var seen = Set<String>()
         return collection.folders.flatMap { itemsByFolder[$0.id] ?? [] }.filter { seen.insert($0.id).inserted }
+    }
+
+    private var typeFilteredItems: [MetaItem] {
+        switch typeFilter {
+        case .all: return folderItems
+        case .movies: return folderItems.filter { !$0.isSeries }
+        case .shows: return folderItems.filter { $0.isSeries }
+        }
+    }
+
+    /// True only when the current folder/"All" selection genuinely mixes both
+    /// movies and shows — a Movies/Shows filter is pointless clutter otherwise.
+    private var hasMixedTypes: Bool {
+        var sawMovie = false, sawShow = false
+        for item in folderItems {
+            if item.isSeries { sawShow = true } else { sawMovie = true }
+            if sawMovie && sawShow { return true }
+        }
+        return false
+    }
+
+    /// Genres actually present in the current type-filtered set (TMDB discover
+    /// sources carry genres; addon/Trakt-sourced items generally don't, so this
+    /// is empty — and the picker hides itself — for those).
+    private var availableGenres: [String] {
+        var seen = Set<String>()
+        for item in typeFilteredItems {
+            for g in item.genres ?? [] where seen.insert(g).inserted {}
+        }
+        return seen.sorted()
+    }
+
+    private var visibleItems: [MetaItem] {
+        var items = typeFilteredItems
+        if let genreFilter {
+            items = items.filter { $0.genres?.contains(genreFilter) == true }
+        }
+        switch sortMode {
+        case .popular:
+            break   // sources already fetch popularity-first; keep that order
+        case .topRated:
+            items = items.sorted { (Double($0.imdbRating ?? "") ?? -1) > (Double($1.imdbRating ?? "") ?? -1) }
+        case .az:
+            items = items.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        case .newest:
+            items = items.sorted { ($0.year ?? "0") > ($1.year ?? "0") }
+        }
+        return items
     }
 
     private let columns = [GridItem(.adaptive(minimum: 220), spacing: NuvioSpacing.lg)]
@@ -272,9 +328,10 @@ struct CollectionView: View {
     private var backdropIsRealPhoto: Bool { collection.backdropImageUrl?.isEmpty == false }
 
     private var hasTabs: Bool { collection.folders.count > 1 || !collection.showAllTab }
-    /// Height reserved for the pinned header (title + optional tabs) — the grid
-    /// starts below it and posters slide up UNDER the scrim/header.
-    private var headerInset: CGFloat { hasTabs ? 230 : 150 }
+    /// Height reserved for the pinned header (title + optional tabs + the
+    /// sort/filter bar) — the grid starts below it and posters slide up UNDER
+    /// the scrim/header.
+    private var headerInset: CGFloat { (hasTabs ? 230 : 150) + 76 }
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -316,6 +373,7 @@ struct CollectionView: View {
                     .foregroundStyle(theme.palette.textPrimary)
                     .padding(.horizontal, NuvioSpacing.huge)
                 folderTabs
+                filterBar
             }
             .padding(.top, NuvioSpacing.xl)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -359,6 +417,57 @@ struct CollectionView: View {
                 .padding(.bottom, NuvioSpacing.xxl)
             }
         }
+    }
+
+    /// Sort + Movies/Shows + Genre — same compact filter-dropdown look as
+    /// Library's Sort control. Type only appears when the current selection
+    /// genuinely mixes movies and shows; Genre only appears when the resolved
+    /// items actually carry genre data (TMDB discover sources do; addon/Trakt
+    /// sources generally don't).
+    @ViewBuilder
+    private var filterBar: some View {
+        let genres = availableGenres
+        HStack(spacing: NuvioSpacing.md) {
+            NuvioDropdown(
+                title: "Sort",
+                selection: sortMode.rawValue,
+                options: [
+                    NuvioDropdownOption(SortMode.popular.rawValue, "Popular"),
+                    NuvioDropdownOption(SortMode.topRated.rawValue, "Top Rated"),
+                    NuvioDropdownOption(SortMode.az.rawValue, "A-Z"),
+                    NuvioDropdownOption(SortMode.newest.rawValue, "Newest"),
+                ],
+                triggerWidth: 280
+            ) { sortMode = SortMode(rawValue: $0) ?? .popular }
+
+            if hasMixedTypes {
+                NuvioDropdown(
+                    title: "Type",
+                    selection: typeFilter.rawValue,
+                    options: [
+                        NuvioDropdownOption(TypeFilter.all.rawValue, "All"),
+                        NuvioDropdownOption(TypeFilter.movies.rawValue, "Movies"),
+                        NuvioDropdownOption(TypeFilter.shows.rawValue, "Shows"),
+                    ],
+                    triggerWidth: 240
+                ) { newValue in
+                    typeFilter = TypeFilter(rawValue: newValue) ?? .all
+                    // A genre that only existed on the now-excluded type
+                    // shouldn't linger as an invisible active filter.
+                    if let genreFilter, !availableGenres.contains(genreFilter) { self.genreFilter = nil }
+                }
+            }
+
+            if !genres.isEmpty {
+                NuvioDropdown(
+                    title: "Genre",
+                    selection: genreFilter ?? "All",
+                    options: [NuvioDropdownOption("All")] + genres.map { NuvioDropdownOption($0) },
+                    triggerWidth: 260
+                ) { genreFilter = $0 == "All" ? nil : $0 }
+            }
+        }
+        .padding(.horizontal, NuvioSpacing.huge)
     }
 
     @ViewBuilder

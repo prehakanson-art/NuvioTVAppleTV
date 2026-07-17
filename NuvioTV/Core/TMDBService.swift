@@ -302,7 +302,23 @@ enum TMDBService {
         let description: String?
         let releaseInfo: String?
         let rating: Double?
+        var genres: [String]? = nil
     }
+
+    /// TMDB's genre id→name lists are small and effectively fixed — hardcoded
+    /// here instead of an extra `/genre/movie|tv/list` round-trip per resolve.
+    private static let movieGenres: [Int: String] = [
+        28: "Action", 12: "Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
+        99: "Documentary", 18: "Drama", 10751: "Family", 14: "Fantasy", 36: "History",
+        27: "Horror", 10402: "Music", 9648: "Mystery", 10749: "Romance",
+        878: "Science Fiction", 10770: "TV Movie", 53: "Thriller", 10752: "War", 37: "Western",
+    ]
+    private static let tvGenres: [Int: String] = [
+        10759: "Action & Adventure", 16: "Animation", 35: "Comedy", 80: "Crime",
+        99: "Documentary", 18: "Drama", 10751: "Family", 10762: "Kids", 9648: "Mystery",
+        10763: "News", 10764: "Reality", 10765: "Sci-Fi & Fantasy", 10766: "Soap",
+        10767: "Talk", 10768: "War & Politics", 37: "Western",
+    ]
 
     private static func mapToMetaItems(_ raw: [TMDBRawItem]) async -> [MetaItem] {
         // Resolve IMDB ids concurrently (capped) so the whole folder loads fast.
@@ -327,7 +343,8 @@ enum TMDBService {
                 logo: nil,
                 description: item.description,
                 releaseInfo: item.releaseInfo,
-                imdbRating: item.rating.map { String(format: "%.1f", $0) }
+                imdbRating: item.rating.map { String(format: "%.1f", $0) },
+                genres: item.genres
             )
         }
     }
@@ -413,9 +430,10 @@ enum TMDBService {
             let id: Int; let title: String?; let name: String?
             let poster_path: String?; let backdrop_path: String?
             let overview: String?; let release_date: String?; let first_air_date: String?
-            let vote_average: Double?
+            let vote_average: Double?; let genre_ids: [Int]?
         }
         let path = useTV ? "/discover/tv" : "/discover/movie"
+        let genreMap = useTV ? tvGenres : movieGenres
         // Retries a page on a 429 (brief backoff, a few attempts) since we now
         // routinely issue far more requests than before; any other failure
         // just skips that page rather than blocking the whole fetch.
@@ -463,13 +481,15 @@ enum TMDBService {
 
         return allResults.compactMap { r in
             guard let title = r.title ?? r.name, !title.isEmpty else { return nil }
+            let genres = r.genre_ids?.compactMap { genreMap[$0] }
             return TMDBRawItem(
                 tmdbID: r.id, isMovie: !useTV, name: title,
                 poster: imageURL(r.poster_path, size: "w500") ?? imageURL(r.backdrop_path, size: "w780"),
                 background: imageURL(r.backdrop_path, size: "w1280"),
                 description: r.overview,
                 releaseInfo: (r.release_date ?? r.first_air_date).map { String($0.prefix(4)) },
-                rating: r.vote_average
+                rating: r.vote_average,
+                genres: (genres?.isEmpty == false) ? genres : nil
             )
         }
     }

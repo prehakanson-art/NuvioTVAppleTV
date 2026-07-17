@@ -499,17 +499,23 @@ struct HomeView: View {
     }
 
     /// A collection has no "meta" of its own, so build a lightweight stand-in
-    /// for the shared hero panel: backdrop + the collection's own logo (a
-    /// folder's cover — for a community category this IS the real Netflix/
-    /// Marvel/etc. logo), same as focusing a regular poster does. `description`
-    /// is set to "" (not nil) so HeroFocus doesn't try to enrich a synthetic id.
+    /// for the shared hero panel. `background` feeds `HeroBackdropView`, which
+    /// renders full-bleed at RemoteImage's default `.fill` (crop-to-cover) —
+    /// exactly right for a wide backdrop PHOTO, but a small brand logo blown up
+    /// that way just shows a zoomed-in, unrecognizable crop of the mark. So
+    /// `background` is ONLY set when the collection has a genuine backdrop
+    /// photo; the logo goes ONLY into `logo`, which HeroInfoView already
+    /// renders correctly-contained (`.fit`, bounded 460×150 frame — no zoom).
+    /// `description` is set to "" (not nil) so HeroFocus doesn't try to enrich
+    /// a synthetic id.
     private func heroItem(for collection: NuvioCollection) -> MetaItem {
         let firstFolder = collection.folders.first
+        let realBackdrop = collection.backdropImageUrl?.isEmpty == false ? collection.backdropImageUrl : nil
         return MetaItem(
             id: "collection:\(collection.id)",
             type: "collection",
             name: collection.title,
-            background: collection.backdropImageUrl ?? firstFolder?.coverImageUrl,
+            background: realBackdrop,
             logo: firstFolder?.coverImageUrl,
             description: ""
         )

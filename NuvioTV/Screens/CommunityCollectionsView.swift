@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// One ready-made, individually-installable category — a single stable TMDB
 /// network/company/discover source. Each installs as its own single-folder
@@ -223,6 +224,7 @@ struct CommunityCollectionsView: View {
         }
         .task {
             removeLegacyBundles()
+            await remeasureInstalledLogos()
             await loadLogos()
         }
         .onExitCommand { onDone() }
@@ -307,6 +309,27 @@ struct CommunityCollectionsView: View {
         }
     }
 
+    /// One-time fix for categories installed BEFORE tileShape was measured:
+    /// every logo-covered folder was hardcoded "LANDSCAPE" regardless of its
+    /// real proportions, which is what warped/cropped the pictures both here
+    /// and on the real Nuvio Android app. Re-measures each already-installed
+    /// community folder's actual logo and corrects its declared shape.
+    private func remeasureInstalledLogos() async {
+        for collection in collections.collections where collection.id.hasPrefix(CommunityCollections.idPrefix) {
+            var changed = false
+            var updated = collection
+            for i in updated.folders.indices {
+                guard let cover = updated.folders[i].coverImageUrl, !cover.isEmpty else { continue }
+                let correctShape = await Self.measuredTileShape(for: cover)
+                if updated.folders[i].tileShape != correctShape {
+                    updated.folders[i].tileShape = correctShape
+                    changed = true
+                }
+            }
+            if changed { collections.update(updated) }
+        }
+    }
+
     private func install(_ preset: CommunityCollectionPreset) async {
         guard !installing.contains(preset.id) else { return }
         installing.insert(preset.id)
@@ -318,7 +341,7 @@ struct CommunityCollectionsView: View {
             resolvedLogo = await Self.brandLogo(for: preset.source)
         }
         if let logo = resolvedLogo {
-            folder.tileShape = "LANDSCAPE"
+            folder.tileShape = await Self.measuredTileShape(for: logo)
             folder.coverImageUrl = logo
         } else {
             folder.tileShape = "SQUARE"
@@ -338,6 +361,29 @@ struct CommunityCollectionsView: View {
         case "COMPANY": return await TMDBService.companyBrand(id: id)?.logoURL
         default: return nil
         }
+    }
+
+    /// Declares the tileShape that actually matches a logo's real proportions.
+    /// tvOS renders a folder cover with `.fill` (crop-to-cover); the real
+    /// Nuvio Android app renders it with `ContentScale.FillBounds` (stretch to
+    /// EXACTLY fill the declared shape's aspect ratio, no crop) — so a logo
+    /// whose real aspect ratio doesn't match the declared shape gets visibly
+    /// warped on Android and cropped on tvOS. Both were hardcoded to
+    /// "LANDSCAPE" (16:9) regardless of the actual image, which is why
+    /// pictures came in "the wrong format": most brand marks are much closer
+    /// to square (or a wide-but-not-16:9 wordmark) than true 16:9. Measuring
+    /// the real image once at install time and declaring the closest-matching
+    /// shape makes the stretch/crop a no-op (or minimal) on both platforms.
+    private static func measuredTileShape(for urlString: String) async -> String {
+        guard let url = URL(string: urlString),
+              let (data, _) = try? await URLSession.shared.data(from: url),
+              let image = UIImage(data: data), image.size.height > 0 else { return "SQUARE" }
+        let ratio = image.size.width / image.size.height
+        // LANDSCAPE's declared ratio is 16:9 (≈1.78); only choose it when the
+        // logo is genuinely close to that. Most brand marks are much nearer
+        // square (or a moderately wide wordmark), which SQUARE (1:1) fits far
+        // better than forcing a 16:9 stretch/crop on them.
+        return ratio >= 1.5 ? "LANDSCAPE" : "SQUARE"
     }
 }
 

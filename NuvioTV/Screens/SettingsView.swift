@@ -876,6 +876,7 @@ private struct ContentDiscoveryDetail: View {
                     .font(.system(size: 22, weight: .semibold))
             }
             .padding(.vertical, 4)
+            badgeExtraControls
             if let status = streamBadges.lastStatus {
                 Text(status)
                     .font(.system(size: 19))
@@ -907,31 +908,7 @@ private struct ContentDiscoveryDetail: View {
             }
             .font(.system(size: 22, weight: .semibold))
 
-            // Badge size (device-local).
-            NuvioDropdown(
-                title: "Badge size",
-                icon: "textformat.size",
-                selection: streamBadges.sizeRawUI,
-                options: StreamBadgeStore.sizeOptions.map { NuvioDropdownOption($0.0, $0.1) }
-            ) { streamBadges.setSize($0) }
-
-            // Badge profile picker — shown when the account carries badge
-            // configs from more than one Nuvio app (tv / mobile / fusion…).
-            if streamBadges.remoteProfiles.count > 1 {
-                NuvioDropdown(
-                    title: "Badge profile",
-                    icon: "person.2",
-                    selection: streamBadges.preferredRemotePlatform.isEmpty
-                        ? streamBadges.remoteProfiles[0].platform
-                        : streamBadges.preferredRemotePlatform,
-                    options: streamBadges.remoteProfiles.map {
-                        NuvioDropdownOption($0.platform, "\($0.platform.capitalized) (\($0.count) filters)")
-                    }
-                ) { platform in
-                    streamBadges.preferredRemotePlatform = platform
-                    Task { await streamBadges.syncFromAccount() }
-                }
-            }
+            badgeExtraControls
             if let status = streamBadges.lastStatus {
                 Text(status)
                     .font(.system(size: 19))
@@ -940,6 +917,35 @@ private struct ContentDiscoveryDetail: View {
             Text("Build or pick a badge pack at nintle.github.io/Badger, host the JSON (the editor gives you a link), and paste its URL here — or pull the pack already set up in another Orivio app with Sync from Account.")
                 .font(.system(size: 18))
                 .foregroundStyle(theme.palette.textTertiary)
+        }
+    }
+
+    /// Size + profile pickers, shown in BOTH the configured and empty states.
+    @ViewBuilder
+    private var badgeExtraControls: some View {
+        NuvioDropdown(
+            title: "Badge size",
+            icon: "textformat.size",
+            selection: streamBadges.sizeRawUI,
+            options: StreamBadgeStore.sizeOptions.map { NuvioDropdownOption($0.0, $0.1) }
+        ) { streamBadges.setSize($0) }
+
+        // Only when the account carries badge configs from 2+ Nuvio apps —
+        // run Sync from Account once to discover them.
+        if streamBadges.remoteProfiles.count > 1 {
+            NuvioDropdown(
+                title: "Badge profile",
+                icon: "person.2",
+                selection: streamBadges.preferredRemotePlatform.isEmpty
+                    ? streamBadges.remoteProfiles[0].platform
+                    : streamBadges.preferredRemotePlatform,
+                options: streamBadges.remoteProfiles.map {
+                    NuvioDropdownOption($0.platform, "\($0.platform.capitalized) (\($0.count) filters)")
+                }
+            ) { platform in
+                streamBadges.preferredRemotePlatform = platform
+                Task { await streamBadges.syncFromAccount() }
+            }
         }
     }
 }

@@ -69,14 +69,27 @@ enum CommunityCollections {
     /// (and not duplicated) even after a rename.
     static let idPrefix = "community."
 
-    /// Cover style for community categories: "Dark" sits each logo on a
-    /// tinted-dark tile (matches the app's near-black surfaces); "Bright"
-    /// sits it on a near-white tile instead, which is how most streaming/
-    /// studio logos are actually designed to be seen and reads much closer
-    /// to their real brand color. Shared UserDefaults key so every card that
-    /// renders a community folder — the browse picker AND the installed
-    /// Home rows — picks up the same choice live.
-    static let brightCoversKey = "nuvio.communitybrightcovers.v1"
+    /// Per-category cover style: "Dark" sits a logo on a tinted-dark tile
+    /// (matches the app's near-black surfaces); "Bright" sits it on a
+    /// near-white tile instead, which is how most streaming/studio logos are
+    /// actually designed to be seen and reads much closer to their real
+    /// brand color. Chosen independently per category (id → isBright), one
+    /// shared UserDefaults key holding the whole map as JSON, so every view
+    /// that renders a community folder — the browse picker AND the
+    /// installed Home rows — reads the same live choice for that category.
+    static let coverStyleKey = "nuvio.communitycoverstyle.v1"
+
+    static func decodeCoverStyles(_ json: String) -> [String: Bool] {
+        guard let data = json.data(using: .utf8),
+              let dict = try? JSONDecoder().decode([String: Bool].self, from: data) else { return [:] }
+        return dict
+    }
+
+    static func encodeCoverStyles(_ styles: [String: Bool]) -> String {
+        guard let data = try? JSONEncoder().encode(styles),
+              let json = String(data: data, encoding: .utf8) else { return "{}" }
+        return json
+    }
 
     private static func network(_ slug: String, _ title: String, _ tmdbId: Int) -> CommunityCollectionPreset {
         CommunityCollectionPreset(
@@ -148,11 +161,10 @@ struct CommunityCollectionsView: View {
     let onDone: () -> Void
 
     @State private var installing: Set<String> = []
-    /// Cover style: dark-tinted (current default) or bright/near-white, which
-    /// reads much closer to the real brand logos. Shared with every rendered
-    /// community folder, so flipping it re-styles both this picker and every
-    /// already-installed community row on Home immediately.
-    @AppStorage(CommunityCollections.brightCoversKey) private var brightCovers = false
+    /// Per-category cover style (id → isBright), JSON-encoded. Each category
+    /// picks its own — set from the toggle on its own card, and read back by
+    /// this picker AND by every already-installed community row on Home.
+    @AppStorage(CommunityCollections.coverStyleKey) private var coverStylesJSON = "{}"
     /// Live-fetched official logos, keyed by preset id — fetched once per
     /// category so browsing shows real brand art, not a shared generic icon.
     @State private var logos: [String: String] = [:]
@@ -165,7 +177,17 @@ struct CommunityCollectionsView: View {
         Set(collections.collections.map(\.id))
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 300), spacing: NuvioSpacing.lg)]
+    private let columns = [GridItem(.adaptive(minimum: 360), spacing: NuvioSpacing.lg)]
+
+    private func isBright(_ id: String) -> Bool {
+        CommunityCollections.decodeCoverStyles(coverStylesJSON)[id] ?? false
+    }
+
+    private func setBright(_ bright: Bool, for id: String) {
+        var styles = CommunityCollections.decodeCoverStyles(coverStylesJSON)
+        styles[id] = bright
+        coverStylesJSON = CommunityCollections.encodeCoverStyles(styles)
+    }
 
     var body: some View {
         ZStack {
@@ -192,8 +214,6 @@ struct CommunityCollectionsView: View {
                             .foregroundStyle(NuvioPrimitives.error)
                     }
 
-                    coverStylePicker
-
                     ForEach(CommunityCollectionPreset.Group.allCases, id: \.self) { group in
                         section(for: group)
                     }
@@ -206,28 +226,6 @@ struct CommunityCollectionsView: View {
             await loadLogos()
         }
         .onExitCommand { onDone() }
-    }
-
-    /// Dark / Bright choice for how every community category's logo sits on
-    /// its tile — applies live to the cards below and to already-installed
-    /// rows on Home.
-    private var coverStylePicker: some View {
-        HStack(spacing: NuvioSpacing.md) {
-            Text("Cover style")
-                .font(.system(size: 19, weight: .semibold))
-                .foregroundStyle(theme.palette.textSecondary)
-            HStack(spacing: NuvioSpacing.sm) {
-                coverStyleOption(title: "Dark", isBright: false)
-                coverStyleOption(title: "Bright", isBright: true)
-            }
-        }
-    }
-
-    private func coverStyleOption(title: String, isBright: Bool) -> some View {
-        Button { brightCovers = isBright } label: {
-            FolderTabPill(label: title, selected: brightCovers == isBright)
-        }
-        .buttonStyle(PlainCardButtonStyle())
     }
 
     private func section(for group: CommunityCollectionPreset.Group) -> some View {
@@ -252,11 +250,12 @@ struct CommunityCollectionsView: View {
                         preset: preset,
                         logoURL: logos[preset.id],
                         logosLoaded: logosLoaded,
-                        isBright: brightCovers,
+                        isBright: isBright(preset.id),
                         isInstalled: installedIDs.contains(preset.id),
                         isInstalling: installing.contains(preset.id),
                         onInstall: { Task { await install(preset) } },
-                        onRemove: { collections.remove(id: preset.id) }
+                        onRemove: { collections.remove(id: preset.id) },
+                        onToggleBright: { setBright($0, for: preset.id) }
                     )
                 }
             }
@@ -352,22 +351,35 @@ private struct CommunityCollectionCard: View {
     let isInstalling: Bool
     let onInstall: () -> Void
     let onRemove: () -> Void
+    let onToggleBright: (Bool) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             HStack(spacing: NuvioSpacing.md) {
                 artTile
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text(preset.title)
-                        .font(.system(size: 22, weight: .bold))
+                        .font(.system(size: 21, weight: .bold))
                         .foregroundStyle(theme.palette.textPrimary)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.8)
                     // Markers derived from THIS category's own source — not a
                     // stale list of sibling tab names — so they always match
                     // what's actually inside.
                     FlowChips(labels: [preset.mediaLabel, preset.kind.markerLabel])
                 }
-                Spacer()
+                // The VStack (not a trailing Spacer) claims all remaining
+                // width, so the title/chips get every bit of room the card
+                // has instead of being squeezed by a competing flexible
+                // sibling — that squeeze was cutting chip text off entirely.
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            // Per-category Dark/Bright choice — each category remembers its
+            // own pick independently, applied live to its Home row too.
+            HStack(spacing: NuvioSpacing.sm) {
+                coverStyleOption(title: "Dark", bright: false)
+                coverStyleOption(title: "Bright", bright: true)
             }
 
             Button {
@@ -395,6 +407,13 @@ private struct CommunityCollectionCard: View {
             RoundedRectangle(cornerRadius: NuvioRadius.lg, style: .continuous)
                 .fill(theme.palette.backgroundCard.opacity(0.5))
         )
+    }
+
+    private func coverStyleOption(title: String, bright: Bool) -> some View {
+        Button { onToggleBright(bright) } label: {
+            CoverStylePill(label: title, selected: isBright == bright)
+        }
+        .buttonStyle(PlainCardButtonStyle())
     }
 
     /// High-quality per-category art: the real TMDB brand logo for a network
@@ -436,8 +455,10 @@ private struct CommunityCollectionCard: View {
     }
 }
 
-/// Simple wrapping chip row — used here to show each category's own
-/// media-type + kind markers.
+/// Simple chip row — used here to show each category's own media-type + kind
+/// markers. Each label is capped to one line with a shrink fallback so a
+/// tight card compresses the text slightly instead of wrapping it inside the
+/// capsule (which is what made words disappear/overlap at narrower widths).
 private struct FlowChips: View {
     @EnvironmentObject private var theme: ThemeManager
     let labels: [String]
@@ -448,10 +469,39 @@ private struct FlowChips: View {
                 Text(label)
                     .font(.system(size: 14, weight: .medium))
                     .foregroundStyle(theme.palette.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .background(Capsule().fill(Color.white.opacity(0.08)))
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
+    }
+}
+
+/// Compact selectable pill for the per-category Dark/Bright toggle — sized
+/// for a small in-card control, unlike the larger `FolderTabPill` used for
+/// the full-screen collection folder tabs.
+private struct CoverStylePill: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @Environment(\.isFocused) private var isFocused
+    let label: String
+    let selected: Bool
+
+    var body: some View {
+        Text(label)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(selected ? theme.palette.onSecondary : theme.palette.textSecondary)
+            .lineLimit(1)
+            .padding(.horizontal, NuvioSpacing.sm)
+            .padding(.vertical, 6)
+            .background(
+                Capsule().fill(selected ? theme.palette.secondary
+                               : (isFocused ? theme.palette.focusBackground : Color.white.opacity(0.08)))
+            )
+            .overlay(Capsule().strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 2))
+            .scaleEffect(isFocused ? 1.05 : 1)
+            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isFocused)
     }
 }

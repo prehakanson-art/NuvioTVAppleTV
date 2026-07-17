@@ -7,10 +7,10 @@ import SwiftUI
 /// emoji fallback); selecting one opens the collection browser.
 struct CollectionRowSection: View {
     @EnvironmentObject private var theme: ThemeManager
-    /// Dark/Bright choice for community-installed logo covers (Settings →
-    /// Community Collections). Only ever applied to community.* collections
-    /// — a user's own collections keep the app's normal dark surface.
-    @AppStorage(CommunityCollections.brightCoversKey) private var brightCovers = false
+    /// Dark/Bright choice per community category (Community Collections
+    /// picker) — only ever applied to community.* collections; a user's own
+    /// collections keep the app's normal dark surface.
+    @AppStorage(CommunityCollections.coverStyleKey) private var coverStylesJSON = "{}"
 
     let collection: NuvioCollection
     let title: String
@@ -19,7 +19,10 @@ struct CollectionRowSection: View {
     /// (row auto-hide).
     var onCardFocus: (Bool) -> Void = { _ in }
 
-    private var isBright: Bool { brightCovers && collection.id.hasPrefix(CommunityCollections.idPrefix) }
+    private var isBright: Bool {
+        guard collection.id.hasPrefix(CommunityCollections.idPrefix) else { return false }
+        return CommunityCollections.decodeCoverStyles(coverStylesJSON)[collection.id] ?? false
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
@@ -94,13 +97,16 @@ struct CollectionTileCard: View {
     @EnvironmentObject private var theme: ThemeManager
     @ObservedObject private var perf = PerformanceSettingsStore.shared
     @Environment(\.isFocused) private var isFocused
-    @AppStorage(CommunityCollections.brightCoversKey) private var brightCovers = false
+    @AppStorage(CommunityCollections.coverStyleKey) private var coverStylesJSON = "{}"
     let collection: NuvioCollection
 
     private var firstFolder: NuvioCollectionFolder? { collection.folders.first }
     private var cover: String? { firstFolder?.coverImageUrl }
     private var emoji: String? { firstFolder?.coverEmoji }
-    private var isBright: Bool { brightCovers && collection.id.hasPrefix(CommunityCollections.idPrefix) }
+    private var isBright: Bool {
+        guard collection.id.hasPrefix(CommunityCollections.idPrefix) else { return false }
+        return CommunityCollections.decodeCoverStyles(coverStylesJSON)[collection.id] ?? false
+    }
 
     /// Tile size follows the (editable) shape of the collection's first folder.
     private var cardSize: CGSize {

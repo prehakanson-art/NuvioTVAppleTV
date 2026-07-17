@@ -7,10 +7,6 @@ import SwiftUI
 /// emoji fallback); selecting one opens the collection browser.
 struct CollectionRowSection: View {
     @EnvironmentObject private var theme: ThemeManager
-    /// Dark/Bright choice per community category (Community Collections
-    /// picker) — only ever applied to community.* collections; a user's own
-    /// collections keep the app's normal dark surface.
-    @AppStorage(CommunityCollections.coverStyleKey) private var coverStylesJSON = "{}"
 
     let collection: NuvioCollection
     let title: String
@@ -19,11 +15,6 @@ struct CollectionRowSection: View {
     /// (row auto-hide).
     var onCardFocus: (Bool) -> Void = { _ in }
 
-    private var isBright: Bool {
-        guard collection.id.hasPrefix(CommunityCollections.idPrefix) else { return false }
-        return CommunityCollections.decodeCoverStyles(coverStylesJSON)[collection.id] ?? false
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             RowHeader(title: title)
@@ -31,8 +22,7 @@ struct CollectionRowSection: View {
                 LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
                     ForEach(collection.folders) { folder in
                         Button(action: onOpen) {
-                            CollectionFolderCard(folder: folder, glowEnabled: collection.focusGlowEnabled ?? true,
-                                                 isBright: isBright)
+                            CollectionFolderCard(folder: folder, glowEnabled: collection.focusGlowEnabled ?? true)
                                 .onFocusChange { onCardFocus($0) }
                         }
                         .buttonStyle(PlainCardButtonStyle())
@@ -40,8 +30,7 @@ struct CollectionRowSection: View {
                     if collection.folders.isEmpty {
                         Button(action: onOpen) {
                             CollectionFolderCard(folder: nil, fallbackTitle: collection.title,
-                                                 glowEnabled: collection.focusGlowEnabled ?? true,
-                                                 isBright: isBright)
+                                                 glowEnabled: collection.focusGlowEnabled ?? true)
                                 .onFocusChange { onCardFocus($0) }
                         }
                         .buttonStyle(PlainCardButtonStyle())
@@ -109,9 +98,12 @@ struct CollectionTileCard: View {
     private var firstFolder: NuvioCollectionFolder? { collection.folders.first }
     private var cover: String? { firstFolder?.coverImageUrl }
     private var emoji: String? { firstFolder?.coverEmoji }
+    /// Keyed by the FOLDER's id (the stable per-category preset id), not the
+    /// collection's — a group collection (e.g. "Streaming Services") holds
+    /// several categories, each with its own independent Dark/Bright choice.
     private var isBright: Bool {
-        guard collection.id.hasPrefix(CommunityCollections.idPrefix) else { return false }
-        return CommunityCollections.decodeCoverStyles(coverStylesJSON)[collection.id] ?? false
+        guard let id = firstFolder?.id else { return false }
+        return CommunityCollections.decodeCoverStyles(coverStylesJSON)[id] ?? false
     }
 
     /// Tile size follows the (editable) shape of the collection's first folder.
@@ -172,13 +164,20 @@ struct CollectionFolderCard: View {
     @EnvironmentObject private var theme: ThemeManager
     @ObservedObject private var perf = PerformanceSettingsStore.shared
     @Environment(\.isFocused) private var isFocused
+    /// Dark/Bright choice per community category (Community Collections
+    /// picker), keyed by THIS folder's own id — a group collection (e.g.
+    /// "Streaming Services") holds several categories, each with its own
+    /// independent choice, so this can't be a collection-level lookup.
+    @AppStorage(CommunityCollections.coverStyleKey) private var coverStylesJSON = "{}"
 
     let folder: NuvioCollectionFolder?
     var fallbackTitle: String = ""
     var glowEnabled: Bool = true
-    /// Dark (default) or Bright cover background — set by the caller from the
-    /// parent collection's id + the shared community cover-style preference.
-    var isBright: Bool = false
+
+    private var isBright: Bool {
+        guard let id = folder?.id else { return false }
+        return CommunityCollections.decodeCoverStyles(coverStylesJSON)[id] ?? false
+    }
 
     private var title: String { folder?.title ?? fallbackTitle }
     private var isPoster: Bool { folder?.tileShape == "POSTER" }

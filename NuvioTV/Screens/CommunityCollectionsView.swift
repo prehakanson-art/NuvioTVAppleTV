@@ -2,15 +2,19 @@ import SwiftUI
 import UIKit
 
 /// One ready-made, individually-installable category — a single stable TMDB
-/// network/company/discover source. Each installs as its own single-folder
-/// collection (its own Home row), not bundled into a larger multi-tab
-/// collection — so picking "Netflix" only gets you Netflix, not a 12-tab
-/// "Streaming Services" super-collection. No search, no manifest URL, no
-/// setup: covers are the services'/studios' own official TMDB logos, fetched
-/// live so they're always current.
+/// network/company/discover source. Picked independently ("Install" is
+/// per-category, not per-group), but installs as a FOLDER inside its group's
+/// shared collection (Streaming Services / Major Studios / Trending & Top
+/// Rated) rather than its own standalone collection. That grouping matches
+/// the real Nuvio Android app, which renders exactly one Home row per
+/// collection with no way to merge several into one row — so a shared group
+/// collection is what makes Home look the same (folder tabs within one row)
+/// on both platforms, instead of a separate row per category on Android. No
+/// search, no manifest URL, no setup: covers are the services'/studios' own
+/// official TMDB logos, fetched live so they're always current.
 struct CommunityCollectionPreset: Identifiable {
-    /// Section this category is grouped under while browsing (purely a UI
-    /// grouping — each category still installs independently).
+    /// Section this category is grouped under while browsing — AND the group
+    /// collection it installs into (see `groupCollectionID`).
     enum Group: String, CaseIterable {
         case streaming = "Streaming Services"
         case studios = "Major Studios"
@@ -18,7 +22,7 @@ struct CommunityCollectionPreset: Identifiable {
 
         var subtitle: String {
             switch self {
-            case .streaming: return "Pick exactly the services you use — each installs as its own row"
+            case .streaming: return "Pick exactly the services you use — each becomes a tab in one Streaming Services row"
             case .studios: return "Every film from the studio, direct from TMDB — pick the ones you care about"
             case .trending: return "What's popular, best-reviewed, and newest right now"
             }
@@ -174,8 +178,15 @@ struct CommunityCollectionsView: View {
     /// forever (a nil result is never written into `logos`).
     @State private var logosLoaded = false
 
-    private var installedIDs: Set<String> {
-        Set(collections.collections.map(\.id))
+    /// Every installed category's preset id, across ALL group collections —
+    /// "installed" is per-FOLDER now (a group collection holds several
+    /// categories), not per top-level collection.
+    private var installedPresetIDs: Set<String> {
+        var ids = Set<String>()
+        for collection in collections.collections where collection.id.hasPrefix(CommunityCollections.idPrefix) {
+            for folder in collection.folders { ids.insert(folder.id) }
+        }
+        return ids
     }
 
     private let columns = [GridItem(.adaptive(minimum: 360), spacing: NuvioSpacing.lg)]
@@ -200,7 +211,7 @@ struct CommunityCollectionsView: View {
                             Text("Community Collections")
                                 .font(.system(size: 40, weight: .bold))
                                 .foregroundStyle(theme.palette.textPrimary)
-                            Text("Curated, high-quality categories — install just the ones you want, each lands on Home as its own row.")
+                            Text("Curated, high-quality categories — install just the ones you want, grouped into one Home row per section.")
                                 .font(.system(size: 20))
                                 .foregroundStyle(theme.palette.textSecondary)
                         }
@@ -223,7 +234,7 @@ struct CommunityCollectionsView: View {
             }
         }
         .task {
-            removeLegacyBundles()
+            consolidateIndividualCollections()
             await remeasureInstalledLogos()
             await loadLogos()
         }
@@ -253,10 +264,10 @@ struct CommunityCollectionsView: View {
                         logoURL: logos[preset.id],
                         logosLoaded: logosLoaded,
                         isBright: isBright(preset.id),
-                        isInstalled: installedIDs.contains(preset.id),
+                        isInstalled: installedPresetIDs.contains(preset.id),
                         isInstalling: installing.contains(preset.id),
                         onInstall: { Task { await install(preset) } },
-                        onRemove: { collections.remove(id: preset.id) },
+                        onRemove: { remove(preset) },
                         onToggleBright: { setBright($0, for: preset.id) }
                     )
                 }
@@ -284,28 +295,66 @@ struct CommunityCollectionsView: View {
         logosLoaded = true
     }
 
-    /// One-time cleanup: earlier builds installed each group as a single
-    /// 12-tab mega-collection ("community.streaming" / "community.studios" /
-    /// "community.trending"). Those ids don't match any current per-category
-    /// preset, so replace them with the individual categories they used to
-    /// bundle — the user re-gets exactly what they had, just split apart.
-    private func removeLegacyBundles() {
-        let legacyIDs = ["community.streaming", "community.studios", "community.trending"]
-        let present = legacyIDs.filter { id in collections.collections.contains { $0.id == id } }
-        guard !present.isEmpty else { return }
-        for id in present { collections.remove(id: id) }
-        // Re-install every category that belonged to a bundle the user had.
-        for legacyID in present {
-            let group: CommunityCollectionPreset.Group? = switch legacyID {
-            case "community.streaming": .streaming
-            case "community.studios": .studios
-            case "community.trending": .trending
-            default: nil
+    /// A category's group collection id: one shared collection per group
+    /// (Streaming Services / Major Studios / Trending & Top Rated), with each
+    /// installed category as a folder inside it. The real Nuvio Android app
+    /// renders exactly one Home row per collection with no way to merge
+    /// several into one row — so this is what makes Home look the same
+    /// (folder tabs within one row) on both platforms, instead of a separate
+    /// row per category there. You still pick categories individually below;
+    /// only where they land groups them.
+    private static func groupCollectionID(for group: CommunityCollectionPreset.Group) -> String {
+        switch group {
+        case .streaming: return "community.streaming"
+        case .studios: return "community.studios"
+        case .trending: return "community.trending"
+        }
+    }
+
+    /// One-time migration: an earlier build installed each category as its OWN
+    /// standalone collection (its own Home row per category, and its own
+    /// folder id — a random UUID). Fold any of those still around into their
+    /// group's collection, normalizing the folder id to the stable preset id
+    /// so future installs/removals/re-runs of this migration all agree on
+    /// identity.
+    private func consolidateIndividualCollections() {
+        for preset in CommunityCollections.presets {
+            guard let standalone = collections.collections.first(where: { $0.id == preset.id }),
+                  var folder = standalone.folders.first else { continue }
+            collections.remove(id: preset.id)
+            folder.id = preset.id
+            addFolder(folder, to: preset.group)
+        }
+    }
+
+    /// Insert/replace a category's folder in its group's collection, creating
+    /// that group collection on first use.
+    private func addFolder(_ folder: NuvioCollectionFolder, to group: CommunityCollectionPreset.Group) {
+        let groupID = Self.groupCollectionID(for: group)
+        if var existing = collections.collections.first(where: { $0.id == groupID }) {
+            if let idx = existing.folders.firstIndex(where: { $0.id == folder.id }) {
+                existing.folders[idx] = folder
+            } else {
+                existing.folders.append(folder)
             }
-            guard let group else { continue }
-            for preset in CommunityCollections.presets(in: group) {
-                Task { await install(preset) }
-            }
+            collections.update(existing)
+        } else {
+            var newCollection = NuvioCollection(id: groupID, title: group.rawValue, folders: [folder])
+            newCollection.focusGlowEnabled = true
+            collections.add(newCollection)
+        }
+    }
+
+    /// Remove a single category's folder from its group's collection —
+    /// deleting the whole group collection only if it was the last one left.
+    private func remove(_ preset: CommunityCollectionPreset) {
+        let groupID = Self.groupCollectionID(for: preset.group)
+        guard var existing = collections.collections.first(where: { $0.id == groupID }) else { return }
+        existing.folders.removeAll { $0.id == preset.id }
+        if existing.folders.isEmpty {
+            collections.remove(id: groupID)
+        } else {
+            collections.update(existing)
         }
     }
 
@@ -335,7 +384,11 @@ struct CommunityCollectionsView: View {
         installing.insert(preset.id)
         defer { installing.remove(preset.id) }
 
-        var folder = NuvioCollectionFolder(id: UUID().uuidString, title: preset.title, sources: [preset.source])
+        // The folder id IS the preset id (stable across relaunches/re-installs
+        // and across the consolidation migration above) — that's how
+        // `installedPresetIDs` and `remove(_:)` find this exact category
+        // again inside its shared group collection.
+        var folder = NuvioCollectionFolder(id: preset.id, title: preset.title, sources: [preset.source])
         var resolvedLogo = logos[preset.id]
         if resolvedLogo == nil {
             resolvedLogo = await Self.brandLogo(for: preset.source)
@@ -348,9 +401,7 @@ struct CommunityCollectionsView: View {
             folder.coverEmoji = preset.kind.emoji
         }
 
-        var collection = NuvioCollection(id: preset.id, title: preset.title, folders: [folder])
-        collection.focusGlowEnabled = true
-        collections.add(collection)
+        addFolder(folder, to: preset.group)
     }
 
     /// Official studio/network logo for a preset source, when TMDB has one.

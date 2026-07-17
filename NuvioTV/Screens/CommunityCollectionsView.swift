@@ -1,78 +1,135 @@
 import SwiftUI
 
-/// One ready-made collection: a title/subtitle plus the TMDB sources that fill
-/// its folders. Every source is a stable, well-known TMDB network/company/
-/// discover id, so installing needs no search, no manifest URL, no setup —
-/// the folder covers are the studios'/services' own official logos, fetched
-/// live from TMDB so they're always current.
+/// One ready-made, individually-installable category — a single stable TMDB
+/// network/company/discover source. Each installs as its own single-folder
+/// collection (its own Home row), not bundled into a larger multi-tab
+/// collection — so picking "Netflix" only gets you Netflix, not a 12-tab
+/// "Streaming Services" super-collection. No search, no manifest URL, no
+/// setup: covers are the services'/studios' own official TMDB logos, fetched
+/// live so they're always current.
 struct CommunityCollectionPreset: Identifiable {
+    /// Section this category is grouped under while browsing (purely a UI
+    /// grouping — each category still installs independently).
+    enum Group: String, CaseIterable {
+        case streaming = "Streaming Services"
+        case studios = "Major Studios"
+        case trending = "Trending & Top Rated"
+
+        var subtitle: String {
+            switch self {
+            case .streaming: return "Pick exactly the services you use — each installs as its own row"
+            case .studios: return "Every film from the studio, direct from TMDB — pick the ones you care about"
+            case .trending: return "What's popular, best-reviewed, and newest right now"
+            }
+        }
+        var icon: String {
+            switch self {
+            case .streaming: return "sparkles.tv.fill"
+            case .studios: return "film.stack.fill"
+            case .trending: return "flame.fill"
+            }
+        }
+    }
+    /// What kind of source this is — drives both the marker chips and the
+    /// fallback art (an emoji tint) when there's no TMDB brand logo to fetch.
+    enum Kind {
+        case network, studio, trending, topRated, newest
+
+        var markerLabel: String {
+            switch self {
+            case .network: return "Streaming Network"
+            case .studio: return "Studio"
+            case .trending: return "Trending"
+            case .topRated: return "Top Rated"
+            case .newest: return "Newest"
+            }
+        }
+        /// Fallback emoji cover for sources with no brand logo (DISCOVER-type).
+        var emoji: String? {
+            switch self {
+            case .trending: return "🔥"
+            case .topRated: return "⭐️"
+            case .newest: return "✨"
+            case .network, .studio: return nil   // these get a real fetched logo
+            }
+        }
+    }
+
     let id: String
+    let group: Group
+    let kind: Kind
     let title: String
-    let subtitle: String
-    let icon: String
-    let folders: [(title: String, source: CollectionSourceDTO)]
+    let source: CollectionSourceDTO
+
+    var mediaLabel: String { (source.mediaType ?? "movie").lowercased() == "tv" ? "TV Shows" : "Movies" }
 }
 
 enum CommunityCollections {
-    /// Stable id prefix so an installed community collection can be recognized
+    /// Stable id prefix so an installed community category can be recognized
     /// (and not duplicated) even after a rename.
     static let idPrefix = "community."
 
+    private static func network(_ slug: String, _ title: String, _ tmdbId: Int) -> CommunityCollectionPreset {
+        CommunityCollectionPreset(
+            id: idPrefix + "streaming." + slug, group: .streaming, kind: .network, title: title,
+            source: CollectionSourceDTO(tmdbSourceType: "NETWORK", title: title, tmdbId: tmdbId, mediaType: "tv")
+        )
+    }
+    private static func studio(_ slug: String, _ title: String, _ tmdbId: Int) -> CommunityCollectionPreset {
+        CommunityCollectionPreset(
+            id: idPrefix + "studio." + slug, group: .studios, kind: .studio, title: title,
+            source: CollectionSourceDTO(tmdbSourceType: "COMPANY", title: title, tmdbId: tmdbId, mediaType: "movie")
+        )
+    }
+    private static func discover(_ slug: String, _ title: String, kind: CommunityCollectionPreset.Kind,
+                                  mediaType: String, sortBy: String) -> CommunityCollectionPreset {
+        CommunityCollectionPreset(
+            id: idPrefix + "trending." + slug, group: .trending, kind: kind, title: title,
+            source: CollectionSourceDTO(tmdbSourceType: "DISCOVER", title: title, tmdbId: nil,
+                                        mediaType: mediaType, sortBy: sortBy)
+        )
+    }
+
     static let presets: [CommunityCollectionPreset] = [
-        CommunityCollectionPreset(
-            id: idPrefix + "streaming",
-            title: "Streaming Services",
-            subtitle: "Netflix, Disney+, Max, Prime Video, and more — everything each service has on TMDB",
-            icon: "sparkles.tv.fill",
-            folders: [
-                ("Netflix", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "Netflix", tmdbId: 213, mediaType: "tv")),
-                ("Disney+", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "Disney+", tmdbId: 2739, mediaType: "tv")),
-                ("Max", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "Max", tmdbId: 49, mediaType: "tv")),
-                ("Prime Video", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "Prime Video", tmdbId: 1024, mediaType: "tv")),
-                ("Apple TV+", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "Apple TV+", tmdbId: 2552, mediaType: "tv")),
-                ("Hulu", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "Hulu", tmdbId: 453, mediaType: "tv")),
-                ("Paramount+", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "Paramount+", tmdbId: 4330, mediaType: "tv")),
-                ("Peacock", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "Peacock", tmdbId: 3353, mediaType: "tv")),
-                ("FX", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "FX", tmdbId: 88, mediaType: "tv")),
-                ("AMC", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "AMC", tmdbId: 174, mediaType: "tv")),
-                ("BBC", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "BBC", tmdbId: 4, mediaType: "tv")),
-                ("Crunchyroll", CollectionSourceDTO(tmdbSourceType: "NETWORK", title: "Crunchyroll", tmdbId: 1112, mediaType: "tv")),
-            ]
-        ),
-        CommunityCollectionPreset(
-            id: idPrefix + "studios",
-            title: "Major Studios",
-            subtitle: "Marvel, Pixar, Disney, Warner Bros., A24, and more — every film from the studio, direct from TMDB",
-            icon: "film.stack.fill",
-            folders: [
-                ("Marvel Studios", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "Marvel Studios", tmdbId: 420, mediaType: "movie")),
-                ("Walt Disney Pictures", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "Walt Disney Pictures", tmdbId: 2, mediaType: "movie")),
-                ("Pixar", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "Pixar", tmdbId: 3, mediaType: "movie")),
-                ("Lucasfilm", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "Lucasfilm", tmdbId: 1, mediaType: "movie")),
-                ("Warner Bros.", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "Warner Bros.", tmdbId: 174, mediaType: "movie")),
-                ("Universal Pictures", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "Universal Pictures", tmdbId: 33, mediaType: "movie")),
-                ("Paramount Pictures", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "Paramount Pictures", tmdbId: 4, mediaType: "movie")),
-                ("Sony Pictures", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "Sony Pictures", tmdbId: 34, mediaType: "movie")),
-                ("A24", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "A24", tmdbId: 41077, mediaType: "movie")),
-                ("DC Films", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "DC Films", tmdbId: 128064, mediaType: "movie")),
-                ("Studio Ghibli", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "Studio Ghibli", tmdbId: 10342, mediaType: "movie")),
-                ("Blumhouse", CollectionSourceDTO(tmdbSourceType: "COMPANY", title: "Blumhouse", tmdbId: 3172, mediaType: "movie")),
-            ]
-        ),
-        CommunityCollectionPreset(
-            id: idPrefix + "trending",
-            title: "Trending & Top Rated",
-            subtitle: "What's popular and best-reviewed right now, movies and shows",
-            icon: "flame.fill",
-            folders: [
-                ("Trending Movies", CollectionSourceDTO(tmdbSourceType: "DISCOVER", title: "Trending Movies", tmdbId: nil, mediaType: "movie", sortBy: "popularity.desc")),
-                ("Trending Shows", CollectionSourceDTO(tmdbSourceType: "DISCOVER", title: "Trending Shows", tmdbId: nil, mediaType: "tv", sortBy: "popularity.desc")),
-                ("Top Rated Movies", CollectionSourceDTO(tmdbSourceType: "DISCOVER", title: "Top Rated Movies", tmdbId: nil, mediaType: "movie", sortBy: "vote_average.desc")),
-                ("Top Rated Shows", CollectionSourceDTO(tmdbSourceType: "DISCOVER", title: "Top Rated Shows", tmdbId: nil, mediaType: "tv", sortBy: "vote_average.desc")),
-                ("Newest Releases", CollectionSourceDTO(tmdbSourceType: "DISCOVER", title: "Newest Releases", tmdbId: nil, mediaType: "movie", sortBy: "primary_release_date.desc")),
-            ]
-        ),
+        // MARK: Streaming Services — each its own installable category.
+        network("netflix", "Netflix", 213),
+        network("disneyplus", "Disney+", 2739),
+        network("max", "Max", 49),
+        network("primevideo", "Prime Video", 1024),
+        network("appletvplus", "Apple TV+", 2552),
+        network("hulu", "Hulu", 453),
+        network("paramountplus", "Paramount+", 4330),
+        network("peacock", "Peacock", 3353),
+        network("fx", "FX", 88),
+        network("amc", "AMC", 174),
+        network("bbc", "BBC", 4),
+        network("crunchyroll", "Crunchyroll", 1112),
+
+        // MARK: Major Studios — each its own installable category.
+        studio("marvel", "Marvel Studios", 420),
+        studio("disney", "Walt Disney Pictures", 2),
+        studio("pixar", "Pixar", 3),
+        studio("lucasfilm", "Lucasfilm", 1),
+        studio("warnerbros", "Warner Bros.", 174),
+        studio("universal", "Universal Pictures", 33),
+        studio("paramount", "Paramount Pictures", 4),
+        studio("sony", "Sony Pictures", 34),
+        studio("a24", "A24", 41077),
+        studio("dcfilms", "DC Films", 128064),
+        studio("ghibli", "Studio Ghibli", 10342),
+        studio("blumhouse", "Blumhouse", 3172),
+
+        // MARK: Trending & Top Rated — each its own installable category.
+        discover("moviesnow", "Trending Movies", kind: .trending, mediaType: "movie", sortBy: "popularity.desc"),
+        discover("showsnow", "Trending Shows", kind: .trending, mediaType: "tv", sortBy: "popularity.desc"),
+        discover("moviestop", "Top Rated Movies", kind: .topRated, mediaType: "movie", sortBy: "vote_average.desc"),
+        discover("showstop", "Top Rated Shows", kind: .topRated, mediaType: "tv", sortBy: "vote_average.desc"),
+        discover("newest", "Newest Releases", kind: .newest, mediaType: "movie", sortBy: "primary_release_date.desc"),
     ]
+
+    static func presets(in group: CommunityCollectionPreset.Group) -> [CommunityCollectionPreset] {
+        presets.filter { $0.group == group }
+    }
 }
 
 struct CommunityCollectionsView: View {
@@ -82,24 +139,31 @@ struct CommunityCollectionsView: View {
     let onDone: () -> Void
 
     @State private var installing: Set<String> = []
+    /// Live-fetched official logos, keyed by preset id — fetched once per
+    /// category so browsing shows real brand art, not a shared generic icon.
+    @State private var logos: [String: String] = [:]
+    /// True once the logo fetch pass has finished, so a network/studio whose
+    /// fetch genuinely failed falls back to an icon instead of spinning
+    /// forever (a nil result is never written into `logos`).
+    @State private var logosLoaded = false
 
     private var installedIDs: Set<String> {
         Set(collections.collections.map(\.id))
     }
 
-    private let columns = [GridItem(.adaptive(minimum: 420), spacing: NuvioSpacing.lg)]
+    private let columns = [GridItem(.adaptive(minimum: 300), spacing: NuvioSpacing.lg)]
 
     var body: some View {
         ZStack {
             theme.palette.background.ignoresSafeArea()
             ScrollView {
-                VStack(alignment: .leading, spacing: NuvioSpacing.xl) {
+                VStack(alignment: .leading, spacing: NuvioSpacing.xxl) {
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text("Community Collections")
                                 .font(.system(size: 40, weight: .bold))
                                 .foregroundStyle(theme.palette.textPrimary)
-                            Text("Curated, high-quality collections — one tap and they're on Home. No setup.")
+                            Text("Curated, high-quality categories — install just the ones you want, each lands on Home as its own row.")
                                 .font(.system(size: 20))
                                 .foregroundStyle(theme.palette.textSecondary)
                         }
@@ -109,27 +173,100 @@ struct CommunityCollectionsView: View {
                     }
 
                     if !tmdbSettings.isEnabled {
-                        Text("Enable TMDB in Settings → Integrations so these collections have something to show.")
+                        Text("Enable TMDB in Settings → Integrations so these categories have something to show.")
                             .font(.system(size: 19))
                             .foregroundStyle(NuvioPrimitives.error)
                     }
 
-                    LazyVGrid(columns: columns, spacing: NuvioSpacing.lg) {
-                        ForEach(CommunityCollections.presets) { preset in
-                            CommunityCollectionCard(
-                                preset: preset,
-                                isInstalled: installedIDs.contains(preset.id),
-                                isInstalling: installing.contains(preset.id),
-                                onInstall: { Task { await install(preset) } },
-                                onRemove: { collections.remove(id: preset.id) }
-                            )
-                        }
+                    ForEach(CommunityCollectionPreset.Group.allCases, id: \.self) { group in
+                        section(for: group)
                     }
                 }
                 .padding(NuvioSpacing.huge)
             }
         }
+        .task {
+            removeLegacyBundles()
+            await loadLogos()
+        }
         .onExitCommand { onDone() }
+    }
+
+    private func section(for group: CommunityCollectionPreset.Group) -> some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.lg) {
+            HStack(spacing: NuvioSpacing.md) {
+                Image(systemName: group.icon)
+                    .font(.system(size: 22))
+                    .foregroundStyle(theme.palette.secondary)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(group.rawValue)
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(theme.palette.textPrimary)
+                    Text(group.subtitle)
+                        .font(.system(size: 17))
+                        .foregroundStyle(theme.palette.textTertiary)
+                }
+            }
+
+            LazyVGrid(columns: columns, spacing: NuvioSpacing.lg) {
+                ForEach(CommunityCollections.presets(in: group)) { preset in
+                    CommunityCollectionCard(
+                        preset: preset,
+                        logoURL: logos[preset.id],
+                        logosLoaded: logosLoaded,
+                        isInstalled: installedIDs.contains(preset.id),
+                        isInstalling: installing.contains(preset.id),
+                        onInstall: { Task { await install(preset) } },
+                        onRemove: { collections.remove(id: preset.id) }
+                    )
+                }
+            }
+        }
+    }
+
+    /// Fetch every network/studio's official logo up front (concurrent,
+    /// cached in `logos`) so browsing shows real brand art instead of a
+    /// generic icon — the whole point of splitting these into individually
+    /// recognizable categories. DISCOVER-type entries (Trending/Top Rated/
+    /// Newest) have no brand to fetch; they use their kind's emoji instead.
+    private func loadLogos() async {
+        let targets = CommunityCollections.presets.filter { $0.source.tmdbId != nil }
+        await withTaskGroup(of: (String, String?).self) { group in
+            for preset in targets {
+                group.addTask {
+                    (preset.id, await Self.brandLogo(for: preset.source))
+                }
+            }
+            for await (id, url) in group {
+                if let url { logos[id] = url }
+            }
+        }
+        logosLoaded = true
+    }
+
+    /// One-time cleanup: earlier builds installed each group as a single
+    /// 12-tab mega-collection ("community.streaming" / "community.studios" /
+    /// "community.trending"). Those ids don't match any current per-category
+    /// preset, so replace them with the individual categories they used to
+    /// bundle — the user re-gets exactly what they had, just split apart.
+    private func removeLegacyBundles() {
+        let legacyIDs = ["community.streaming", "community.studios", "community.trending"]
+        let present = legacyIDs.filter { id in collections.collections.contains { $0.id == id } }
+        guard !present.isEmpty else { return }
+        for id in present { collections.remove(id: id) }
+        // Re-install every category that belonged to a bundle the user had.
+        for legacyID in present {
+            let group: CommunityCollectionPreset.Group? = switch legacyID {
+            case "community.streaming": .streaming
+            case "community.studios": .studios
+            case "community.trending": .trending
+            default: nil
+            }
+            guard let group else { continue }
+            for preset in CommunityCollections.presets(in: group) {
+                Task { await install(preset) }
+            }
+        }
     }
 
     private func install(_ preset: CommunityCollectionPreset) async {
@@ -137,23 +274,20 @@ struct CommunityCollectionsView: View {
         installing.insert(preset.id)
         defer { installing.remove(preset.id) }
 
-        var folders: [NuvioCollectionFolder] = []
-        await withTaskGroup(of: (Int, NuvioCollectionFolder).self) { group in
-            for (index, entry) in preset.folders.enumerated() {
-                group.addTask {
-                    let logo = await Self.brandLogo(for: entry.source)
-                    var folder = NuvioCollectionFolder(id: UUID().uuidString, title: entry.title, sources: [entry.source])
-                    folder.tileShape = "LANDSCAPE"
-                    folder.coverImageUrl = logo
-                    return (index, folder)
-                }
-            }
-            var ordered = [Int: NuvioCollectionFolder]()
-            for await (index, folder) in group { ordered[index] = folder }
-            folders = (0..<preset.folders.count).compactMap { ordered[$0] }
+        var folder = NuvioCollectionFolder(id: UUID().uuidString, title: preset.title, sources: [preset.source])
+        var resolvedLogo = logos[preset.id]
+        if resolvedLogo == nil {
+            resolvedLogo = await Self.brandLogo(for: preset.source)
+        }
+        if let logo = resolvedLogo {
+            folder.tileShape = "LANDSCAPE"
+            folder.coverImageUrl = logo
+        } else {
+            folder.tileShape = "SQUARE"
+            folder.coverEmoji = preset.kind.emoji
         }
 
-        var collection = NuvioCollection(id: preset.id, title: preset.title, folders: folders)
+        var collection = NuvioCollection(id: preset.id, title: preset.title, folders: [folder])
         collection.focusGlowEnabled = true
         collections.add(collection)
     }
@@ -172,6 +306,8 @@ struct CommunityCollectionsView: View {
 private struct CommunityCollectionCard: View {
     @EnvironmentObject private var theme: ThemeManager
     let preset: CommunityCollectionPreset
+    let logoURL: String?
+    let logosLoaded: Bool
     let isInstalled: Bool
     let isInstalling: Bool
     let onInstall: () -> Void
@@ -180,30 +316,19 @@ private struct CommunityCollectionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             HStack(spacing: NuvioSpacing.md) {
-                Image(systemName: preset.icon)
-                    .font(.system(size: 30))
-                    .foregroundStyle(theme.palette.secondary)
-                    .frame(width: 52, height: 52)
-                    .background(Circle().fill(theme.palette.secondary.opacity(0.15)))
+                artTile
                 VStack(alignment: .leading, spacing: 2) {
                     Text(preset.title)
-                        .font(.system(size: 26, weight: .bold))
+                        .font(.system(size: 22, weight: .bold))
                         .foregroundStyle(theme.palette.textPrimary)
-                    Text("\(preset.folders.count) folders")
-                        .font(.system(size: 17))
-                        .foregroundStyle(theme.palette.textTertiary)
+                        .lineLimit(1)
+                    // Markers derived from THIS category's own source — not a
+                    // stale list of sibling tab names — so they always match
+                    // what's actually inside.
+                    FlowChips(labels: [preset.mediaLabel, preset.kind.markerLabel])
                 }
                 Spacer()
             }
-
-            Text(preset.subtitle)
-                .font(.system(size: 19))
-                .foregroundStyle(theme.palette.textSecondary)
-                .lineLimit(3)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            // Folder name chips give a preview of what's inside without a fetch.
-            FlowChips(labels: preset.folders.map(\.title))
 
             Button {
                 isInstalled ? onRemove() : onInstall()
@@ -213,7 +338,8 @@ private struct CommunityCollectionCard: View {
                         ProgressView()
                         Text("Installing…")
                     }
-                    .font(.system(size: 22, weight: .semibold))
+                    .font(.system(size: 20, weight: .semibold))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 } else {
                     SettingsActionRow(
                         title: isInstalled ? "Installed — Remove" : "Install",
@@ -230,26 +356,62 @@ private struct CommunityCollectionCard: View {
                 .fill(theme.palette.backgroundCard.opacity(0.5))
         )
     }
+
+    /// High-quality per-category art: the real TMDB brand logo for a network
+    /// or studio; a tinted emoji badge for the open-ended discover categories
+    /// (Trending/Top Rated/Newest have no single brand to show).
+    @ViewBuilder
+    private var artTile: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
+                .fill(tintColor.opacity(0.18))
+            if let logoURL {
+                RemoteImage(url: logoURL, contentMode: .fit)
+                    .padding(8)
+            } else if let emoji = preset.kind.emoji {
+                Text(emoji).font(.system(size: 30))
+            } else if !logosLoaded {
+                // Still fetching this network/studio's logo.
+                ProgressView()
+            } else {
+                // Fetch finished with no logo (network hiccup, or TMDB has
+                // none for this id) — fall back to a generic icon instead of
+                // spinning forever.
+                Image(systemName: preset.kind == .network ? "tv.fill" : "film.fill")
+                    .font(.system(size: 26))
+                    .foregroundStyle(tintColor)
+            }
+        }
+        .frame(width: 64, height: 64)
+    }
+
+    private var tintColor: Color {
+        switch preset.kind {
+        case .network: return NuvioPrimitives.blue500
+        case .studio: return NuvioPrimitives.violet500
+        case .trending: return NuvioPrimitives.amber500
+        case .topRated: return NuvioPrimitives.rating
+        case .newest: return NuvioPrimitives.green500
+        }
+    }
 }
 
-/// Simple wrapping chip row for a folder-name preview.
+/// Simple wrapping chip row — used here to show each category's own
+/// media-type + kind markers.
 private struct FlowChips: View {
     @EnvironmentObject private var theme: ThemeManager
     let labels: [String]
 
     var body: some View {
-        ScrollView(.horizontal) {
-            HStack(spacing: NuvioSpacing.sm) {
-                ForEach(labels, id: \.self) { label in
-                    Text(label)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(theme.palette.textSecondary)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Capsule().fill(Color.white.opacity(0.08)))
-                }
+        HStack(spacing: NuvioSpacing.sm) {
+            ForEach(labels, id: \.self) { label in
+                Text(label)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(theme.palette.textSecondary)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(Color.white.opacity(0.08)))
             }
         }
-        .scrollClipDisabled()
     }
 }

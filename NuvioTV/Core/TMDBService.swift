@@ -385,40 +385,68 @@ enum TMDBService {
     private static func resolveDiscover(source: CollectionSourceDTO, sourceType: String, isMovie: Bool, language: String) async throws -> [TMDBRawItem] {
         // NETWORK forces TV; COMPANY/DISCOVER honor the source media type.
         let useTV = sourceType == "NETWORK" ? true : !isMovie
-        var query: [String: String] = [
+        var baseQuery: [String: String] = [
             "language": language,
-            "page": "1",
             "sort_by": source.sortBy?.isEmpty == false ? source.sortBy! : "popularity.desc"
         ]
         let f = source.filters
-        if sourceType == "COMPANY", let tid = source.tmdbId { query["with_companies"] = String(tid) }
-        if let v = f?.withGenres { query["with_genres"] = v }
-        if let v = f?.withKeywords { query["with_keywords"] = v }
-        if let v = f?.withOriginalLanguage { query["with_original_language"] = v }
+        if sourceType == "COMPANY", let tid = source.tmdbId { baseQuery["with_companies"] = String(tid) }
+        if let v = f?.withGenres { baseQuery["with_genres"] = v }
+        if let v = f?.withKeywords { baseQuery["with_keywords"] = v }
+        if let v = f?.withOriginalLanguage { baseQuery["with_original_language"] = v }
         // Streaming-service filtering (Netflix, Hulu, Apple TV+, …): both keys
         // are required together by TMDB. Limit to subscription/flatrate offers.
         if let providers = f?.withWatchProviders, !providers.isEmpty {
-            query["with_watch_providers"] = providers
-            query["watch_region"] = (f?.watchRegion?.isEmpty == false) ? f!.watchRegion! : "US"
-            query["with_watch_monetization_types"] = "flatrate"
+            baseQuery["with_watch_providers"] = providers
+            baseQuery["watch_region"] = (f?.watchRegion?.isEmpty == false) ? f!.watchRegion! : "US"
+            baseQuery["with_watch_monetization_types"] = "flatrate"
         }
-        if let v = f?.voteCountGte { query["vote_count.gte"] = String(v) }
-        if let v = f?.voteAverageGte { query["vote_average.gte"] = String(v) }
-        if let v = f?.year { query[useTV ? "first_air_date_year" : "year"] = String(v) }
+        if let v = f?.voteCountGte { baseQuery["vote_count.gte"] = String(v) }
+        if let v = f?.voteAverageGte { baseQuery["vote_average.gte"] = String(v) }
+        if let v = f?.year { baseQuery[useTV ? "first_air_date_year" : "year"] = String(v) }
+        if useTV, sourceType == "NETWORK", let tid = source.tmdbId {
+            baseQuery["with_networks"] = String(tid)
+        }
 
-        struct DiscoverResponse: Decodable { let results: [Result]? }
+        struct DiscoverResponse: Decodable { let results: [Result]?; let total_pages: Int? }
         struct Result: Decodable {
             let id: Int; let title: String?; let name: String?
             let poster_path: String?; let backdrop_path: String?
             let overview: String?; let release_date: String?; let first_air_date: String?
             let vote_average: Double?
         }
-        if useTV, sourceType == "NETWORK", let tid = source.tmdbId {
-            query["with_networks"] = String(tid)
-        }
         let path = useTV ? "/discover/tv" : "/discover/movie"
-        let body: DiscoverResponse = try await get(path, query: query)
-        return (body.results ?? []).compactMap { r in
+        func fetchPage(_ page: Int) async -> DiscoverResponse? {
+            var q = baseQuery
+            q["page"] = String(page)
+            return try? await get(path, query: q)
+        }
+
+        // TMDB paginates discover results at 20/page. A real studio or network
+        // catalog is easily 40-100+ titles (Marvel Studios alone has 40+ MCU
+        // films) — fetching only page 1 was silently truncating every
+        // company/network/discover category to its 20 most popular items,
+        // which is why Marvel/DC/etc. looked incomplete. Pull more pages,
+        // capped so a giant legacy studio (Warner Bros. has thousands of
+        // credited films) doesn't page forever — results are sorted
+        // best-first, so anything past the cap is already the least
+        // popular/relevant end of the catalog.
+        let maxPages = 5
+        guard let first = await fetchPage(1) else { return [] }
+        var allResults = first.results ?? []
+        let totalPages = min(first.total_pages ?? 1, maxPages)
+        if totalPages > 1 {
+            await withTaskGroup(of: (Int, [Result]).self) { group in
+                for page in 2...totalPages {
+                    group.addTask { (page, (await fetchPage(page))?.results ?? []) }
+                }
+                var byPage: [Int: [Result]] = [:]
+                for await (page, results) in group { byPage[page] = results }
+                for page in 2...totalPages { allResults.append(contentsOf: byPage[page] ?? []) }
+            }
+        }
+
+        return allResults.compactMap { r in
             guard let title = r.title ?? r.name, !title.isEmpty else { return nil }
             return TMDBRawItem(
                 tmdbID: r.id, isMovie: !useTV, name: title,

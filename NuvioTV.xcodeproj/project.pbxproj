@@ -32,6 +32,7 @@
 		3168B6CE490B234598A37408 /* TorrentSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 39771A168193BE313C08DB26 /* TorrentSettingsStore.swift */; };
 		3980DE34DE34E597267BC6A3 /* PlayerSettingsStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C26E3B4C279900B78470C667 /* PlayerSettingsStore.swift */; };
 		3DC8FC0723F87B82CBF59ECA /* ExternalPlayers.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17D137BCE0827FF5B9EBCA42 /* ExternalPlayers.swift */; };
+		3DEB06FDEFAA98127BC3C22B /* TraktSyncManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = DAB427D4206F6FF8B2DB72D3 /* TraktSyncManager.swift */; };
 		3E75BF4F2B2008787D63DDDD /* TMDBBrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E565452F2EEBB3B76844EE38 /* TMDBBrowseView.swift */; };
 		3EC157D90F074782DEEB8E73 /* SettingsIntegrationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C34BF835101EA7DC519880C9 /* SettingsIntegrationsView.swift */; };
 		3F2C9867CC3DD146F997D28A /* ProfileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 11754AD2FDC70C869EC871BC /* ProfileStore.swift */; };
@@ -170,6 +171,7 @@
 		D424F88952AF98F3DB682E76 /* AddonDiscoverView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddonDiscoverView.swift; sourceTree = "<group>"; };
 		D5A881246C6166C28BCD7C8B /* SidebarNav.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SidebarNav.swift; sourceTree = "<group>"; };
 		D65C4F9D6EA30C04E99A1C3E /* DownloadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DownloadManager.swift; sourceTree = "<group>"; };
+		DAB427D4206F6FF8B2DB72D3 /* TraktSyncManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TraktSyncManager.swift; sourceTree = "<group>"; };
 		DF61804404FEAD1E3E5E4FD6 /* LibraryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryView.swift; sourceTree = "<group>"; };
 		E07F3565C7E5BB417A83893E /* TrailerPlayer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrailerPlayer.swift; sourceTree = "<group>"; };
 		E082ACA18B306E4D2DFC76F4 /* NuvioTV.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = NuvioTV.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -311,6 +313,7 @@
 				39771A168193BE313C08DB26 /* TorrentSettingsStore.swift */,
 				B849FFDB58E807B07C473367 /* TorrServerService.swift */,
 				A4EA353DABA76B77A9FCA728 /* TraktService.swift */,
+				DAB427D4206F6FF8B2DB72D3 /* TraktSyncManager.swift */,
 				B526B12FF40C35C8286806C2 /* WatchedStore.swift */,
 				502AC6FA40CD9F47BE851581 /* NuvioAccount */,
 				012D641B8259F5E8B8E02BF1 /* Plugins */,
@@ -561,6 +564,7 @@
 				3168B6CE490B234598A37408 /* TorrentSettingsStore.swift in Sources */,
 				7E27EFF436F5ABF148CCB301 /* TrailerPlayer.swift in Sources */,
 				93AB0F8D7406FDE418FD0158 /* TraktService.swift in Sources */,
+				3DEB06FDEFAA98127BC3C22B /* TraktSyncManager.swift in Sources */,
 				23316C23B3E4386774491DB7 /* VLCEngine.swift in Sources */,
 				954267FE8B47C238B5ED55D1 /* WatchedStore.swift in Sources */,
 			);

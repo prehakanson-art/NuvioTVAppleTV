@@ -109,6 +109,7 @@ struct RootView: View {
     /// its resolve Task is still running.
     @State private var pendingAutoPlayPop = false
     @State private var sync: NuvioSyncManager?
+    @State private var traktSync: TraktSyncManager?
     @State private var showProfileGate = false
     @State private var selectedTab = 0
     /// Polls the account every 30s while Home is up so Continue Watching stays
@@ -169,6 +170,13 @@ struct RootView: View {
                     sync?.enrichContinueWatchingEnabled = { [tmdbSettings] in
                         tmdbSettings.settings.enrichContinueWatching
                     }
+                    // Trakt two-way sync (history / watched badges + Continue
+                    // Watching). Separate opt-in destination from the account.
+                    traktSync = TraktSyncManager(
+                        trakt: trakt, watched: watched,
+                        progress: progressStore, addonManager: addonManager
+                    )
+                    traktSync?.syncNow(force: true)
                     // "Who's watching?" gate on cold launch when 2+ profiles.
                     // Skipped in the demo modes so the screen isn't covered.
                     let args = ProcessInfo.processInfo.arguments
@@ -202,7 +210,10 @@ struct RootView: View {
             // made on another device show up without a relaunch (local edits
             // already push immediately on every change).
             .onChange(of: scenePhase) { _, phase in
-                if phase == .active { sync?.refreshContinueWatching() }
+                if phase == .active {
+                    sync?.refreshContinueWatching()
+                    traktSync?.syncNow()
+                }
             }
             // Keep Continue Watching live while browsing Home (tab 0), app
             // active, no player open. refreshContinueWatching pulls a full

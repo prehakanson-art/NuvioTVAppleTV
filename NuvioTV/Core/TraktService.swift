@@ -15,6 +15,19 @@ final class TraktStore: ObservableObject {
     @Published var scrobbleEnabled: Bool {
         didSet { UserDefaults.standard.set(scrobbleEnabled, forKey: Self.scrobbleKey) }
     }
+    /// Two-way watch-history / watched-badge sync with Trakt.
+    @Published var syncWatchHistory: Bool {
+        didSet { UserDefaults.standard.set(syncWatchHistory, forKey: Self.histKey) }
+    }
+    /// Pull Trakt playback progress into Continue Watching.
+    @Published var syncPlayback: Bool {
+        didSet { UserDefaults.standard.set(syncPlayback, forKey: Self.playbackKey) }
+    }
+    /// Last full-sync outcome, shown in Settings → Trakt.
+    @Published private(set) var lastSyncStatus: String?
+    /// Fired when a Trakt sync-related setting changes, so the manager can react.
+    var onTraktSettingChange: (() -> Void)?
+    func setSyncStatus(_ s: String?) { lastSyncStatus = s }
     /// User-supplied client secret (empty until recovered).
     @Published var clientSecret: String {
         didSet { UserDefaults.standard.set(clientSecret, forKey: Self.secretKey) }
@@ -31,11 +44,15 @@ final class TraktStore: ObservableObject {
     private static let userKey = "nuvio.trakt.user.v1"
     private static let scrobbleKey = "nuvio.trakt.scrobble.v1"
     private static let secretKey = "nuvio.trakt.secret.v1"
+    private static let histKey = "nuvio.trakt.synchistory.v1"
+    private static let playbackKey = "nuvio.trakt.syncplayback.v1"
 
     private struct Tokens: Codable { let access: String; let refresh: String }
 
     init() {
         scrobbleEnabled = UserDefaults.standard.object(forKey: Self.scrobbleKey) as? Bool ?? true
+        syncWatchHistory = UserDefaults.standard.object(forKey: Self.histKey) as? Bool ?? true
+        syncPlayback = UserDefaults.standard.object(forKey: Self.playbackKey) as? Bool ?? true
         clientSecret = UserDefaults.standard.string(forKey: Self.secretKey) ?? ""
         username = UserDefaults.standard.string(forKey: Self.userKey)
         if let data = UserDefaults.standard.data(forKey: Self.tokenKey),
@@ -251,5 +268,176 @@ enum TraktService {
         guard let (_, response) = try? await session.data(for: req),
               let http = response as? HTTPURLResponse else { return false }
         return (200..<300).contains(http.statusCode)
+    }
+
+    // MARK: Token refresh
+
+    /// Exchange the refresh token for a fresh access+refresh pair. Trakt access
+    /// tokens last ~3 months; this keeps the link alive without re-login.
+    static func refreshToken(_ refresh: String) async -> (access: String, refresh: String)? {
+        struct TokenResponse: Decodable { let access_token: String; let refresh_token: String }
+        var req = request("/oauth/token", method: "POST")
+        let body: [String: Any] = [
+            "refresh_token": refresh,
+            "client_id": TraktStore.clientID,
+            "client_secret": TraktStore.clientSecret,
+            "redirect_uri": "urn:ietf:wg:oauth:2.0:oob",
+            "grant_type": "refresh_token",
+        ]
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        guard let (data, response) = try? await session.data(for: req),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let t = try? JSONDecoder().decode(TokenResponse.self, from: data) else { return nil }
+        return (t.access_token, t.refresh_token)
+    }
+
+    // MARK: Sync (watch history + playback progress)
+
+    /// One synced item, normalized across movies and episodes.
+    struct SyncItem: Hashable {
+        var imdb: String?
+        var tmdb: Int?
+        var type: String        // "movie" | "series"
+        var title: String
+        var season: Int?
+        var episode: Int?
+        var progress: Double?    // playback only, 0–100
+        var watchedAt: Date?     // history / paused_at
+    }
+
+    private static let iso: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static func parseDate(_ s: String?) -> Date? {
+        guard let s else { return nil }
+        return iso.date(from: s) ?? ISO8601DateFormatter().date(from: s)
+    }
+
+    private struct TraktIDs: Decodable { let imdb: String?; let tmdb: Int? }
+    private struct TraktMedia: Decodable { let title: String?; let ids: TraktIDs? }
+
+    /// Full watched history (movies + shows/episodes), for the two-way merge.
+    static func watchedHistory(accessToken: String) async -> [SyncItem] {
+        var out: [SyncItem] = []
+
+        struct WatchedMovie: Decodable { let last_watched_at: String?; let movie: TraktMedia? }
+        if let (data, code) = await get("/sync/watched/movies", accessToken), code == 200,
+           let rows = try? JSONDecoder().decode([WatchedMovie].self, from: data) {
+            for r in rows where r.movie != nil {
+                out.append(SyncItem(
+                    imdb: r.movie?.ids?.imdb, tmdb: r.movie?.ids?.tmdb, type: "movie",
+                    title: r.movie?.title ?? "", season: nil, episode: nil,
+                    progress: nil, watchedAt: parseDate(r.last_watched_at)))
+            }
+        }
+
+        struct WatchedShow: Decodable {
+            struct S: Decodable { let number: Int?; let episodes: [E]? }
+            struct E: Decodable { let number: Int?; let last_watched_at: String? }
+            let show: TraktMedia?; let seasons: [S]?
+        }
+        if let (data, code) = await get("/sync/watched/shows", accessToken), code == 200,
+           let rows = try? JSONDecoder().decode([WatchedShow].self, from: data) {
+            for r in rows {
+                guard let show = r.show else { continue }
+                for s in r.seasons ?? [] {
+                    for e in s.episodes ?? [] {
+                        guard let sn = s.number, let en = e.number else { continue }
+                        out.append(SyncItem(
+                            imdb: show.ids?.imdb, tmdb: show.ids?.tmdb, type: "series",
+                            title: show.title ?? "", season: sn, episode: en,
+                            progress: nil, watchedAt: parseDate(e.last_watched_at)))
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    /// In-progress playback (Continue Watching) for movies + episodes.
+    static func playbackProgress(accessToken: String) async -> [SyncItem] {
+        struct Row: Decodable {
+            struct Ep: Decodable { let season: Int?; let number: Int? }
+            let progress: Double?; let paused_at: String?; let type: String?
+            let movie: TraktMedia?; let episode: Ep?; let show: TraktMedia?
+        }
+        guard let (data, code) = await get("/sync/playback?limit=100", accessToken), code == 200,
+              let rows = try? JSONDecoder().decode([Row].self, from: data) else { return [] }
+        return rows.compactMap { r in
+            if r.type == "movie", let m = r.movie {
+                return SyncItem(imdb: m.ids?.imdb, tmdb: m.ids?.tmdb, type: "movie",
+                                title: m.title ?? "", season: nil, episode: nil,
+                                progress: r.progress, watchedAt: parseDate(r.paused_at))
+            } else if let show = r.show, let ep = r.episode {
+                return SyncItem(imdb: show.ids?.imdb, tmdb: show.ids?.tmdb, type: "series",
+                                title: show.title ?? "", season: ep.season, episode: ep.number,
+                                progress: r.progress, watchedAt: parseDate(r.paused_at))
+            }
+            return nil
+        }
+    }
+
+    /// Add items to Trakt watch history. Returns true on success.
+    @discardableResult
+    static func addToHistory(_ items: [SyncItem], accessToken: String) async -> Bool {
+        await historyCall("/sync/history", items, accessToken, includeWatchedAt: true)
+    }
+
+    /// Remove items from Trakt watch history.
+    @discardableResult
+    static func removeFromHistory(_ items: [SyncItem], accessToken: String) async -> Bool {
+        await historyCall("/sync/history/remove", items, accessToken, includeWatchedAt: false)
+    }
+
+    private static func historyCall(_ path: String, _ items: [SyncItem], _ token: String, includeWatchedAt: Bool) async -> Bool {
+        var movies: [[String: Any]] = []
+        // Group episodes under their show so one show carries many episodes.
+        var showsByKey: [String: (ids: [String: Any], seasons: [Int: [[String: Any]]])] = [:]
+        for it in items {
+            guard let ids = traktIDs(it) else { continue }
+            if it.type == "movie" {
+                var m: [String: Any] = ["ids": ids]
+                if includeWatchedAt, let d = it.watchedAt { m["watched_at"] = iso.string(from: d) }
+                movies.append(m)
+            } else if let s = it.season, let e = it.episode {
+                let key = it.imdb ?? it.tmdb.map { "tmdb:\($0)" } ?? ""
+                var entry = showsByKey[key] ?? (ids: ids, seasons: [:])
+                var ep: [String: Any] = ["number": e]
+                if includeWatchedAt, let d = it.watchedAt { ep["watched_at"] = iso.string(from: d) }
+                entry.seasons[s, default: []].append(ep)
+                showsByKey[key] = entry
+            }
+        }
+        let shows: [[String: Any]] = showsByKey.values.map { entry in
+            [
+                "ids": entry.ids,
+                "seasons": entry.seasons.map { (num, eps) in ["number": num, "episodes": eps] },
+            ]
+        }
+        var body: [String: Any] = [:]
+        if !movies.isEmpty { body["movies"] = movies }
+        if !shows.isEmpty { body["shows"] = shows }
+        guard !body.isEmpty else { return false }
+        var req = request(path, method: "POST", bearer: token)
+        req.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        guard let (_, response) = try? await session.data(for: req),
+              let http = response as? HTTPURLResponse else { return false }
+        return (200..<300).contains(http.statusCode)
+    }
+
+    /// Build a Trakt `ids` object from a SyncItem (imdb preferred).
+    private static func traktIDs(_ it: SyncItem) -> [String: Any]? {
+        if let imdb = it.imdb, imdb.hasPrefix("tt") { return ["imdb": imdb] }
+        if let tmdb = it.tmdb { return ["tmdb": tmdb] }
+        return nil
+    }
+
+    private static func get(_ path: String, _ token: String) async -> (Data, Int)? {
+        let req = request(path, bearer: token)
+        guard let (data, response) = try? await session.data(for: req),
+              let http = response as? HTTPURLResponse else { return nil }
+        return (data, http.statusCode)
     }
 }

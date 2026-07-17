@@ -32,6 +32,11 @@ final class WatchedStore: ObservableObject {
     /// upsert-only push would resurrect them on the next pull. Mirrors
     /// ProgressStore.onRemove.
     var onRemove: (([WatchedItem]) -> Void)?
+    /// Trakt-specific hooks (separate owner from the account-sync onRemove):
+    /// fired on a genuine local mark / un-mark so the Trakt manager can add or
+    /// remove the item from Trakt watch history.
+    var onTraktMark: ((WatchedItem) -> Void)?
+    var onTraktRemove: (([WatchedItem]) -> Void)?
     private var suppressChange = false
 
     /// Recently un-marked keys → removal time. A full-snapshot pull can still
@@ -111,9 +116,13 @@ final class WatchedStore: ObservableObject {
         // Re-marking something you'd un-marked clears its tombstone so the fresh
         // row syncs normally instead of being held back by the reconcile guard.
         tombstones.removeValue(forKey: item.key)
+        let isNew = items[item.key] == nil
         items[item.key] = item
         save()
-        if !suppressChange { onLocalChange?() }
+        if !suppressChange {
+            if isNew { onTraktMark?(item) }
+            onLocalChange?()
+        }
     }
 
     func remove(contentID: String, season: Int?, episode: Int?) {
@@ -123,6 +132,7 @@ final class WatchedStore: ObservableObject {
         save()
         if !suppressChange {
             onRemove?([removed])
+            onTraktRemove?([removed])
             onLocalChange?()
         }
     }

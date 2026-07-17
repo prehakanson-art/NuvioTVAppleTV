@@ -62,6 +62,34 @@ struct TraktDetail: View {
                 subtitle: "Automatically mark what you watch on Trakt",
                 isOn: $trakt.scrobbleEnabled
             )
+            SettingsToggleCard(
+                title: "Sync watch history",
+                subtitle: "Two-way sync of watched movies & episodes (the ✓ badges) between this app and Trakt",
+                isOn: Binding(
+                    get: { trakt.syncWatchHistory },
+                    set: { trakt.syncWatchHistory = $0; trakt.onTraktSettingChange?() }
+                )
+            )
+            SettingsToggleCard(
+                title: "Sync Continue Watching",
+                subtitle: "Pull your in-progress movies & episodes from Trakt into the Continue Watching row",
+                isOn: Binding(
+                    get: { trakt.syncPlayback },
+                    set: { trakt.syncPlayback = $0; trakt.onTraktSettingChange?() }
+                )
+            )
+
+            Button {
+                trakt.onTraktSettingChange?()
+                trakt.setSyncStatus("Syncing with Trakt…")
+            } label: {
+                SettingsActionRow(
+                    title: "Sync now",
+                    subtitle: trakt.lastSyncStatus ?? "Force a two-way sync with Trakt",
+                    leadingIcon: "arrow.triangle.2.circlepath"
+                )
+            }
+            .buttonStyle(PlainCardButtonStyle())
 
             Button { trakt.signOut() } label: {
                 DestructivePillLabel(title: "Sign Out")

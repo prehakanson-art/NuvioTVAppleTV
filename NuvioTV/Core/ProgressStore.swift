@@ -179,6 +179,34 @@ final class ProgressStore: ObservableObject {
         if changed { save() }
     }
 
+    /// Additively merge externally-sourced progress (Trakt playback) — adds a
+    /// row only when the key is absent, or updates position when the external
+    /// one is clearly further AND the local row is older. Never deletes, so it
+    /// can't fight the Nuvio full-snapshot reconcile.
+    func mergeExternal(_ remote: [WatchProgress]) {
+        suppressChange = true
+        defer { suppressChange = false }
+        var changed = false
+        for entry in remote {
+            if let local = items[entry.id] {
+                // Only advance position if external is further and newer-ish.
+                if entry.positionSeconds > local.positionSeconds + 5,
+                   entry.updatedAt > local.updatedAt {
+                    var merged = local
+                    merged.positionSeconds = entry.positionSeconds
+                    if entry.durationSeconds > 0 { merged.durationSeconds = entry.durationSeconds }
+                    merged.updatedAt = entry.updatedAt
+                    items[entry.id] = merged
+                    changed = true
+                }
+            } else if tombstones[entry.id] == nil {
+                items[entry.id] = entry
+                changed = true
+            }
+        }
+        if changed { save() }
+    }
+
     /// Items that should appear in the Continue Watching row.
     ///
     /// A title shows up as soon as *any* progress is recorded (no minimum

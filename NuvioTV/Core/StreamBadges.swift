@@ -49,14 +49,48 @@ final class StreamBadgeStore: ObservableObject {
     // MARK: Remote badge profiles
     /// Badge configs found on the account, one per platform blob (a user with
     /// packs configured in several Nuvio apps has several "profiles").
-    @Published private(set) var remoteProfiles: [(platform: String, count: Int)] = []
+    struct RemoteBadgeProfile: Identifiable, Equatable {
+        let id: String        // "<platform>#<importIndex>"
+        let label: String
+        let count: Int
+        let platform: String
+        let importIndex: Int
+    }
+    @Published private(set) var remoteProfiles: [RemoteBadgeProfile] = []
+    /// Raw rules JSON per platform, kept so switching profiles applies locally.
+    private var remoteRulesByPlatform: [String: String] = [:]
     private static let preferredPlatformKey = "nuvio.badges.platform.v1"
-    var preferredRemotePlatform: String {
+    var preferredRemoteProfileID: String {
         get { UserDefaults.standard.string(forKey: Self.preferredPlatformKey) ?? "" }
         set { UserDefaults.standard.set(newValue, forKey: Self.preferredPlatformKey) }
     }
-    func setRemoteProfiles(_ profiles: [(platform: String, count: Int)]) {
+    /// Expand every platform blob's imports into selectable profiles.
+    func setRemoteRules(_ rulesByPlatform: [String: String]) {
+        remoteRulesByPlatform = rulesByPlatform
+        var profiles: [RemoteBadgeProfile] = []
+        for (platform, json) in rulesByPlatform.sorted(by: { $0.key < $1.key }) {
+            guard let d = json.data(using: .utf8),
+                  let root = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+                  let imports = root["imports"] as? [[String: Any]] else { continue }
+            for (i, imp) in imports.enumerated() {
+                let n = (imp["filters"] as? [[String: Any]])?.count ?? 0
+                guard n > 0 else { continue }
+                let src = (imp["sourceUrl"] as? String ?? "")
+                let name = (imp["name"] as? String)
+                    ?? src.split(separator: "/").last.map(String.init)?.replacingOccurrences(of: ".json", with: "")
+                    ?? "Pack \(i + 1)"
+                profiles.append(RemoteBadgeProfile(
+                    id: "\(platform)#\(i)", label: "\(name) (\(n))",
+                    count: n, platform: platform, importIndex: i))
+            }
+        }
         remoteProfiles = profiles
+    }
+    /// Apply the chosen profile (or the active/first when none chosen).
+    func applyChosenRemoteProfile() {
+        let chosen = remoteProfiles.first { $0.id == preferredRemoteProfileID } ?? remoteProfiles.first
+        guard let chosen, let rules = remoteRulesByPlatform[chosen.platform] else { return }
+        applyRemoteRules(rules, importIndex: chosen.importIndex)
     }
 
     private struct Compiled {
@@ -149,7 +183,7 @@ final class StreamBadgeStore: ObservableObject {
     /// JSON: `{"imports":[{"sourceUrl","filters":[…],"groups":[…],"isActive"}]}`.
     /// The active import's EMBEDDED filters are used directly (no re-fetch),
     /// so a pack imported on another device lights up here immediately.
-    func applyRemoteRules(_ rulesJSON: String) {
+    func applyRemoteRules(_ rulesJSON: String, importIndex: Int? = nil) {
         guard let data = rulesJSON.data(using: .utf8),
               let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let imports = root["imports"] as? [[String: Any]], !imports.isEmpty
@@ -162,11 +196,14 @@ final class StreamBadgeStore: ObservableObject {
             }
             return
         }
-        let active = imports.first { ($0["isActive"] as? Bool ?? $0["active"] as? Bool) == true } ?? imports[0]
+        let active: [String: Any]
+        if let importIndex, imports.indices.contains(importIndex) { active = imports[importIndex] }
+        else { active = imports.first { ($0["isActive"] as? Bool ?? $0["active"] as? Bool) == true } ?? imports[0] }
         let remoteURL = (active["sourceUrl"] as? String ?? "").trimmingCharacters(in: .whitespaces)
         guard let filters = active["filters"] as? [[String: Any]], !filters.isEmpty else { return }
         // Same source already active → nothing to do.
-        if isConfigured, !remoteURL.isEmpty, remoteURL.caseInsensitiveCompare(sourceURL) == .orderedSame { return }
+        if importIndex == nil, isConfigured, !remoteURL.isEmpty,
+           remoteURL.caseInsensitiveCompare(sourceURL) == .orderedSame { return }
 
         guard let payload = try? JSONSerialization.data(withJSONObject: ["filters": filters]) else { return }
         suppressChange = true

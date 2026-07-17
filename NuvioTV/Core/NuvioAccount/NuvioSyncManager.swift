@@ -1095,20 +1095,18 @@ final class NuvioSyncManager: ObservableObject {
             }
             if count > 0 { found.append((platform, rulesJSON, count)) }
         }
-        streamBadges.setRemoteProfiles(found.map { ($0.platform, $0.count) })
+        streamBadges.setRemoteRules(Dictionary(found.map { ($0.platform, $0.rules) }, uniquingKeysWith: { a, _ in a }))
         guard !found.isEmpty else {
             NSLog("[OrivioBadges] no badge rules in any settings blob (sawAnyBlob=%d)", sawAnyBlob ? 1 : 0)
             return sawAnyBlob
                 ? "Your account has settings, but no badge config — import one in any Orivio app first"
                 : "No synced settings found on this account"
         }
-        let preferred = streamBadges.preferredRemotePlatform
-        let chosen = found.first { $0.platform == preferred } ?? found[0]
-        NSLog("[OrivioBadges] applying badge rules from '%@' (%d profiles found)", chosen.platform, found.count)
-        streamBadges.applyRemoteRules(chosen.rules)
+        NSLog("[OrivioBadges] %d badge profiles found across %d blobs", streamBadges.remoteProfiles.count, found.count)
+        streamBadges.applyChosenRemoteProfile()
         return streamBadges.isConfigured
-            ? "Synced \(streamBadges.filterCount) badge filters (\(chosen.platform) profile)"
-            : "Badge config from \(chosen.platform) had no usable filters"
+            ? "Synced \(streamBadges.filterCount) badge filters (\(streamBadges.remoteProfiles.count) profiles on account)"
+            : "Badge config had no usable filters"
     }
 
 

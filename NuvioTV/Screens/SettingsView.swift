@@ -932,19 +932,17 @@ private struct ContentDiscoveryDetail: View {
 
         // Only when the account carries badge configs from 2+ Nuvio apps —
         // run Sync from Account once to discover them.
-        if streamBadges.remoteProfiles.count > 1 {
+        if !streamBadges.remoteProfiles.isEmpty {
             NuvioDropdown(
                 title: "Badge profile",
                 icon: "person.2",
-                selection: streamBadges.preferredRemotePlatform.isEmpty
-                    ? streamBadges.remoteProfiles[0].platform
-                    : streamBadges.preferredRemotePlatform,
-                options: streamBadges.remoteProfiles.map {
-                    NuvioDropdownOption($0.platform, "\($0.platform.capitalized) (\($0.count) filters)")
-                }
-            ) { platform in
-                streamBadges.preferredRemotePlatform = platform
-                Task { await streamBadges.syncFromAccount() }
+                selection: streamBadges.preferredRemoteProfileID.isEmpty
+                    ? streamBadges.remoteProfiles[0].id
+                    : streamBadges.preferredRemoteProfileID,
+                options: streamBadges.remoteProfiles.map { NuvioDropdownOption($0.id, $0.label) }
+            ) { id in
+                streamBadges.preferredRemoteProfileID = id
+                streamBadges.applyChosenRemoteProfile()
             }
         }
     }

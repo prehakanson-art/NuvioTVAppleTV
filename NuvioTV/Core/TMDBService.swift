@@ -416,34 +416,49 @@ enum TMDBService {
             let vote_average: Double?
         }
         let path = useTV ? "/discover/tv" : "/discover/movie"
+        // Retries a page on a 429 (brief backoff, a few attempts) since we now
+        // routinely issue far more requests than before; any other failure
+        // just skips that page rather than blocking the whole fetch.
         func fetchPage(_ page: Int) async -> DiscoverResponse? {
             var q = baseQuery
             q["page"] = String(page)
-            return try? await get(path, query: q)
+            for attempt in 0..<3 {
+                do {
+                    return try await get(path, query: q) as DiscoverResponse
+                } catch TMDBError.badResponse(429) {
+                    try? await Task.sleep(nanoseconds: UInt64(400_000_000 * (attempt + 1)))
+                } catch {
+                    return nil
+                }
+            }
+            return nil
         }
 
-        // TMDB paginates discover results at 20/page. A real studio or network
-        // catalog is easily 40-100+ titles (Marvel Studios alone has 40+ MCU
-        // films) — fetching only page 1 was silently truncating every
-        // company/network/discover category to its 20 most popular items,
-        // which is why Marvel/DC/etc. looked incomplete. Pull more pages,
-        // capped so a giant legacy studio (Warner Bros. has thousands of
-        // credited films) doesn't page forever — results are sorted
-        // best-first, so anything past the cap is already the least
-        // popular/relevant end of the catalog.
-        let maxPages = 5
+        // TMDB paginates discover results at 20/page and hard-caps the
+        // endpoint itself at page 500 (10,000 results) — beyond that TMDB's
+        // own API refuses the request, so 500 is TMDB's ceiling, not one we're
+        // imposing. Fetch every page up to whichever is smaller so a category
+        // shows its FULL TMDB catalog (this was previously capped much lower,
+        // which is why large studios/networks looked incomplete). Batched in
+        // chunks so a network with hundreds of pages doesn't fire them all
+        // simultaneously — kinder to TMDB's rate limit and to the device.
+        let tmdbPageCeiling = 500
+        let batchSize = 20
         guard let first = await fetchPage(1) else { return [] }
         var allResults = first.results ?? []
-        let totalPages = min(first.total_pages ?? 1, maxPages)
-        if totalPages > 1 {
+        let totalPages = min(first.total_pages ?? 1, tmdbPageCeiling)
+        var page = 2
+        while page <= totalPages {
+            let upper = min(page + batchSize - 1, totalPages)
             await withTaskGroup(of: (Int, [Result]).self) { group in
-                for page in 2...totalPages {
-                    group.addTask { (page, (await fetchPage(page))?.results ?? []) }
+                for p in page...upper {
+                    group.addTask { (p, (await fetchPage(p))?.results ?? []) }
                 }
                 var byPage: [Int: [Result]] = [:]
-                for await (page, results) in group { byPage[page] = results }
-                for page in 2...totalPages { allResults.append(contentsOf: byPage[page] ?? []) }
+                for await (p, results) in group { byPage[p] = results }
+                for p in page...upper { allResults.append(contentsOf: byPage[p] ?? []) }
             }
+            page = upper + 1
         }
 
         return allResults.compactMap { r in

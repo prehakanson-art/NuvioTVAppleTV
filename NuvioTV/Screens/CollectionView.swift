@@ -7,6 +7,10 @@ import SwiftUI
 /// emoji fallback); selecting one opens the collection browser.
 struct CollectionRowSection: View {
     @EnvironmentObject private var theme: ThemeManager
+    /// Dark/Bright choice for community-installed logo covers (Settings →
+    /// Community Collections). Only ever applied to community.* collections
+    /// — a user's own collections keep the app's normal dark surface.
+    @AppStorage(CommunityCollections.brightCoversKey) private var brightCovers = false
 
     let collection: NuvioCollection
     let title: String
@@ -15,6 +19,8 @@ struct CollectionRowSection: View {
     /// (row auto-hide).
     var onCardFocus: (Bool) -> Void = { _ in }
 
+    private var isBright: Bool { brightCovers && collection.id.hasPrefix(CommunityCollections.idPrefix) }
+
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             RowHeader(title: title)
@@ -22,7 +28,8 @@ struct CollectionRowSection: View {
                 LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
                     ForEach(collection.folders) { folder in
                         Button(action: onOpen) {
-                            CollectionFolderCard(folder: folder, glowEnabled: collection.focusGlowEnabled ?? true)
+                            CollectionFolderCard(folder: folder, glowEnabled: collection.focusGlowEnabled ?? true,
+                                                 isBright: isBright)
                                 .onFocusChange { onCardFocus($0) }
                         }
                         .buttonStyle(PlainCardButtonStyle())
@@ -30,7 +37,8 @@ struct CollectionRowSection: View {
                     if collection.folders.isEmpty {
                         Button(action: onOpen) {
                             CollectionFolderCard(folder: nil, fallbackTitle: collection.title,
-                                                 glowEnabled: collection.focusGlowEnabled ?? true)
+                                                 glowEnabled: collection.focusGlowEnabled ?? true,
+                                                 isBright: isBright)
                                 .onFocusChange { onCardFocus($0) }
                         }
                         .buttonStyle(PlainCardButtonStyle())
@@ -86,11 +94,13 @@ struct CollectionTileCard: View {
     @EnvironmentObject private var theme: ThemeManager
     @ObservedObject private var perf = PerformanceSettingsStore.shared
     @Environment(\.isFocused) private var isFocused
+    @AppStorage(CommunityCollections.brightCoversKey) private var brightCovers = false
     let collection: NuvioCollection
 
     private var firstFolder: NuvioCollectionFolder? { collection.folders.first }
     private var cover: String? { firstFolder?.coverImageUrl }
     private var emoji: String? { firstFolder?.coverEmoji }
+    private var isBright: Bool { brightCovers && collection.id.hasPrefix(CommunityCollections.idPrefix) }
 
     /// Tile size follows the (editable) shape of the collection's first folder.
     private var cardSize: CGSize {
@@ -104,7 +114,8 @@ struct CollectionTileCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
             ZStack {
-                RoundedRectangle(cornerRadius: NuvioRadius.md).fill(theme.palette.surface)
+                RoundedRectangle(cornerRadius: NuvioRadius.md)
+                    .fill(isBright ? AnyShapeStyle(NuvioPrimitives.neutral100) : AnyShapeStyle(theme.palette.surface))
                 if let cover, !cover.isEmpty {
                     // .fit keeps a logo intact; a full landscape picture still
                     // reads well centered on the branded surface.
@@ -153,6 +164,9 @@ struct CollectionFolderCard: View {
     let folder: NuvioCollectionFolder?
     var fallbackTitle: String = ""
     var glowEnabled: Bool = true
+    /// Dark (default) or Bright cover background — set by the caller from the
+    /// parent collection's id + the shared community cover-style preference.
+    var isBright: Bool = false
 
     private var title: String { folder?.title ?? fallbackTitle }
     private var isPoster: Bool { folder?.tileShape == "POSTER" }
@@ -168,7 +182,7 @@ struct CollectionFolderCard: View {
         VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
             ZStack {
                 RoundedRectangle(cornerRadius: NuvioRadius.md)
-                    .fill(theme.palette.surface)
+                    .fill(isBright ? AnyShapeStyle(NuvioPrimitives.neutral100) : AnyShapeStyle(theme.palette.surface))
                 if let cover = folder?.coverImageUrl, !cover.isEmpty {
                     RemoteImage(url: cover, contentMode: .fill)
                         .clipShape(RoundedRectangle(cornerRadius: NuvioRadius.md))
@@ -457,7 +471,7 @@ struct CollectionView: View {
 
 /// Folder tab pill with the app's standard selected/focused treatment
 /// (secondary fill when selected, focus ring + slight scale when focused).
-private struct FolderTabPill: View {
+struct FolderTabPill: View {
     @EnvironmentObject private var theme: ThemeManager
     @Environment(\.isFocused) private var isFocused
     let label: String

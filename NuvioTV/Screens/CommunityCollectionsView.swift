@@ -69,6 +69,15 @@ enum CommunityCollections {
     /// (and not duplicated) even after a rename.
     static let idPrefix = "community."
 
+    /// Cover style for community categories: "Dark" sits each logo on a
+    /// tinted-dark tile (matches the app's near-black surfaces); "Bright"
+    /// sits it on a near-white tile instead, which is how most streaming/
+    /// studio logos are actually designed to be seen and reads much closer
+    /// to their real brand color. Shared UserDefaults key so every card that
+    /// renders a community folder — the browse picker AND the installed
+    /// Home rows — picks up the same choice live.
+    static let brightCoversKey = "nuvio.communitybrightcovers.v1"
+
     private static func network(_ slug: String, _ title: String, _ tmdbId: Int) -> CommunityCollectionPreset {
         CommunityCollectionPreset(
             id: idPrefix + "streaming." + slug, group: .streaming, kind: .network, title: title,
@@ -139,6 +148,11 @@ struct CommunityCollectionsView: View {
     let onDone: () -> Void
 
     @State private var installing: Set<String> = []
+    /// Cover style: dark-tinted (current default) or bright/near-white, which
+    /// reads much closer to the real brand logos. Shared with every rendered
+    /// community folder, so flipping it re-styles both this picker and every
+    /// already-installed community row on Home immediately.
+    @AppStorage(CommunityCollections.brightCoversKey) private var brightCovers = false
     /// Live-fetched official logos, keyed by preset id — fetched once per
     /// category so browsing shows real brand art, not a shared generic icon.
     @State private var logos: [String: String] = [:]
@@ -178,6 +192,8 @@ struct CommunityCollectionsView: View {
                             .foregroundStyle(NuvioPrimitives.error)
                     }
 
+                    coverStylePicker
+
                     ForEach(CommunityCollectionPreset.Group.allCases, id: \.self) { group in
                         section(for: group)
                     }
@@ -190,6 +206,28 @@ struct CommunityCollectionsView: View {
             await loadLogos()
         }
         .onExitCommand { onDone() }
+    }
+
+    /// Dark / Bright choice for how every community category's logo sits on
+    /// its tile — applies live to the cards below and to already-installed
+    /// rows on Home.
+    private var coverStylePicker: some View {
+        HStack(spacing: NuvioSpacing.md) {
+            Text("Cover style")
+                .font(.system(size: 19, weight: .semibold))
+                .foregroundStyle(theme.palette.textSecondary)
+            HStack(spacing: NuvioSpacing.sm) {
+                coverStyleOption(title: "Dark", isBright: false)
+                coverStyleOption(title: "Bright", isBright: true)
+            }
+        }
+    }
+
+    private func coverStyleOption(title: String, isBright: Bool) -> some View {
+        Button { brightCovers = isBright } label: {
+            FolderTabPill(label: title, selected: brightCovers == isBright)
+        }
+        .buttonStyle(PlainCardButtonStyle())
     }
 
     private func section(for group: CommunityCollectionPreset.Group) -> some View {
@@ -214,6 +252,7 @@ struct CommunityCollectionsView: View {
                         preset: preset,
                         logoURL: logos[preset.id],
                         logosLoaded: logosLoaded,
+                        isBright: brightCovers,
                         isInstalled: installedIDs.contains(preset.id),
                         isInstalling: installing.contains(preset.id),
                         onInstall: { Task { await install(preset) } },
@@ -308,6 +347,7 @@ private struct CommunityCollectionCard: View {
     let preset: CommunityCollectionPreset
     let logoURL: String?
     let logosLoaded: Bool
+    let isBright: Bool
     let isInstalled: Bool
     let isInstalling: Bool
     let onInstall: () -> Void
@@ -364,7 +404,7 @@ private struct CommunityCollectionCard: View {
     private var artTile: some View {
         ZStack {
             RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
-                .fill(tintColor.opacity(0.18))
+                .fill(isBright ? AnyShapeStyle(NuvioPrimitives.neutral100) : AnyShapeStyle(tintColor.opacity(0.18)))
             if let logoURL {
                 RemoteImage(url: logoURL, contentMode: .fit)
                     .padding(8)

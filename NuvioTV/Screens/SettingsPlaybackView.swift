@@ -413,6 +413,15 @@ struct PlaybackSettingsDetail: View {
                         selection: store.settings.subtitleOutlineColorHex,
                         options: PlayerSettings.subtitleColorOptions.map { NuvioDropdownOption($0.0, $0.1) }
                     ) { store.settings.subtitleOutlineColorHex = $0 }
+
+                    NuvioDropdown(
+                        title: "Outline thickness",
+                        icon: "lineweight",
+                        selection: String(store.settings.subtitleOutlineWidth),
+                        options: PlayerSettings.subtitleOutlineWidthValues.map {
+                            NuvioDropdownOption(String($0), $0 == 1 ? "Thin (1 pt)" : "\($0) pt")
+                        }
+                    ) { store.settings.subtitleOutlineWidth = Int($0) ?? 2 }
                 }
 
                 PlaybackToggleRow(

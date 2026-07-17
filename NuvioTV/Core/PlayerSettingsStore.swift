@@ -218,6 +218,8 @@ struct PlayerSettings: Codable, Equatable {
     /// Draw an outline around the text for readability on any background.
     var subtitleOutlineEnabled: Bool = true
     var subtitleOutlineColorHex: String = "000000"
+    /// Outline stroke thickness in points (the 8-direction offset radius).
+    var subtitleOutlineWidth: Int = 2
     /// Background plate opacity 0–100 (used when subtitleBackground is on).
     var subtitleBackgroundOpacity: Int = 45
     /// Raise (+) or lower (−) the caption from its default bottom margin, points.
@@ -372,6 +374,8 @@ struct PlayerSettings: Codable, Equatable {
     /// Selectable subtitle vertical offsets (points; + raises).
     static let subtitleOffsetValues: [Int] = [-40, -20, 0, 20, 40, 80, 120, 160]
     static let subtitleBackgroundOpacityValues: [Int] = [0, 15, 30, 45, 60, 80, 100]
+    /// Selectable subtitle outline thicknesses (points).
+    static let subtitleOutlineWidthValues: [Int] = [1, 2, 3, 4, 6]
     /// Selectable reuse-last-link cache windows (hours).
     static let reuseLastLinkHoursValues: [Int] = [1, 3, 6, 12, 24, 48, 72]
     /// Selectable default subtitle timing offsets (seconds).
@@ -434,6 +438,7 @@ struct PlayerSettings: Codable, Equatable {
         subtitleTextColorHex = (try? c.decode(String.self, forKey: .subtitleTextColorHex)) ?? d.subtitleTextColorHex
         subtitleOutlineEnabled = (try? c.decode(Bool.self, forKey: .subtitleOutlineEnabled)) ?? d.subtitleOutlineEnabled
         subtitleOutlineColorHex = (try? c.decode(String.self, forKey: .subtitleOutlineColorHex)) ?? d.subtitleOutlineColorHex
+        subtitleOutlineWidth = (try? c.decode(Int.self, forKey: .subtitleOutlineWidth)) ?? d.subtitleOutlineWidth
         subtitleBackgroundOpacity = (try? c.decode(Int.self, forKey: .subtitleBackgroundOpacity)) ?? d.subtitleBackgroundOpacity
         subtitleVerticalOffset = (try? c.decode(Int.self, forKey: .subtitleVerticalOffset)) ?? d.subtitleVerticalOffset
         preferredAudioLanguage = (try? c.decode(String.self, forKey: .preferredAudioLanguage)) ?? d.preferredAudioLanguage

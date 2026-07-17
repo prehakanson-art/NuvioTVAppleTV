@@ -1070,6 +1070,9 @@ final class NuvioSyncManager: ObservableObject {
     private func pullBadgeSettings() async -> String {
         guard let streamBadges else { return "Badge store unavailable" }
         guard account.accessToken != nil else { return "Sign in to your Orivio account first" }
+        // Collect EVERY platform blob that carries a badge config, so the user
+        // can pick between badge profiles instead of silently taking the first.
+        var found: [(platform: String, rules: String, count: Int)] = []
         var sawAnyBlob = false
         for platform in Self.settingsBlobPlatforms {
             guard let data = try? await authedPost(
@@ -1082,17 +1085,32 @@ final class NuvioSyncManager: ObservableObject {
                   let badgeFeature = features["stream_badge_settings"] as? [String: Any],
                   let rulesJSON = Self.preferenceString(badgeFeature["stream_badge_rules"])
             else { continue }
-            NSLog("[OrivioBadges] found badge rules in '%@' settings blob", platform)
-            streamBadges.applyRemoteRules(rulesJSON)
-            if streamBadges.isConfigured {
-                return "Synced \(streamBadges.filterCount) badge filters (\(platform) settings)"
+            // Count filters in the active import for the picker label.
+            var count = 0
+            if let d = rulesJSON.data(using: .utf8),
+               let root = try? JSONSerialization.jsonObject(with: d) as? [String: Any],
+               let imports = root["imports"] as? [[String: Any]] {
+                let active = imports.first { ($0["isActive"] as? Bool) == true } ?? imports.first
+                count = (active?["filters"] as? [[String: Any]])?.count ?? 0
             }
+            if count > 0 { found.append((platform, rulesJSON, count)) }
         }
-        NSLog("[OrivioBadges] no badge rules in any settings blob (sawAnyBlob=%d)", sawAnyBlob ? 1 : 0)
-        return sawAnyBlob
-            ? "Your account has settings, but no badge config — import one in any Orivio app first"
-            : "No synced settings found on this account"
+        streamBadges.setRemoteProfiles(found.map { ($0.platform, $0.count) })
+        guard !found.isEmpty else {
+            NSLog("[OrivioBadges] no badge rules in any settings blob (sawAnyBlob=%d)", sawAnyBlob ? 1 : 0)
+            return sawAnyBlob
+                ? "Your account has settings, but no badge config — import one in any Orivio app first"
+                : "No synced settings found on this account"
+        }
+        let preferred = streamBadges.preferredRemotePlatform
+        let chosen = found.first { $0.platform == preferred } ?? found[0]
+        NSLog("[OrivioBadges] applying badge rules from '%@' (%d profiles found)", chosen.platform, found.count)
+        streamBadges.applyRemoteRules(chosen.rules)
+        return streamBadges.isConfigured
+            ? "Synced \(streamBadges.filterCount) badge filters (\(chosen.platform) profile)"
+            : "Badge config from \(chosen.platform) had no usable filters"
     }
+
 
     /// Rows may arrive as an array or a bare object; settings_json may be an
     /// object or a double-encoded JSON string. Accept all of it.

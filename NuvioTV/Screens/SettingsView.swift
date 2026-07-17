@@ -906,6 +906,32 @@ private struct ContentDiscoveryDetail: View {
                 Task { await streamBadges.syncFromAccount() }
             }
             .font(.system(size: 22, weight: .semibold))
+
+            // Badge size (device-local).
+            NuvioDropdown(
+                title: "Badge size",
+                icon: "textformat.size",
+                selection: streamBadges.sizeRawUI,
+                options: StreamBadgeStore.sizeOptions.map { NuvioDropdownOption($0.0, $0.1) }
+            ) { streamBadges.setSize($0) }
+
+            // Badge profile picker — shown when the account carries badge
+            // configs from more than one Nuvio app (tv / mobile / fusion…).
+            if streamBadges.remoteProfiles.count > 1 {
+                NuvioDropdown(
+                    title: "Badge profile",
+                    icon: "person.2",
+                    selection: streamBadges.preferredRemotePlatform.isEmpty
+                        ? streamBadges.remoteProfiles[0].platform
+                        : streamBadges.preferredRemotePlatform,
+                    options: streamBadges.remoteProfiles.map {
+                        NuvioDropdownOption($0.platform, "\($0.platform.capitalized) (\($0.count) filters)")
+                    }
+                ) { platform in
+                    streamBadges.preferredRemotePlatform = platform
+                    Task { await streamBadges.syncFromAccount() }
+                }
+            }
             if let status = streamBadges.lastStatus {
                 Text(status)
                     .font(.system(size: 19))

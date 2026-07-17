@@ -103,7 +103,7 @@ struct SubtitleOverlayView: View {
             .lineSpacing(4)
         if settings.subtitleOutlineEnabled {
             ZStack {
-                let w: CGFloat = 2
+                let w = CGFloat(max(1, settings.subtitleOutlineWidth))
                 ForEach(0 ..< 8, id: \.self) { i in
                     let a = Double(i) / 8 * 2 * .pi
                     base.foregroundStyle(outlineColor)

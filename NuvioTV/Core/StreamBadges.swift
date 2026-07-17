@@ -29,6 +29,36 @@ final class StreamBadgeStore: ObservableObject {
 
     var isConfigured: Bool { filterCount > 0 }
 
+    // MARK: Badge size (device-local)
+    /// Chip size multiplier: 0 = small, 1 = medium (default), 2 = large.
+    static let sizeOptions: [(String, String, CGFloat)] = [
+        ("small", "Small", 0.8), ("medium", "Medium", 1.0), ("large", "Large", 1.35)
+    ]
+    private static let sizeKey = "nuvio.badges.size.v1"
+    static var sizeRaw: String {
+        get { UserDefaults.standard.string(forKey: sizeKey) ?? "medium" }
+        set { UserDefaults.standard.set(newValue, forKey: sizeKey) }
+    }
+    static var sizeScale: CGFloat {
+        sizeOptions.first { $0.0 == sizeRaw }?.2 ?? 1.0
+    }
+    /// Published mirror so Settings rows re-render on change.
+    @Published var sizeRawUI: String = StreamBadgeStore.sizeRaw
+    func setSize(_ raw: String) { Self.sizeRaw = raw; sizeRawUI = raw }
+
+    // MARK: Remote badge profiles
+    /// Badge configs found on the account, one per platform blob (a user with
+    /// packs configured in several Nuvio apps has several "profiles").
+    @Published private(set) var remoteProfiles: [(platform: String, count: Int)] = []
+    private static let preferredPlatformKey = "nuvio.badges.platform.v1"
+    var preferredRemotePlatform: String {
+        get { UserDefaults.standard.string(forKey: Self.preferredPlatformKey) ?? "" }
+        set { UserDefaults.standard.set(newValue, forKey: Self.preferredPlatformKey) }
+    }
+    func setRemoteProfiles(_ profiles: [(platform: String, count: Int)]) {
+        remoteProfiles = profiles
+    }
+
     private struct Compiled {
         let regex: NSRegularExpression
         /// Cheap lowercase literal pre-screen (same trick as the Android app):
@@ -281,11 +311,13 @@ final class StreamBadgeStore: ObservableObject {
 /// because they only intend the image to show).
 struct StreamBadgeChips: View {
     let badges: [StreamBadge]
+    /// User badge size multiplier (Settings → badges). Read once per render.
+    private var scale: CGFloat { StreamBadgeStore.sizeScale }
 
     var body: some View {
-        HStack(spacing: 6) {
+        HStack(spacing: 6 * scale) {
             ForEach(badges.prefix(6)) { badge in
-                BadgeChip(badge: badge)
+                BadgeChip(badge: badge, scale: scale)
             }
         }
     }
@@ -293,6 +325,7 @@ struct StreamBadgeChips: View {
 
 private struct BadgeChip: View {
     let badge: StreamBadge
+    var scale: CGFloat = 1
 
     var body: some View {
         if badge.isImage {
@@ -303,7 +336,7 @@ private struct BadgeChip: View {
                     textChip   // visible placeholder / fallback
                 }
             }
-            .frame(height: 20)
+            .frame(height: 20 * scale)
             .fixedSize()
         } else {
             textChip
@@ -316,20 +349,25 @@ private struct BadgeChip: View {
         let fill = Color(badgeHex: badge.tagColor)
         let text = Color(badgeHex: badge.textColor)
         let border = Color(badgeHex: badge.borderColor)
+        let filled = badge.tagStyle.lowercased().contains("filled")
+        // Non-filled styles still carry the pack's color: tint the text (and
+        // border) with tagColor when no explicit text/border color is set —
+        // packs looked black & white because the color was parsed but unused.
+        let effectiveText = text ?? (filled ? nil : fill) ?? .white.opacity(0.9)
+        let effectiveBorder = border ?? (filled ? nil : fill)
         return Text(badge.name)
-            .font(.system(size: 14, weight: .semibold))
+            .font(.system(size: 14 * scale, weight: .semibold))
             .lineLimit(1)
-            .foregroundStyle(text ?? .white.opacity(0.9))
-            .padding(.horizontal, 8)
-            .frame(height: 20)
+            .foregroundStyle(effectiveText)
+            .padding(.horizontal, 8 * scale)
+            .frame(height: 20 * scale)
             .background(
                 Capsule().fill(
-                    badge.tagStyle.lowercased().contains("filled")
-                        ? (fill ?? .white.opacity(0.14))
-                        : .white.opacity(fill == nil && border == nil ? 0.14 : 0)
+                    filled ? (fill ?? .white.opacity(0.14))
+                           : .white.opacity(fill == nil && border == nil ? 0.14 : 0)
                 )
             )
-            .overlay(Capsule().strokeBorder(border ?? .clear, lineWidth: 1))
+            .overlay(Capsule().strokeBorder(effectiveBorder ?? .clear, lineWidth: 1))
     }
 }
 
@@ -340,7 +378,33 @@ extension Color {
     init?(badgeHex raw: String) {
         var hex = raw.trimmingCharacters(in: .whitespaces)
         guard !hex.isEmpty else { return nil }
+        let lower = hex.lowercased()
+        // rgb(r,g,b) / rgba(r,g,b,a) — Badger packs exported from web tools.
+        if lower.hasPrefix("rgb") {
+            let nums = lower.drop(while: { $0 != "(" }).dropFirst().prefix(while: { $0 != ")" })
+                .split(separator: ",").compactMap { Double($0.trimmingCharacters(in: .whitespaces)) }
+            guard nums.count >= 3 else { return nil }
+            let a = nums.count >= 4 ? nums[3] : 1
+            guard a > 0.01 else { return nil }
+            self.init(red: nums[0] / 255, green: nums[1] / 255, blue: nums[2] / 255, opacity: a)
+            return
+        }
+        // Common CSS color names.
+        let named: [String: UInt64] = [
+            "white": 0xFFFFFF, "black": 0x000000, "red": 0xFF0000, "green": 0x008000,
+            "blue": 0x0000FF, "yellow": 0xFFFF00, "orange": 0xFFA500, "purple": 0x800080,
+            "pink": 0xFFC0CB, "cyan": 0x00FFFF, "magenta": 0xFF00FF, "gold": 0xFFD700,
+            "silver": 0xC0C0C0, "gray": 0x808080, "grey": 0x808080, "teal": 0x008080,
+            "lime": 0x00FF00, "crimson": 0xDC143C, "violet": 0xEE82EE
+        ]
+        if let v = named[lower] {
+            self.init(red: Double((v >> 16) & 0xFF) / 255, green: Double((v >> 8) & 0xFF) / 255,
+                      blue: Double(v & 0xFF) / 255)
+            return
+        }
         if hex.hasPrefix("#") { hex.removeFirst() }
+        // 3-digit shorthand (#FA0 → #FFAA00).
+        if hex.count == 3 { hex = hex.map { "\($0)\($0)" }.joined() }
         guard let value = UInt64(hex, radix: 16) else { return nil }
         switch hex.count {
         case 6:

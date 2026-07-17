@@ -29,7 +29,7 @@ enum DiagnosticsService {
     /// Root of the app's on-disk caches (DiskCache lives under NuvioCache/).
     private static var cacheRoot: URL {
         FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("NuvioCache", isDirectory: true)
+            .appendingPathComponent("OrivioCache", isDirectory: true)
     }
 
     /// Total bytes of the NuvioCache directory (source lists, meta, images…).

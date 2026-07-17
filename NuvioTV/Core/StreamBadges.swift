@@ -144,7 +144,7 @@ final class StreamBadgeStore: ObservableObject {
         UserDefaults.standard.set(payload, forKey: Self.payloadKey)
         sourceURL = remoteURL
         compileFilters(from: payload)
-        lastStatus = "Synced \(filterCount) badge filters from your Nuvio account"
+        lastStatus = "Synced \(filterCount) badge filters from your Orivio account"
         suppressChange = false
     }
 

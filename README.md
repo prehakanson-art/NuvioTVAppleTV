@@ -1,8 +1,28 @@
-# NuvioTV for Apple TV
+# Orivio TV
 
-A native tvOS port of [NuvioTV](https://github.com/NuvioMedia/NuvioTV) — the Android TV
-Stremio-addon media player — rebuilt in SwiftUI with the same design language and an
-Apple-TV-premium feel. Licensed GPLv3, matching the upstream project.
+A native tvOS media player, rebuilt in SwiftUI with an Apple-TV-premium feel. Orivio TV
+is a from-scratch Apple TV port of [Nuvio](https://github.com/NuvioMedia/NuvioTV) — the
+Android TV Stremio-addon player — and syncs with the same account. Licensed GPLv3,
+matching the upstream project.
+
+## ❤️ Support Orivio TV
+
+Orivio TV is free and open-source. I'm raising funds to put it on **TestFlight** so it can
+be installed without sideloading — if you'd like to help make that happen, donations are
+hugely appreciated:
+
+**→ [ko-fi.com/oriviotv](https://ko-fi.com/oriviotv)**
+
+## Install
+
+Grab the latest `.ipa` from [Releases](../../releases):
+
+- **`OrivioTV-V2(Sideloady).ipa`** — for **Sideloadly** and similar sideloaders.
+- **`OrivioTV-0.7.15-tvos.ipa`** — for **Xcode** (Devices & Simulators) or **Apple
+  Configurator**.
+
+Both are the same unsigned arm64 tvOS build (Apple TV HD / 4K, tvOS 17+); the sideload tool
+re-signs with your Apple ID on install.
 
 The upstream app is Kotlin + Jetpack Compose + ExoPlayer/mpv, so nothing could be reused
 directly; this is a from-scratch reimplementation of the same product:

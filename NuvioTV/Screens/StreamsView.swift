@@ -193,6 +193,35 @@ final class StreamsViewModel: ObservableObject {
         }
     }
 
+    /// Best fresh link to auto-resume with, given the format last watched. Ranks
+    /// by similarity — same resolution, Dolby Vision, HDR, Atmos — and prefers
+    /// the same add-on and cached/instant links, so a resume re-connects with a
+    /// comparable stream instead of a dead URL. Falls back to the best overall
+    /// link when nothing is remembered or nothing matches.
+    func bestResumeMatch(signature: StreamSignature?) -> StreamEntry? {
+        // Never auto-resume into an external hand-off (a "cast to DMM" style
+        // entry opens another app) — resume must play a real stream here.
+        let candidates = allEntries.filter { !$0.stream.isExternal }
+        guard !candidates.isEmpty else { return nil }
+        guard let sig = signature else { return candidates.first }
+        func matchScore(_ e: StreamEntry) -> Int {
+            var s = 0
+            if e.stream.isCached { s += 6 }   // instant beats waiting on a re-download
+            if let want = sig.resolution, let have = e.resolutionLabel, want == have { s += 8 }
+            if sig.dolbyVision { s += e.stream.isDolbyVision ? 6 : -6 }
+            if sig.hdr, e.stream.isHDR { s += 3 }
+            if sig.atmos { s += e.stream.hasAtmos ? 4 : -3 }
+            if let a = sig.addonName, e.addonName.caseInsensitiveCompare(a) == .orderedSame { s += 4 }
+            return s
+        }
+        // Entries are already sorted best-first; pick the highest signature
+        // match, breaking ties toward that existing (better) base rank.
+        return candidates.enumerated().max { lhs, rhs in
+            let l = matchScore(lhs.element), r = matchScore(rhs.element)
+            return l != r ? l < r : lhs.offset > rhs.offset
+        }?.element
+    }
+
     /// Reset and fetch again (the empty state's Try Again) — bypasses the cache
     /// so the user gets a genuinely fresh sweep.
     func reload(addonManager: AddonManager, debridEnabled: Bool, perTier: Int, filtersEnabled: Bool = true) async {
@@ -240,7 +269,7 @@ final class StreamsViewModel: ObservableObject {
             }
         }
         skippedAddons = skipped
-        NSLog("[NuvioSources] id=%@ querying=%@ skipped=%@",
+        NSLog("[OrivioSources] id=%@ querying=%@ skipped=%@",
               fetchID, queriedAddonNames.joined(separator: "|"),
               skipped.map { "\($0.name): \($0.reason)" }.joined(separator: "|"))
         totalAddons = addons.count
@@ -274,7 +303,7 @@ final class StreamsViewModel: ObservableObject {
                         // Request failed (timeout / HTTP error / unreachable) —
                         // record the SPECIFIC reason so the UI can say what's
                         // wrong instead of a generic "didn't respond".
-                        NSLog("[NuvioSources] %@ stream request failed: %@",
+                        NSLog("[OrivioSources] %@ stream request failed: %@",
                               addon.manifest.name, String(describing: error))
                         return ([], (addon.manifest.name, Self.shortReason(for: error)))
                     }
@@ -358,6 +387,11 @@ struct StreamsView: View {
     /// Manual mode (hold-Play / "Play Manually"): skip every auto-action so the
     /// user always lands on the source list, even with Auto Link Selector on.
     let forceManual: Bool
+    /// Resuming from Continue Watching: re-scrape fresh sources and auto-play the
+    /// one that best matches `resumeSignature` (the format last watched), instead
+    /// of replaying a possibly-expired remembered link. Bypasses reuse-last-link.
+    let resumeAutoPlay: Bool
+    let resumeSignature: StreamSignature?
     /// Called when the Auto Link Selector auto-plays, so the caller can pop this
     /// page off the stack — backing out of the player returns to the title, not
     /// the source list.
@@ -382,10 +416,13 @@ struct StreamsView: View {
     let onSelect: (StreamEntry, [StreamEntry]) -> Void
 
     init(meta: MetaItem, video: MetaVideo?, forceManual: Bool = false,
+         resumeAutoPlay: Bool = false, resumeSignature: StreamSignature? = nil,
          onAutoDismiss: @escaping () -> Void = {},
          onSelect: @escaping (StreamEntry, [StreamEntry]) -> Void) {
         _viewModel = StateObject(wrappedValue: StreamsViewModel(meta: meta, video: video))
         self.forceManual = forceManual
+        self.resumeAutoPlay = resumeAutoPlay
+        self.resumeSignature = resumeSignature
         self.onAutoDismiss = onAutoDismiss
         self.onSelect = onSelect
     }
@@ -430,7 +467,7 @@ struct StreamsView: View {
             viewModel.streamFilters = s.streamFilterOptions
             // Auto Link Selector on (and not forced manual): show the loading
             // screen instead of the source list from the very first frame.
-            autoLinkResolving = profiles.activeAutoLink.enabled && !forceManual
+            autoLinkResolving = (profiles.activeAutoLink.enabled || resumeAutoPlay) && !forceManual
 
             // Reuse last link: if we still have a fresh remembered source, play
             // it immediately, but keep loading so backing out shows the full
@@ -456,7 +493,9 @@ struct StreamsView: View {
                     viewModel.addPluginStreams(entries)
                 }
             }
-            if !didAutoAct, !forceManual, s.reuseLastLinkEnabled,
+            // Reuse-last-link replays the remembered URL — skip it entirely when
+            // resuming, since the whole point of a resume is to re-connect fresh.
+            if !didAutoAct, !forceManual, !resumeAutoPlay, s.reuseLastLinkEnabled,
                let last = await viewModel.freshLastLink(hours: s.reuseLastLinkCacheHours) {
                 didAutoAct = true
                 await loadTask.value
@@ -467,6 +506,20 @@ struct StreamsView: View {
                 return
             }
             await loadTask.value
+
+            // Resume from Continue Watching: re-scrape done, now auto-play the
+            // link that best matches the format last watched (fresh connection,
+            // so expired debrid/Comet links don't fail). Takes precedence over
+            // the profile Auto Link Selector / global auto-play below.
+            if !didAutoAct, !forceManual, resumeAutoPlay {
+                if let pick = viewModel.bestResumeMatch(signature: resumeSignature) {
+                    didAutoAct = true
+                    handleSelection(pick, viewModel.allEntries)
+                    onAutoDismiss()
+                } else {
+                    autoLinkResolving = false   // nothing found → reveal the list
+                }
+            }
 
             // Auto Link Selector (per profile): pick the best link matching the
             // profile's preferred addon / quality / size and play it directly.
@@ -502,9 +555,17 @@ struct StreamsView: View {
             if autoLinkResolving && !didAutoAct { autoLinkResolving = false }
         }
         .alert("Couldn't resolve stream", isPresented: Binding(
-            get: { resolveError != nil }, set: { if !$0 { resolveError = nil } }
+            get: { resolveError != nil },
+            set: { if !$0 { resolveError = nil; autoLinkResolving = false } }
         )) {
-            Button("OK", role: .cancel) { resolveError = nil }
+            Button("OK", role: .cancel) {
+                resolveError = nil
+                // If an auto-pick (resume / Auto Link) failed to resolve, drop
+                // the loading screen so the manual list is reachable — without
+                // this, dismissing the alert stranded the user on
+                // "Finding the best source…" forever.
+                autoLinkResolving = false
+            }
         } message: {
             Text(resolveError ?? "")
         }

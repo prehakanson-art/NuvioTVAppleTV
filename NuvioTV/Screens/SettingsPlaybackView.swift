@@ -178,7 +178,7 @@ struct PlaybackSettingsDetail: View {
                 if store.settings.reuseLastLinkEnabled {
                     NuvioDropdown(
                         title: "Reuse window",
-                        subtitle: "How long a remembered link stays valid before Nuvio searches again",
+                        subtitle: "How long a remembered link stays valid before Orivio searches again",
                         icon: "clock.fill",
                         selection: String(store.settings.reuseLastLinkCacheHours),
                         options: PlayerSettings.reuseLastLinkHoursValues.map {

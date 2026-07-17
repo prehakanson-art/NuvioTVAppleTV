@@ -17,6 +17,10 @@ struct WatchProgress: Codable, Identifiable, Hashable {
     var positionSeconds: Double
     var durationSeconds: Double
     var streamURL: String?
+    /// Format fingerprint of the link that was playing, so a resume can pick a
+    /// fresh link with the same look (DV/HDR/Atmos/resolution). Local-only (the
+    /// backend has no field for it); optional so old saves + synced rows decode.
+    var streamSignature: StreamSignature? = nil
     var updatedAt: Date
 
     var fraction: Double {
@@ -164,6 +168,8 @@ final class ProgressStore: ObservableObject {
                     durationSeconds: entry.durationSeconds,
                     streamURL: entry.streamURL
                         ?? (local.season == entry.season && local.episode == entry.episode ? local.streamURL : nil),
+                    streamSignature: local.season == entry.season && local.episode == entry.episode
+                        ? local.streamSignature : nil,
                     updatedAt: entry.updatedAt
                 )
             }
@@ -220,7 +226,8 @@ final class ProgressStore: ObservableObject {
         video: MetaVideo?,
         streamURL: String?,
         position: Double,
-        duration: Double
+        duration: Double,
+        signature: StreamSignature? = nil
     ) {
         guard duration > 60, position > 0 else { return }
         let key = Self.key(metaID: meta.id, video: video)
@@ -246,6 +253,7 @@ final class ProgressStore: ObservableObject {
                 positionSeconds: position,
                 durationSeconds: duration,
                 streamURL: streamURL,
+                streamSignature: signature ?? items[key]?.streamSignature,
                 updatedAt: Date()
             )
         }
@@ -263,7 +271,8 @@ final class ProgressStore: ObservableObject {
         video: MetaVideo?,
         streamURL: String?,
         position: Double,
-        duration: Double
+        duration: Double,
+        signature: StreamSignature? = nil
     ) {
         guard duration > 60, position > 0, position / duration < 0.95 else { return }
         let key = Self.key(metaID: meta.id, video: video)
@@ -283,6 +292,7 @@ final class ProgressStore: ObservableObject {
             positionSeconds: position,
             durationSeconds: duration,
             streamURL: streamURL,
+            streamSignature: signature ?? items[key]?.streamSignature,
             updatedAt: Date()
         )
         let storage = storageKey
@@ -317,7 +327,8 @@ final class ProgressStore: ObservableObject {
             poster: existing.poster, background: existing.background, logo: existing.logo,
             season: existing.season, episode: existing.episode, episodeTitle: existing.episodeTitle,
             positionSeconds: existing.positionSeconds, durationSeconds: existing.durationSeconds,
-            streamURL: existing.streamURL, updatedAt: existing.updatedAt
+            streamURL: existing.streamURL, streamSignature: existing.streamSignature,
+            updatedAt: existing.updatedAt
         )
         save()
         if !suppressChange {

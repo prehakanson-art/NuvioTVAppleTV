@@ -37,10 +37,10 @@ struct AccountView: View {
             Image(systemName: "person.crop.circle.badge.plus")
                 .font(.system(size: 84))
                 .foregroundStyle(theme.palette.secondary)
-            Text("Sign in to Nuvio")
+            Text("Sign in to Orivio")
                 .font(.system(size: 46, weight: .heavy))
                 .foregroundStyle(theme.palette.textPrimary)
-            Text("Sign in to sync your addons, watch progress and library with your Nuvio account.")
+            Text("Sign in to sync your addons, watch progress and library with your Orivio account.")
                 .font(.system(size: 24))
                 .foregroundStyle(theme.palette.textSecondary)
                 .multilineTextAlignment(.center)
@@ -68,7 +68,7 @@ struct AccountView: View {
                     .foregroundStyle(theme.palette.textPrimary)
 
                 stepRow(1, "Scan the QR code with your phone camera")
-                stepRow(2, "Sign in on the Nuvio page that opens")
+                stepRow(2, "Sign in on the page that opens")
                 stepRow(3, "This TV signs in automatically")
 
                 Text(qr.webURL)

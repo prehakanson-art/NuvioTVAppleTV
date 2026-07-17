@@ -432,7 +432,7 @@ final class PlayerViewModel: ObservableObject {
               profile == 5 || profile == 8 || (profile == 7 && p7ok) else { return }
 
         dvAttempted = true
-        NSLog("[NuvioDV] DV profile %d detected — starting background remux", Int(profile))
+        NSLog("[OrivioDV] DV profile %d detected — starting background remux", Int(profile))
         startDVRemux(from: max(position - 2, 0), isRestart: false)
     }
 
@@ -450,14 +450,14 @@ final class PlayerViewModel: ObservableObject {
         dvRemuxer = remuxer
         remuxer.onIneligible = { [weak self] reason in
             guard let self, self.dvRemuxer === remuxer else { return }
-            NSLog("[NuvioDV] ineligible: %@", reason)
+            NSLog("[OrivioDV] ineligible: %@", reason)
             self.dvFailedURLs.insert(urlString)
             self.dvRemuxer = nil
             if self.usingNativeDV { self.abandonNativeDV() }
         }
         remuxer.onError = { [weak self] message in
             guard let self, self.dvRemuxer === remuxer else { return }
-            NSLog("[NuvioDV] remux error: %@", message)
+            NSLog("[OrivioDV] remux error: %@", message)
             self.dvFailedURLs.insert(urlString)
             self.dvRemuxer = nil
             if self.usingNativeDV { self.abandonNativeDV() }
@@ -495,7 +495,7 @@ final class PlayerViewModel: ObservableObject {
         usingNativeDV = true
         pendingResume = nil
         showToast("Dolby Vision — native output")
-        NSLog("[NuvioDV] switching to native playlist (offset %.1fs)", dvTimeOffset)
+        NSLog("[OrivioDV] switching to native playlist (offset %.1fs)", dvTimeOffset)
         load(entry: currentEntry, overrideURL: playlist)
     }
 
@@ -509,7 +509,7 @@ final class PlayerViewModel: ObservableObject {
         clock.position = clamped
         dvWrittenSeconds = 0
         dvRemuxFinished = false
-        NSLog("[NuvioDV] out-of-window seek → re-remux from %.1fs", clamped)
+        NSLog("[OrivioDV] out-of-window seek → re-remux from %.1fs", clamped)
         startDVRemux(from: max(clamped - 2, 0), isRestart: true)
     }
 
@@ -517,7 +517,7 @@ final class PlayerViewModel: ObservableObject {
     /// i.e. exactly the pre-DV behavior (decoded HDR10).
     private func abandonNativeDV() {
         guard usingNativeDV else { resetNativeDV(); return }
-        NSLog("[NuvioDV] abandoning native DV — falling back to FFmpeg engine")
+        NSLog("[OrivioDV] abandoning native DV — falling back to FFmpeg engine")
         if let urlString = currentEntry.stream.url { dvFailedURLs.insert(urlString) }
         showToast("Native Dolby Vision failed — using HDR10")
         pendingResume = position > 10 ? position : nil
@@ -740,7 +740,7 @@ final class PlayerViewModel: ObservableObject {
             guard await SubtitleProbe.hasStyledASS(url: url) else { return }
             guard let self, !self.isExiting, !self.usingNativeDV,
                   self.effectiveEngine != .vlc else { return }
-            NSLog("[NuvioSubs] styled ASS detected — routing to VLC for full rendering")
+            NSLog("[OrivioSubs] styled ASS detected — routing to VLC for full rendering")
             self.switchEngine(.vlc)
         }
     }
@@ -1102,7 +1102,7 @@ final class PlayerViewModel: ObservableObject {
             loadPhase = .loading
             cacheProgress = 0
         }
-        NSLog("[NuvioPlayer] load start ext=%@ engine=%@ url-host=%@",
+        NSLog("[OrivioPlayer] load start ext=%@ engine=%@ url-host=%@",
               ext.isEmpty ? "(none)" : ext,
               needsFFmpeg ? "FFmpeg" : "Native",
               url.host ?? "?")
@@ -1154,7 +1154,7 @@ final class PlayerViewModel: ObservableObject {
         // runaway (30 min is plenty even for a very low-bitrate stream).
         let clamped = min(max(seconds, options.maxBufferDuration), 1800)
         options.maxBufferDuration = clamped
-        NSLog("[NuvioBuffer] size target %d MB @ %.1f Mbps → %.0fs cache (cap %d MB)",
+        NSLog("[OrivioBuffer] size target %d MB @ %.1f Mbps → %.0fs cache (cap %d MB)",
               target / (1 << 20), bitsPerSecond / 1_000_000, clamped,
               PerformanceProfile.maxBufferBytes / (1 << 20))
     }
@@ -1227,7 +1227,7 @@ final class PlayerViewModel: ObservableObject {
         }
         engine.load(url: url, networkCachingMs: cachingMs)
         engine.play()
-        NSLog("[NuvioPlayer] load start engine=VLC url-host=%@", url.host ?? "?")
+        NSLog("[OrivioPlayer] load start engine=VLC url-host=%@", url.host ?? "?")
         videoRefreshID = UUID()
     }
 
@@ -2733,7 +2733,8 @@ final class PlayerViewModel: ObservableObject {
             video: currentVideo,
             streamURL: currentEntry.stream.url,
             position: position,
-            duration: duration
+            duration: duration,
+            signature: currentEntry.stream.signature(addonName: currentEntry.addonName)
         )
     }
 
@@ -2744,7 +2745,8 @@ final class PlayerViewModel: ObservableObject {
             video: currentVideo,
             streamURL: currentEntry.stream.url,
             position: position,
-            duration: duration
+            duration: duration,
+            signature: currentEntry.stream.signature(addonName: currentEntry.addonName)
         )
     }
 
@@ -2923,7 +2925,7 @@ final class PlayerViewModel: ObservableObject {
             guard let thumbs = try? await controller.generateThumbnail(for: url, thumbWidth: 256),
                   !Task.isCancelled else { return }
             self?.scrubThumbnails = thumbs.sorted { $0.time < $1.time }
-            NSLog("[NuvioPlayer] scrub previews ready: %d frames", thumbs.count)
+            NSLog("[OrivioPlayer] scrub previews ready: %d frames", thumbs.count)
         }
     }
 
@@ -3183,7 +3185,7 @@ extension PlayerViewModel: KSPlayerLayerDelegate {
                 func delta(_ from: Double, _ to: Double) -> Double {
                     (from > 0 && to > from) ? to - from : 0
                 }
-                NSLog("[NuvioPlayer] ready engine=%@ total=%.2fs connect=%.2fs open=%.2fs find=%.2fs firstFrame=%.2fs",
+                NSLog("[OrivioPlayer] ready engine=%@ total=%.2fs connect=%.2fs open=%.2fs find=%.2fs firstFrame=%.2fs",
                       engineName, total,
                       delta(opts.tcpStartTime, opts.tcpConnectedTime),
                       delta(opts.dnsStartTime, opts.openTime),

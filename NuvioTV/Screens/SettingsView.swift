@@ -30,7 +30,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
 
     var subtitle: String {
         switch self {
-        case .account: return "Nuvio account and profiles"
+        case .account: return "Orivio account and profiles"
         case .appearance: return "Color theme and dark mode"
         case .layout: return "Home structure and poster styles"
         case .contentDiscovery: return "Add-ons, catalogs, and collections"
@@ -716,7 +716,7 @@ private struct AccountSettingsDetail: View {
             SettingsGroupCard(title: "") {
                 Button { showAccount = true } label: {
                     SettingsValueCard(
-                        title: account.authState.isSignedIn ? "Nuvio Account" : "Sign in to Nuvio",
+                        title: account.authState.isSignedIn ? "Orivio Account" : "Sign in to Orivio",
                         subtitle: account.authState.isSignedIn
                             ? "Sync your addons, library, progress and profiles"
                             : "Sign in to sync your addons, library, progress and profiles",
@@ -911,7 +911,7 @@ private struct ContentDiscoveryDetail: View {
                     .font(.system(size: 19))
                     .foregroundStyle(theme.palette.textSecondary)
             }
-            Text("Build or pick a badge pack at nintle.github.io/Badger, host the JSON (the editor gives you a link), and paste its URL here — or pull the pack already set up in another Nuvio app with Sync from Account.")
+            Text("Build or pick a badge pack at nintle.github.io/Badger, host the JSON (the editor gives you a link), and paste its URL here — or pull the pack already set up in another Orivio app with Sync from Account.")
                 .font(.system(size: 18))
                 .foregroundStyle(theme.palette.textTertiary)
         }
@@ -1365,9 +1365,9 @@ private enum AboutInfo: String, Identifiable {
     var body: String {
         switch self {
         case .privacy:
-            return "Nuvio does not collect, store, or share any personal data. All playback, library, and account information stays on your device or with the third-party services you explicitly connect (such as TMDB, Trakt, or your debrid provider). No analytics or tracking is performed by this app."
+            return "Orivio does not collect, store, or share any personal data. All playback, library, and account information stays on your device or with the third-party services you explicitly connect (such as TMDB, Trakt, or your debrid provider). No analytics or tracking is performed by this app."
         case .supporters:
-            return "Nuvio is made with ❤️ by Tapframe and a community of contributors. Special thanks to everyone who has reported issues, submitted translations, and supported the project. The Apple TV port builds on their work."
+            return "Orivio is built on Nuvio, made with ❤️ by Tapframe and a community of contributors. Special thanks to everyone who has reported issues, submitted translations, and supported the project. This Apple TV app builds on their work."
         case .licenses:
             return "This app uses open-source components including SwiftUI, KSPlayer, and metadata provided by TMDB. TMDB is used under their API terms; this product uses the TMDB API but is not endorsed or certified by TMDB. Full license texts for bundled components are available in the source repository."
         }
@@ -1409,7 +1409,7 @@ private struct AddonExportView: View {
                 Text("Add-on Setup")
                     .font(.system(size: 44, weight: .bold))
                     .foregroundStyle(theme.palette.textPrimary)
-                Text("Scan with your phone — one manifest URL per line. Paste them into any Nuvio install to restore your add-ons.")
+                Text("Scan with your phone — one manifest URL per line. Paste them into any Orivio install to restore your add-ons.")
                     .font(.system(size: 23))
                     .foregroundStyle(theme.palette.textSecondary)
                     .multilineTextAlignment(.center)

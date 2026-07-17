@@ -586,7 +586,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.7.15;
-				PRODUCT_BUNDLE_IDENTIFIER = com.nuvio.tv.appletv;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orivio.tv.appletv;
 				SDKROOT = appletvos;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 3;
@@ -729,7 +729,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.7.15;
-				PRODUCT_BUNDLE_IDENTIFIER = com.nuvio.tv.appletv;
+				PRODUCT_BUNDLE_IDENTIFIER = com.orivio.tv.appletv;
 				SDKROOT = appletvos;
 				SWIFT_VERSION = 5.9;
 				TARGETED_DEVICE_FAMILY = 3;

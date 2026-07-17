@@ -27,3 +27,10 @@ nodeserver/node_modules/
 Vendor/NodeMobile.xcframework/
 build-sim/
 build/
+
+# build outputs & packaging (this session)
+build-device/
+build-sim/
+ipa_build/
+ipa_clean/
+*.ipa

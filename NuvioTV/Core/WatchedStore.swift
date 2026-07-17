@@ -27,7 +27,33 @@ final class WatchedStore: ObservableObject {
     /// Fired after a local change so account sync can push. Suppressed while
     /// merging remote data.
     var onLocalChange: (() -> Void)?
+    /// Fired with the items the user explicitly un-marked, so account sync can
+    /// delete them server-side (`sync_delete_watched_items`) — otherwise the
+    /// upsert-only push would resurrect them on the next pull. Mirrors
+    /// ProgressStore.onRemove.
+    var onRemove: (([WatchedItem]) -> Void)?
     private var suppressChange = false
+
+    /// Recently un-marked keys → removal time. A full-snapshot pull can still
+    /// carry a just-removed row (its server delete lags the pull), so without
+    /// this the reconcile below would re-add what the user just cleared.
+    private var tombstones: [String: Date] = [:]
+    private static let tombstoneGrace: TimeInterval = 180
+    /// Grace protecting a freshly-marked row whose push may still be in flight
+    /// when a pull's snapshot was captured — don't reconcile it away.
+    private static let deletionGrace: TimeInterval = 120
+
+    private func pruneTombstones() {
+        let cutoff = Date().addingTimeInterval(-Self.tombstoneGrace)
+        tombstones = tombstones.filter { $0.value >= cutoff }
+    }
+
+    /// Reassert tombstones from the sync manager before a pull, for removals
+    /// whose server delete hasn't been confirmed yet.
+    func tombstone(_ keys: [String]) {
+        let now = Date()
+        for key in keys { tombstones[key] = now }
+    }
 
     private var profileID = 1
     private var storageKey: String {
@@ -82,26 +108,66 @@ final class WatchedStore: ObservableObject {
     }
 
     private func set(_ item: WatchedItem) {
+        // Re-marking something you'd un-marked clears its tombstone so the fresh
+        // row syncs normally instead of being held back by the reconcile guard.
+        tombstones.removeValue(forKey: item.key)
         items[item.key] = item
         save()
         if !suppressChange { onLocalChange?() }
     }
 
     func remove(contentID: String, season: Int?, episode: Int?) {
-        items.removeValue(forKey: WatchedItem.key(contentID: contentID, season: season, episode: episode))
+        let key = WatchedItem.key(contentID: contentID, season: season, episode: episode)
+        guard let removed = items.removeValue(forKey: key) else { return }
+        tombstones[key] = Date()
         save()
-        if !suppressChange { onLocalChange?() }
+        if !suppressChange {
+            onRemove?([removed])
+            onLocalChange?()
+        }
     }
 
     // MARK: - Sync bridge
 
     func allForSync() -> [WatchedItem] { Array(items.values) }
 
-    func mergeRemote(_ remote: [WatchedItem]) {
+    /// Merge a FULL remote snapshot. Two-way, mirroring ProgressStore: newer
+    /// remote rows are added AND (when `reconcile`) local rows the server no
+    /// longer has are removed (a removal made on another device propagates),
+    /// except freshly-marked rows still inside the grace window and tombstoned
+    /// rows whose delete is pending. `reconcile: false` = additive union, used
+    /// for a profile's FIRST pull so pre-sign-in local history survives and is
+    /// pushed up instead of being treated as remotely deleted.
+    func mergeRemote(_ remote: [WatchedItem], reconcile: Bool = true) {
         suppressChange = true
         defer { suppressChange = false }
         var changed = false
+        pruneTombstones()
+
+        // ── Reconcile deletions ── drop local rows absent from the snapshot,
+        // unless just marked (their push may still be in flight).
+        if reconcile {
+            let remoteKeys = Set(remote.map(\.key))
+            let cutoff = Date().addingTimeInterval(-Self.deletionGrace)
+            let staleKeys = items.compactMap { key, local in
+                (!remoteKeys.contains(key) && local.watchedAt < cutoff) ? key : nil
+            }
+            for key in staleKeys {
+                items.removeValue(forKey: key)
+                changed = true
+            }
+        }
+
+        // ── Add rows from the account ── skipping ones the user just un-marked
+        // whose delete hasn't landed yet (the snapshot can still contain them).
         for item in remote where items[item.key] == nil {
+            if let tomb = tombstones[item.key] {
+                if item.watchedAt > tomb {
+                    tombstones.removeValue(forKey: item.key)   // re-watched elsewhere
+                } else {
+                    continue
+                }
+            }
             items[item.key] = item
             changed = true
         }

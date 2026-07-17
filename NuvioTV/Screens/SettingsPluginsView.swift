@@ -10,7 +10,7 @@ struct PluginsSettingsDetail: View {
 
     var body: some View {
         DetailScaffold(title: SettingsCategory.plugins.title, subtitle: SettingsCategory.plugins.subtitle) {
-            SettingsGroupCard(title: "Add repository", subtitle: "Paste a Nuvio scraper repository manifest URL") {
+            SettingsGroupCard(title: "Add repository", subtitle: "Paste a scraper repository manifest URL") {
                 HStack(spacing: NuvioSpacing.md) {
                     TextField("https://…/manifest.json", text: $repoInput)
                         .font(.system(size: 22))

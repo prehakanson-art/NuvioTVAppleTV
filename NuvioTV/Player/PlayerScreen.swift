@@ -350,7 +350,7 @@ struct PlayerScreen: View {
     /// exit in ~0.15s.
     private func exitPlayer() {
         guard !viewModel.isExiting else { return }
-        NSLog("[NuvioPlayer] exitPlayer() called — overlay=%@", String(describing: viewModel.overlay))
+        NSLog("[OrivioPlayer] exitPlayer() called — overlay=%@", String(describing: viewModel.overlay))
         viewModel.prepareForExit()
         Task { @MainActor in
             let manager = UIApplication.shared.ks_keyWindow?.avDisplayManager

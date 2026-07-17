@@ -89,80 +89,45 @@ struct HomePresentationSnapshot: Codable, Equatable {
     var detailPageTrailerButtonEnabled = true
 }
 
-// MARK: - Sync payload (matches Android SyncHomeCatalogPayload exactly)
+// MARK: - Sync payload (matches Android's home-catalog settings_json exactly)
 
-struct SyncCatalogItem: Codable, Hashable {
-    var addonID: String = ""
-    var type: String = ""
-    var catalogID: String = ""
-    var enabled: Bool = true
-    var order: Int = 0
-    var customTitle: String = ""
-    var isCollection: Bool = false
-    var collectionID: String = ""
-
-    private enum CodingKeys: String, CodingKey {
-        case addonID = "addon_id"
-        case type
-        case catalogID = "catalog_id"
-        case enabled
-        case order
-        case customTitle = "custom_title"
-        case isCollection = "is_collection"
-        case collectionID = "collection_id"
-    }
-
-    init(addonID: String = "", type: String = "", catalogID: String = "",
-         enabled: Bool = true, order: Int = 0, customTitle: String = "",
-         isCollection: Bool = false, collectionID: String = "") {
-        self.addonID = addonID
-        self.type = type
-        self.catalogID = catalogID
-        self.enabled = enabled
-        self.order = order
-        self.customTitle = customTitle
-        self.isCollection = isCollection
-        self.collectionID = collectionID
-    }
-
-    init(from decoder: Decoder) throws {
-        let c = try decoder.container(keyedBy: CodingKeys.self)
-        addonID = try c.decodeIfPresent(String.self, forKey: .addonID) ?? ""
-        type = try c.decodeIfPresent(String.self, forKey: .type) ?? ""
-        catalogID = try c.decodeIfPresent(String.self, forKey: .catalogID) ?? ""
-        enabled = try c.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
-        order = try c.decodeIfPresent(Int.self, forKey: .order) ?? 0
-        customTitle = try c.decodeIfPresent(String.self, forKey: .customTitle) ?? ""
-        isCollection = try c.decodeIfPresent(Bool.self, forKey: .isCollection) ?? false
-        collectionID = try c.decodeIfPresent(String.self, forKey: .collectionID) ?? ""
-    }
-
-    var key: String {
-        isCollection
-            ? HomeCatalogSettingsStore.collectionKey(collectionID)
-            : HomeCatalogSettingsStore.catalogKey(addonID: addonID, type: type, catalogID: catalogID)
-    }
-}
-
+/// The cross-platform home-catalog layout, wire-identical to the Nuvio Android
+/// app: a flat ordered list of keys plus a disabled set and a custom-title map.
+/// Keys are `{addonId}_{type}_{catalogId}` for addon catalogs and
+/// `collection_{id}` for collections — so where a catalog sits, where a
+/// collection sits, whether it's shown, and its custom title all round-trip
+/// between the phone and the Apple TV. (The earlier `items:[{…}]` shape was
+/// tvOS-only and silently didn't interoperate with the phone.)
 struct SyncHomeCatalogPayload: Codable, Hashable {
+    var orderKeys: [String] = []
+    var disabledKeys: [String] = []
+    var customTitles: [String: String] = [:]
     var hideUnreleasedContent: Bool = false
-    var items: [SyncCatalogItem] = []
 
     private enum CodingKeys: String, CodingKey {
+        case orderKeys = "home_catalog_order_keys"
+        case disabledKeys = "disabled_home_catalog_keys"
+        case customTitles = "custom_catalog_titles"
         case hideUnreleasedContent = "hide_unreleased_content"
-        case items
     }
 
-    init(hideUnreleasedContent: Bool = false, items: [SyncCatalogItem] = []) {
+    init(orderKeys: [String] = [], disabledKeys: [String] = [],
+         customTitles: [String: String] = [:], hideUnreleasedContent: Bool = false) {
+        self.orderKeys = orderKeys
+        self.disabledKeys = disabledKeys
+        self.customTitles = customTitles
         self.hideUnreleasedContent = hideUnreleasedContent
-        self.items = items
     }
 
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
+        orderKeys = try c.decodeIfPresent([String].self, forKey: .orderKeys) ?? []
+        disabledKeys = try c.decodeIfPresent([String].self, forKey: .disabledKeys) ?? []
+        customTitles = try c.decodeIfPresent([String: String].self, forKey: .customTitles) ?? [:]
         hideUnreleasedContent = try c.decodeIfPresent(Bool.self, forKey: .hideUnreleasedContent) ?? false
-        items = try c.decodeIfPresent([SyncCatalogItem].self, forKey: .items) ?? []
     }
+
+    var isEmpty: Bool { orderKeys.isEmpty && disabledKeys.isEmpty && customTitles.isEmpty }
 }
 
 // MARK: - Store
@@ -394,52 +359,44 @@ final class HomeCatalogSettingsStore: ObservableObject {
     // MARK: Sync plumbing
 
     /// Build the push payload from currently-available addons + collections.
+    /// The order array merges the saved order with any newly-available catalogs
+    /// (then collections), exactly like Android's buildHomeCatalogSyncPayload;
+    /// disabled keys and custom titles ship as-is (they already include anything
+    /// pulled from the phone, so cross-device state isn't dropped).
     func exportPayload(addons: [InstalledAddon], collections: [NuvioCollection]) -> SyncHomeCatalogPayload {
-        var entries: [String: SyncCatalogItem] = [:]
         var catalogKeys: [String] = []
         var collectionKeys: [String] = []
+        var seen = Set<String>()
 
         for addon in addons {
             for catalog in (addon.manifest.catalogs ?? []) where !catalog.requiresExtra {
                 let key = Self.catalogKey(addonID: addon.manifest.id, type: catalog.type, catalogID: catalog.id)
-                guard entries[key] == nil else { continue }
+                guard seen.insert(key).inserted else { continue }
                 catalogKeys.append(key)
-                entries[key] = SyncCatalogItem(
-                    addonID: addon.manifest.id,
-                    type: catalog.type,
-                    catalogID: catalog.id
-                )
             }
         }
         for collection in collections {
             let key = Self.collectionKey(collection.id)
-            guard entries[key] == nil else { continue }
+            guard seen.insert(key).inserted else { continue }
             collectionKeys.append(key)
-            entries[key] = SyncCatalogItem(isCollection: true, collectionID: collection.id)
         }
 
         let order = mergedOrder(catalogKeys: catalogKeys, collectionKeys: collectionKeys)
-        let items: [SyncCatalogItem] = order.enumerated().compactMap { index, key in
-            guard var item = entries[key] else { return nil }
-            item.enabled = !disabledKeys.contains(key)
-            item.order = index
-            item.customTitle = customTitles[key] ?? ""
-            return item
-        }
-        return SyncHomeCatalogPayload(hideUnreleasedContent: hideUnreleasedContent, items: items)
+        return SyncHomeCatalogPayload(
+            orderKeys: order,
+            disabledKeys: Array(disabledKeys),
+            customTitles: customTitles,
+            hideUnreleasedContent: hideUnreleasedContent
+        )
     }
 
     /// Apply a remote payload (pull). Suppresses the local-change push echo.
     func applyRemote(_ payload: SyncHomeCatalogPayload) {
         suppressChange = true
         defer { suppressChange = false }
-        let sorted = payload.items.sorted { $0.order < $1.order }
-        orderKeys = sorted.map(\.key)
-        disabledKeys = Set(sorted.filter { !$0.enabled }.map(\.key))
-        customTitles = Dictionary(
-            sorted.compactMap { $0.customTitle.isEmpty ? nil : ($0.key, $0.customTitle) },
-            uniquingKeysWith: { $1 }
-        )
+        orderKeys = payload.orderKeys
+        disabledKeys = Set(payload.disabledKeys)
+        customTitles = payload.customTitles.filter { !$0.value.isEmpty }
         hideUnreleasedContent = payload.hideUnreleasedContent
         save()
     }

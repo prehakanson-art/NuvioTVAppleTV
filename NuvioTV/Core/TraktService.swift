@@ -48,17 +48,25 @@ final class TraktStore: ObservableObject {
     var isSignedIn: Bool { accessToken != nil }
     var hasSecret: Bool { !clientSecret.trimmingCharacters(in: .whitespaces).isEmpty }
 
+    /// Fired on a local sign-in/out/username change so account sync can push the
+    /// Trakt tokens to the shared `provider_credentials` table (the same place
+    /// the Android app keeps them). Suppressed while applying a remote pull.
+    var onLocalChange: (() -> Void)?
+    private var applyingRemote = false
+
     func store(access: String, refresh: String) {
         accessToken = access
         refreshToken = refresh
         if let data = try? JSONEncoder().encode(Tokens(access: access, refresh: refresh)) {
             UserDefaults.standard.set(data, forKey: Self.tokenKey)
         }
+        if !applyingRemote { onLocalChange?() }
     }
 
     func setUsername(_ name: String?) {
         username = name
         UserDefaults.standard.set(name, forKey: Self.userKey)
+        if !applyingRemote { onLocalChange?() }
     }
 
     func signOut() {
@@ -67,6 +75,25 @@ final class TraktStore: ObservableObject {
         username = nil
         UserDefaults.standard.removeObject(forKey: Self.tokenKey)
         UserDefaults.standard.removeObject(forKey: Self.userKey)
+        if !applyingRemote { onLocalChange?() }
+    }
+
+    /// Apply Trakt tokens pulled from the account without echoing them back up.
+    /// Only applies a real remote login (non-empty tokens) that differs from the
+    /// local one. Deliberately does NOT sign out locally when the account has no
+    /// Trakt row — absence usually means "never synced from this device", not
+    /// "signed out everywhere".
+    func applyRemote(access: String?, refresh: String?, username: String?) {
+        applyingRemote = true
+        defer { applyingRemote = false }
+        if let access, let refresh, !access.isEmpty {
+            guard access != accessToken || refresh != refreshToken else {
+                if let username, username != self.username { setUsername(username) }
+                return
+            }
+            store(access: access, refresh: refresh)
+            if let username { setUsername(username) }
+        }
     }
 }
 

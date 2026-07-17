@@ -102,10 +102,11 @@ struct LibraryView: View {
                 .font(.system(size: 44, weight: .bold))
                 .foregroundStyle(theme.palette.textPrimary)
             Spacer()
-            Text("NUVIO")
-                .font(.system(size: 24, weight: .heavy))
-                .foregroundStyle(theme.palette.textTertiary)
-                .tracking(2)
+            Image("OrivioLogo")
+                .resizable()
+                .scaledToFit()
+                .frame(height: 40)
+                .accessibilityLabel("Orivio")
         }
         .padding(.horizontal, NuvioSpacing.huge)
     }

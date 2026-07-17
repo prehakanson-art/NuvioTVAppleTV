@@ -48,8 +48,18 @@ actor DiskCache<Value: Codable & Sendable> {
 
     init(name: String) {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        directory = base.appendingPathComponent("NuvioCache/\(name)", isDirectory: true)
+        directory = base.appendingPathComponent("OrivioCache/\(name)", isDirectory: true)
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        // One-time cleanup of the pre-rebrand cache dir, so it doesn't sit
+        // orphaned on disk forever (it would never be read or evicted again).
+        // Off-thread: several DiskCaches init during launch, and deleting a
+        // potentially large directory synchronously there would block startup.
+        let legacy = base.appendingPathComponent("NuvioCache", isDirectory: true)
+        if FileManager.default.fileExists(atPath: legacy.path) {
+            Task.detached(priority: .utility) {
+                try? FileManager.default.removeItem(at: legacy)
+            }
+        }
     }
 
     /// Fresh value for `key`, or nil if missing/stale (`ttl <= 0` disables).

@@ -47,7 +47,12 @@ targets:
     info:
       path: Config/Info.plist
       properties:
-        CFBundleDisplayName: NuvioTV
+        CFBundleDisplayName: "Orivio TV"
+        # tvOS apps omit this by default, but Sideloadly's iOS-derived IPA
+        # validator (Cydia Impactor lineage) rejects a bundle without it as
+        # "not a valid iOS app". Harmless on tvOS (ignored); the binary stays a
+        # real AppleTVOS/arm64 app and installs to the Apple TV normally.
+        LSRequiresIPhoneOS: true
         # Tracks the Android APK release this port mirrors (v0.7.15-beta).
         CFBundleShortVersionString: "0.7.15"
         UIUserInterfaceStyle: Dark
@@ -68,7 +73,7 @@ targets:
           NSAllowsArbitraryLoads: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.nuvio.tv.appletv
+        PRODUCT_BUNDLE_IDENTIFIER: com.orivio.tv.appletv
         SWIFT_VERSION: "5.9"
         TARGETED_DEVICE_FAMILY: "3"
         # Tracks the Android APK release this port mirrors (v0.7.15-beta).
@@ -137,7 +142,7 @@ targets:
   #         NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).TopShelfProvider
   #   settings:
   #     base:
-  #       PRODUCT_BUNDLE_IDENTIFIER: com.nuvio.tv.appletv.topshelf
+  #       PRODUCT_BUNDLE_IDENTIFIER: com.orivio.tv.appletv.topshelf
   #       SWIFT_VERSION: "5.9"
   #       TARGETED_DEVICE_FAMILY: "3"
   #       MARKETING_VERSION: "0.7.15"

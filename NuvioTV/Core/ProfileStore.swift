@@ -265,13 +265,13 @@ final class ProfileStore: ObservableObject {
         let hasLocalHash = profiles.first(where: { $0.id == id })?.pinHash != nil
         return PinVerifyOutcome(
             unlocked: false, retryAfterSeconds: 0,
-            message: hasLocalHash ? nil : "Sign in to Nuvio to verify this PIN."
+            message: hasLocalHash ? nil : "Sign in to Orivio to verify this PIN."
         )
     }
 
     func setPin(id: Int, pin: String, currentPin: String?) async -> PinSetOutcome {
         guard accountAvailable, let setter = pinSetter else {
-            return .failure("Sign in to Nuvio to set a PIN.")
+            return .failure("Sign in to Orivio to set a PIN.")
         }
         let outcome = await setter(id, pin, currentPin)
         if outcome == .success {

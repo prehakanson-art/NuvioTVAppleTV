@@ -79,6 +79,22 @@ final class LibraryStore: ObservableObject {
     var onLocalChange: (() -> Void)?
     private var suppressChange = false
 
+    /// Recently-removed keys → removal time. The library push is full-replace
+    /// (no per-item delete RPC), so between removing an item and that push
+    /// landing, a pull's snapshot still contains it — without this the 30s
+    /// Home poll (which also pulls library) would resurrect the row the user
+    /// just removed, and the next push would re-add it to the account.
+    private var tombstones: [String: Date] = [:]
+    private static let tombstoneGrace: TimeInterval = 180
+    /// Grace protecting a freshly-added row whose replace-push is still in
+    /// flight from the deletion reconcile below.
+    private static let deletionGrace: TimeInterval = 120
+
+    private func pruneTombstones() {
+        let cutoff = Date().addingTimeInterval(-Self.tombstoneGrace)
+        tombstones = tombstones.filter { $0.value >= cutoff }
+    }
+
     private var profileID = 1
     private var storageKey: String {
         profileID == 1 ? "nuvio.library.v1" : "nuvio.library.v1.p\(profileID)"
@@ -115,13 +131,18 @@ final class LibraryStore: ObservableObject {
     }
 
     func add(_ item: SavedLibraryItem) {
+        // Re-saving something you'd removed clears its tombstone so the fresh
+        // row survives the next pull's reconcile.
+        tombstones.removeValue(forKey: item.key)
         items[item.key] = item
         save()
         if !suppressChange { onLocalChange?() }
     }
 
     func remove(id: String, type: String) {
-        items.removeValue(forKey: "\(type)|\(id)")
+        let key = "\(type)|\(id)"
+        guard items.removeValue(forKey: key) != nil else { return }
+        tombstones[key] = Date()
         save()
         if !suppressChange { onLocalChange?() }
     }
@@ -130,11 +151,42 @@ final class LibraryStore: ObservableObject {
 
     func allForSync() -> [SavedLibraryItem] { Array(items.values) }
 
-    func mergeRemote(_ remote: [SavedLibraryItem]) {
+    /// Merge a FULL remote snapshot. Two-way, mirroring Progress/Watched: rows
+    /// from the account are added AND (when `reconcile`) local rows the server
+    /// no longer has are removed — otherwise a removal made on another device
+    /// resurrects here on the next pull, and this device's replace-push re-adds
+    /// it to the account (the remove/re-add ping-pong). Freshly-added rows
+    /// (grace) and tombstoned rows (removal's push still in flight) are
+    /// protected. `reconcile: false` = additive union — used for the FIRST pull
+    /// of a profile, so items saved locally before ever signing in survive and
+    /// get pushed up rather than treated as remote deletions.
+    func mergeRemote(_ remote: [SavedLibraryItem], reconcile: Bool = true) {
         suppressChange = true
         defer { suppressChange = false }
         var changed = false
+        pruneTombstones()
+
+        // ── Reconcile deletions ──
+        if reconcile {
+            let remoteKeys = Set(remote.map(\.key))
+            let cutoff = Date().addingTimeInterval(-Self.deletionGrace)
+            let staleKeys = items.compactMap { key, local in
+                (!remoteKeys.contains(key) && local.addedAt < cutoff) ? key : nil
+            }
+            for key in staleKeys {
+                items.removeValue(forKey: key)
+                changed = true
+            }
+        }
+
         for item in remote where items[item.key] == nil {
+            if let tomb = tombstones[item.key] {
+                if item.addedAt > tomb {
+                    tombstones.removeValue(forKey: item.key)   // re-saved elsewhere
+                } else {
+                    continue
+                }
+            }
             items[item.key] = item
             changed = true
         }

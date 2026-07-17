@@ -470,6 +470,18 @@ struct MetaVideo: Codable, Identifiable, Hashable {
 
 // MARK: - Streams
 
+/// A compact fingerprint of a played stream's format, remembered with watch
+/// progress so a resume can re-scrape a FRESH link (debrid/Comet links expire)
+/// and pick one matching what was originally watched — same resolution, Dolby
+/// Vision, HDR, Atmos, and ideally the same add-on.
+struct StreamSignature: Codable, Hashable {
+    var resolution: String?      // "2160p" / "1080p" / …
+    var dolbyVision: Bool = false
+    var hdr: Bool = false
+    var atmos: Bool = false
+    var addonName: String?
+}
+
 struct Stream: Codable, Hashable {
     let name: String?
     let title: String?
@@ -631,6 +643,19 @@ struct Stream: Codable, Hashable {
     }
     /// Any HDR flavor (including Dolby Vision).
     var isHDR: Bool { isDolbyVision || searchHaystack.contains("hdr") || searchHaystack.contains("hlg") }
+    /// Dolby Atmos object audio (best-effort from the release name).
+    var hasAtmos: Bool { searchHaystack.contains("atmos") }
+
+    /// Fingerprint used to re-find a comparable link on resume.
+    func signature(addonName: String?) -> StreamSignature {
+        StreamSignature(
+            resolution: resolutionLabel,
+            dolbyVision: isDolbyVision,
+            hdr: isHDR,
+            atmos: hasAtmos,
+            addonName: addonName
+        )
+    }
 
     /// Torrentio-style seeder count ("👤 123").
     private static let seedersRegex = try? NSRegularExpression(pattern: #"👤\s*(\d+)"#)

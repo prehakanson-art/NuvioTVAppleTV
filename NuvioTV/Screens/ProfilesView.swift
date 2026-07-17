@@ -512,7 +512,7 @@ struct ProfileEditView: View {
 
                     if profiles.avatarCatalog.isEmpty && !profiles.accountAvailable {
                         sectionLabel("Avatar")
-                        Text("Sign in to Nuvio to choose an avatar image. Colored initials are always available above.")
+                        Text("Sign in to Orivio to choose an avatar image. Colored initials are always available above.")
                             .font(.system(size: 20))
                             .foregroundStyle(theme.palette.textSecondary)
                     }
@@ -565,8 +565,8 @@ struct ProfileEditView: View {
                         }
                     } else {
                         Text(current.pinEnabled
-                             ? "This profile is PIN-locked. Sign in to Nuvio to change or remove the PIN."
-                             : "Sign in to Nuvio to set a PIN for this profile.")
+                             ? "This profile is PIN-locked. Sign in to Orivio to change or remove the PIN."
+                             : "Sign in to Orivio to set a PIN for this profile.")
                             .font(.system(size: 20))
                             .foregroundStyle(theme.palette.textSecondary)
                     }
@@ -637,7 +637,7 @@ struct ProfileEditView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes the profile and its settings from this device and your Nuvio account. This can't be undone.")
+            Text("This removes the profile and its settings from this device and your Orivio account. This can't be undone.")
         }
     }
 

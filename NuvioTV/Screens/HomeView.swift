@@ -842,12 +842,11 @@ private struct HomeLoadingBackdrop: View {
     private var activeIndex: Int { steps.firstIndex(of: step ?? "") ?? 0 }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: NuvioSpacing.lg) {
-            Text("Nuvio")
-                .font(.system(size: 46, weight: .heavy))
-                .foregroundStyle(theme.palette.textPrimary)
-                .padding(.bottom, NuvioSpacing.sm)
-
+        // NB: this view is mounted as a ~460pt hero strip inside Home's scroll
+        // content, NOT full-screen — so the branded art rides as a clipped
+        // .background (which doesn't affect layout) rather than a ZStack child,
+        // where scaledToFill would blow past the strip and bleed over the rows.
+        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             ForEach(Array(steps.enumerated()), id: \.offset) { index, label in
                 HStack(spacing: NuvioSpacing.md) {
                     icon(for: index)
@@ -860,7 +859,16 @@ private struct HomeLoadingBackdrop: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .padding(NuvioSpacing.huge)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+        .background {
+            // Branded Orivio backdrop (logo mark on the gradient), cropped to
+            // the strip.
+            Image("OrivioBackdropLogo")
+                .resizable()
+                .scaledToFill()
+        }
+        .clipped()
     }
 
     @ViewBuilder

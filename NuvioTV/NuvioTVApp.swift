@@ -56,6 +56,10 @@ enum Route: Hashable {
     case streamsManual(MetaItem, MetaVideo?)
     /// Source picker that plays from 0:00 (the Detail page's Start Over).
     case streamsFromStart(MetaItem, MetaVideo?)
+    /// Continue Watching resume: re-scrape fresh sources and auto-play the one
+    /// matching what was last watched. `fromStart` plays it from 0:00 (Start
+    /// Over) instead of the saved position.
+    case streamsResume(MetaItem, MetaVideo?, fromStart: Bool)
     case collection(NuvioCollection)
     case person(id: Int, name: String)
     case tmdbCompany(id: Int, name: String)
@@ -134,7 +138,7 @@ struct RootView: View {
             // access token is short-lived).
             .task { await debrid.refreshRealDebridIfNeeded() }
             .onAppear {
-                NSLog("[NuvioPlayer] RootView content onAppear")
+                NSLog("[OrivioPlayer] RootView content onAppear")
                 startPlayerDemoIfRequested()
                 startDetailDemoIfRequested()
             }
@@ -159,7 +163,8 @@ struct RootView: View {
                         themeManager: theme,
                         debridStore: debrid,
                         pluginStore: plugins,
-                        torrentSettings: torrent
+                        torrentSettings: torrent,
+                        traktStore: trakt
                     )
                     sync?.enrichContinueWatchingEnabled = { [tmdbSettings] in
                         tmdbSettings.settings.enrichContinueWatching
@@ -678,6 +683,26 @@ struct RootView: View {
                     resumePosition: nil
                 ))
             }
+        case .streamsResume(let meta, let video, let fromStart):
+            // Continue Watching: re-scrape and auto-play the best format match,
+            // with the full list as the player's failover. Start Over plays the
+            // matched link from 0:00; a normal resume from the saved position.
+            let key = ProgressStore.key(metaID: meta.id, video: video)
+            let progress = progressStore.progress(for: key)
+            StreamsView(
+                meta: meta, video: video,
+                resumeAutoPlay: true,
+                resumeSignature: progress?.streamSignature,
+                onAutoDismiss: { pendingAutoPlayPop = true }
+            ) { entry, all in
+                startPlayback(PlaybackRequest(
+                    meta: meta,
+                    video: video,
+                    entry: entry,
+                    allEntries: all,
+                    resumePosition: fromStart ? nil : progress?.positionSeconds
+                ))
+            }
         }
     }
 
@@ -885,24 +910,12 @@ struct RootView: View {
                 episode: progress.episode
             )
             : nil
-        guard let url = progress.streamURL else {
-            homePath.append(Route.streams(meta, video))
-            return
-        }
-        let stream = Stream(
-            name: "Resume",
-            title: nil,
-            description: nil,
-            url: url,
-            infoHash: nil,
-            behaviorHints: nil
-        )
-        startPlayback(PlaybackRequest(
-            meta: meta,
-            video: video,
-            entry: StreamEntry(addonName: "Continue Watching", stream: stream),
-            allEntries: [],
-            resumePosition: fromBeginning ? 0 : progress.positionSeconds
-        ))
+        // Resume ALWAYS re-scrapes a fresh link now: a remembered URL from a
+        // debrid/Comet-style addon expires, so replaying it "fails to load" and
+        // (with no failover alternates) drops you back to 0:00. Instead route to
+        // the source picker, which auto-plays the link best matching what was
+        // last watched, with the full list as failover. Start Over takes the
+        // same matched-link path but plays from 0:00.
+        homePath.append(Route.streamsResume(meta, video, fromStart: fromBeginning))
     }
 }

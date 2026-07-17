@@ -32,6 +32,7 @@ final class NuvioSyncManager: ObservableObject {
     private let debridStore: DebridStore?
     private let pluginStore: PluginStore?
     private let torrentSettings: TorrentSettingsStore?
+    private let traktStore: TraktStore?
     /// Reads the "Enrich Continue Watching" TMDB setting (the store lives
     /// outside this manager). nil → enrich (default).
     var enrichContinueWatchingEnabled: (() -> Bool)?
@@ -45,8 +46,27 @@ final class NuvioSyncManager: ObservableObject {
     private var pushHomeCatalogTask: Task<Void, Never>?
     private var pushBadgeSettingsTask: Task<Void, Never>?
     private var pushAppPreferencesTask: Task<Void, Never>?
+    private var pushProviderCredentialsTask: Task<Void, Never>?
+    private var pushPluginsTask: Task<Void, Never>?
     private var avatarCatalogCache: [AvatarCatalogItem] = []
     private var wasSignedIn = false
+    /// The in-flight full sync (sign-in or profile switch); new full syncs chain
+    /// behind it so two cycles never interleave across profiles.
+    private var fullSyncTask: Task<Void, Never>?
+    /// Profiles whose library pull succeeded this session, gating empty
+    /// (cleared) library pushes so a cold start — or a profile whose pull
+    /// failed — can't wipe that profile's account library. See pushLibrary.
+    private var pulledLibraryProfiles: Set<Int> = []
+
+    // MARK: - Seeded flags
+    // "Has this profile ever had <kind> data on the account?" — persisted, set
+    // after any non-empty pull or push. An EMPTY pull only reconciles (deletes
+    // local rows) when seeded: genuinely "everything was removed elsewhere".
+    // Unseeded + empty = first sign-in with a fresh account → keep local data
+    // and let the following push upload it.
+    private func seededKey(_ kind: String) -> String { "nuvio.sync.seeded.\(kind).p\(pid)" }
+    private func isSeeded(_ kind: String) -> Bool { UserDefaults.standard.bool(forKey: seededKey(kind)) }
+    private func setSeeded(_ kind: String) { UserDefaults.standard.set(true, forKey: seededKey(kind)) }
 
     /// The active profile scopes all personal-data sync. Addons stay global
     /// (profile 1) so the same sources are available on every profile.
@@ -77,6 +97,7 @@ final class NuvioSyncManager: ObservableObject {
         static let pullLibrary = "sync_pull_library"
         static let pushWatchedItems = "sync_push_watched_items"
         static let pullWatchedItems = "sync_pull_watched_items"
+        static let deleteWatchedItems = "sync_delete_watched_items"
         static let pushProfiles = "sync_push_profiles"
         static let pullProfiles = "sync_pull_profiles"
         static let pullProfileLocks = "sync_pull_profile_locks"
@@ -89,6 +110,12 @@ final class NuvioSyncManager: ObservableObject {
         static let pullHomeCatalogSettings = "sync_pull_home_catalog_settings"
         static let pushProfileSettingsBlob = "sync_push_profile_settings_blob"
         static let pullProfileSettingsBlob = "sync_pull_profile_settings_blob"
+        // Dedicated tables the Android app uses — synced alongside (dual-write)
+        // the tvOS-preferences blob so plugins / debrid keys / Trakt logins flow
+        // between the Apple TV and the phone, not just tvOS↔tvOS.
+        static let pushPlugins = "sync_push_plugins"
+        static let pushProviderCredentials = "sync_push_provider_credentials"
+        static let pullProviderCredentials = "sync_pull_provider_credentials"
     }
 
     /// Platform tag the Android TV app uses for the profile-settings blob —
@@ -117,7 +144,8 @@ final class NuvioSyncManager: ObservableObject {
         themeManager: ThemeManager? = nil,
         debridStore: DebridStore? = nil,
         pluginStore: PluginStore? = nil,
-        torrentSettings: TorrentSettingsStore? = nil
+        torrentSettings: TorrentSettingsStore? = nil,
+        traktStore: TraktStore? = nil
     ) {
         self.account = account
         self.addonManager = addonManager
@@ -134,6 +162,7 @@ final class NuvioSyncManager: ObservableObject {
         self.debridStore = debridStore
         self.pluginStore = pluginStore
         self.torrentSettings = torrentSettings
+        self.traktStore = traktStore
 
         // Sync whenever we transition into a signed-in state.
         account.$authState
@@ -155,6 +184,7 @@ final class NuvioSyncManager: ObservableObject {
         progressStore.onRemove = { [weak self] keys in self?.deleteWatchProgress(keys: keys) }
         libraryStore.onLocalChange = { [weak self] in self?.scheduleLibraryPush() }
         watchedStore.onLocalChange = { [weak self] in self?.scheduleWatchedPush() }
+        watchedStore.onRemove = { [weak self] items in self?.deleteWatchedItems(items) }
         profileStore.onLocalChange = { [weak self] in self?.scheduleProfilePush() }
         profileStore.onSwitch = { [weak self] id in self?.handleProfileSwitch(id) }
         collectionsStore.onLocalChange = { [weak self] in
@@ -177,9 +207,19 @@ final class NuvioSyncManager: ObservableObject {
         playerSettings?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
         tmdbSettings?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
         themeManager?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
-        debridStore?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
-        pluginStore?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
+        // Debrid keys and plugins dual-write: the blob (tvOS↔tvOS) AND the
+        // dedicated Android tables (tvOS↔phone).
+        debridStore?.onLocalChange = { [weak self] in
+            self?.scheduleAppPreferencesPush()
+            self?.scheduleProviderCredentialsPush()
+        }
+        pluginStore?.onLocalChange = { [weak self] in
+            self?.scheduleAppPreferencesPush()
+            self?.schedulePluginsPush()
+        }
         torrentSettings?.onLocalChange = { [weak self] in self?.scheduleAppPreferencesPush() }
+        // Trakt tokens live only in the dedicated provider_credentials table.
+        traktStore?.onLocalChange = { [weak self] in self?.scheduleProviderCredentialsPush() }
         homeCatalogSettings.onPresentationChange = { [weak self] in self?.scheduleAppPreferencesPush() }
 
         // Authed operations the profile UI needs (require the access token).
@@ -208,7 +248,11 @@ final class NuvioSyncManager: ObservableObject {
             profileStore.accountAvailable = true
             guard !wasSignedIn else { return }
             wasSignedIn = true
-            Task { await syncNow() }
+            let previous = fullSyncTask
+            fullSyncTask = Task { [weak self] in
+                await previous?.value
+                await self?.syncNow()
+            }
         case .signedOut:
             wasSignedIn = false
             profileStore.accountAvailable = false
@@ -225,6 +269,10 @@ final class NuvioSyncManager: ObservableObject {
         lastSyncError = nil
         defer { isSyncing = false }
         do {
+            // Flush any pending local profile edit FIRST — a just-created
+            // profile whose debounced push hasn't landed would otherwise be
+            // wiped by the pull's replaceRemote below.
+            if profilesDirty { try await pushProfiles() }
             // Learn the profile list first, then scope the personal-data stores
             // to the active profile before pulling its data.
             try await pullProfiles()
@@ -238,6 +286,7 @@ final class NuvioSyncManager: ObservableObject {
             await drainPendingDeletes()
             try await pullWatchProgress()
             try await pullLibrary()
+            await reconcileWatchedDeletesBeforePull()
             try await pullWatchedItems()
             // Collections ride the tvOS-preferences blob (pullAppPreferences).
             // The dedicated RPC is best-effort — if the backend lacks it a
@@ -246,6 +295,8 @@ final class NuvioSyncManager: ObservableObject {
             try await pullHomeCatalogSettings()
             await pullBadgeSettings()   // best-effort; badge chips are cosmetic
             await pullAppPreferences()  // player/TMDB/theme prefs + collections
+            await pullProviderCredentials()  // debrid keys + Trakt (Android table)
+            await pullPlugins()              // plugin repos (Android table)
             try await pushProfiles()
             try await pushAddons()
             try await pushWatchProgressAll()
@@ -254,6 +305,8 @@ final class NuvioSyncManager: ObservableObject {
             try? await pushCollections()   // best-effort; see pull note above
             try await pushHomeCatalogSettings()
             await pushAppPreferences()
+            await pushProviderCredentials()  // dual-write to the Android table
+            try? await pushPlugins()
         } catch {
             lastSyncError = describe(error)
         }
@@ -514,7 +567,11 @@ final class NuvioSyncManager: ObservableObject {
     private func pushLibrary() async throws {
         guard account.accessToken != nil else { return }
         let items = libraryStore.allForSync()
-        guard !items.isEmpty else { return }
+        // `sync_push_library` is replace-semantics (like the addon push), so an
+        // empty push is how "removed my last saved item" reaches the account.
+        // But only send empty AFTER a successful pull this session — otherwise a
+        // cold start (local empty, not yet reconciled) could wipe the account.
+        guard !items.isEmpty || pulledLibraryProfiles.contains(pid) else { return }
         let entries: [[String: Any]] = items.map { item in
             var obj: [String: Any] = [
                 "content_id": item.id,
@@ -538,6 +595,7 @@ final class NuvioSyncManager: ObservableObject {
             "p_origin_client_id": clientID
         ]
         _ = try await authedPost(RPC.url(RPC.pushLibrary), body: body)
+        if !items.isEmpty { setSeeded("library") }
     }
 
     private func pullLibrary() async throws {
@@ -570,8 +628,23 @@ final class NuvioSyncManager: ObservableObject {
             if page.count < pageSize { break }
             offset += pageSize
         }
-        guard !collected.isEmpty else { return }
-        libraryStore.mergeRemote(collected)
+        // A successful pull (even an empty one) marks local as reconciled, so a
+        // subsequent empty push is a genuine "cleared my library", not a race.
+        pulledLibraryProfiles.insert(pid)
+        if collected.isEmpty {
+            // Empty snapshot: reconcile (delete local stale rows) only if this
+            // profile has synced library data before — "the last item was
+            // removed elsewhere". Unseeded = fresh account: keep local, the
+            // following push uploads it.
+            guard isSeeded("library") else { return }
+            libraryStore.mergeRemote([])
+            return
+        }
+        // First-ever pull for this profile merges additively (union → pushed
+        // up); once seeded, pulls reconcile so removals propagate.
+        let seeded = isSeeded("library")
+        libraryStore.mergeRemote(collected, reconcile: seeded)
+        setSeeded("library")
     }
 
     // MARK: - Watched items
@@ -583,6 +656,86 @@ final class NuvioSyncManager: ObservableObject {
             guard !Task.isCancelled else { return }
             try? await self?.pushWatchedItems()
         }
+    }
+
+    // Watched removals reach the account durably, exactly like Continue
+    // Watching: the push is upsert-only (it can't express a deletion), so an
+    // un-marked item would resurrect on the next pull. Queue removals to a
+    // PERSISTED per-profile set and drain them through
+    // `sync_delete_watched_items` (the same RPC the Android app uses) until the
+    // server confirms. Each token encodes content_id / season / episode.
+    private func pendingWatchedDeletesKey() -> String { "nuvio.sync.pendingWatchedDeletes.p\(pid)" }
+    private static let watchedDeleteSeparator = "\u{1F}"
+
+    private func loadPendingWatchedDeletes() -> Set<String> {
+        Set(UserDefaults.standard.stringArray(forKey: pendingWatchedDeletesKey()) ?? [])
+    }
+
+    private func savePendingWatchedDeletes(_ set: Set<String>) {
+        if set.isEmpty { UserDefaults.standard.removeObject(forKey: pendingWatchedDeletesKey()) }
+        else { UserDefaults.standard.set(Array(set), forKey: pendingWatchedDeletesKey()) }
+    }
+
+    private func watchedDeleteToken(_ item: WatchedItem) -> String {
+        [item.contentID, item.season.map(String.init) ?? "", item.episode.map(String.init) ?? ""]
+            .joined(separator: Self.watchedDeleteSeparator)
+    }
+
+    /// The WatchedStore key for a queued token, so a pull can be tombstoned.
+    private func watchedKey(forToken token: String) -> String? {
+        let parts = token.components(separatedBy: Self.watchedDeleteSeparator)
+        guard parts.count == 3 else { return nil }
+        return WatchedItem.key(contentID: parts[0], season: Int(parts[1]), episode: Int(parts[2]))
+    }
+
+    private func deleteWatchedItems(_ items: [WatchedItem]) {
+        let tokens = items.map { watchedDeleteToken($0) }
+        guard !tokens.isEmpty else { return }
+        var pending = loadPendingWatchedDeletes()
+        pending.formUnion(tokens)
+        savePendingWatchedDeletes(pending)
+        Task { [weak self] in await self?.drainPendingWatchedDeletes() }
+    }
+
+    /// Send every queued watched removal, clearing only what the server
+    /// confirmed. Payload mirrors the Android app: `p_keys` is an array of
+    /// `{content_id, season, episode}` (season/episode null for movies).
+    private func drainPendingWatchedDeletes() async {
+        let pending = loadPendingWatchedDeletes()
+        guard !pending.isEmpty, account.accessToken != nil else { return }
+        let keys: [[String: Any]] = pending.compactMap { token in
+            let parts = token.components(separatedBy: Self.watchedDeleteSeparator)
+            guard parts.count == 3, !parts[0].isEmpty else { return nil }
+            return [
+                "content_id": parts[0],
+                "season": Int(parts[1]).map { $0 as Any } ?? NSNull(),
+                "episode": Int(parts[2]).map { $0 as Any } ?? NSNull()
+            ]
+        }
+        guard !keys.isEmpty else { return }
+        let body: [String: Any] = [
+            "p_keys": keys,
+            "p_profile_id": pid,
+            "p_origin_client_id": clientID
+        ]
+        do {
+            _ = try await authedPost(RPC.url(RPC.deleteWatchedItems), body: body)
+            var latest = loadPendingWatchedDeletes()
+            latest.subtract(pending)   // keep anything queued while this was in flight
+            savePendingWatchedDeletes(latest)
+        } catch {
+            // Leave the queue intact — a later drain retries it.
+        }
+    }
+
+    /// Flush queued watched removals and reassert their tombstones before a
+    /// pull, so a not-yet-confirmed delete can't be resurrected by the snapshot.
+    private func reconcileWatchedDeletesBeforePull() async {
+        let pending = loadPendingWatchedDeletes()
+        if !pending.isEmpty {
+            watchedStore.tombstone(pending.compactMap { watchedKey(forToken: $0) })
+        }
+        await drainPendingWatchedDeletes()
     }
 
     private func pushWatchedItems() async throws {
@@ -608,6 +761,7 @@ final class NuvioSyncManager: ObservableObject {
             "p_origin_client_id": clientID
         ]
         _ = try await authedPost(RPC.url(RPC.pushWatchedItems), body: body)
+        setSeeded("watched")   // items is non-empty (guarded above)
     }
 
     private func pullWatchedItems() async throws {
@@ -634,13 +788,28 @@ final class NuvioSyncManager: ObservableObject {
             if rows.count < pageSize { break }
             page += 1
         }
-        guard !collected.isEmpty else { return }
-        watchedStore.mergeRemote(collected)
+        if collected.isEmpty {
+            // Same policy as library: an empty snapshot only reconciles when
+            // this profile has synced watched data before (last item was
+            // un-marked elsewhere); a fresh account keeps local history.
+            guard isSeeded("watched") else { return }
+            watchedStore.mergeRemote([])
+            return
+        }
+        let seeded = isSeeded("watched")
+        watchedStore.mergeRemote(collected, reconcile: seeded)
+        setSeeded("watched")
     }
 
     // MARK: - Profiles
 
+    /// A local profile edit is awaiting its debounced push. syncNow flushes it
+    /// BEFORE pullProfiles — otherwise a just-created profile (push still
+    /// pending) would be wiped by the pull's replaceRemote.
+    private var profilesDirty = false
+
     private func scheduleProfilePush() {
+        profilesDirty = true
         pushProfilesTask?.cancel()
         pushProfilesTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_200_000_000)
@@ -671,6 +840,7 @@ final class NuvioSyncManager: ObservableObject {
             "p_origin_client_id": clientID
         ]
         _ = try await authedPost(RPC.url(RPC.pushProfiles), body: body)
+        profilesDirty = false   // only clear once the account actually has them
     }
 
     private func pullProfiles() async throws {
@@ -699,8 +869,13 @@ final class NuvioSyncManager: ObservableObject {
         }
     }
 
-    /// Re-scope the personal-data stores to the newly-selected profile and pull
-    /// its cloud data. Local scoping happens even when signed out.
+    /// Re-scope the personal-data stores to the newly-selected profile and run a
+    /// FULL two-way sync for it. This must be the same pull+push cycle sign-in
+    /// gets — the old pull-only version meant a non-primary profile's local data
+    /// (progress, library, watched, collections, layout) never uploaded except
+    /// item-by-item on later changes, so "profile 2 doesn't sync" while the
+    /// profile active at sign-in (usually 1) worked fully. Local scoping happens
+    /// even when signed out.
     private func handleProfileSwitch(_ id: Int) {
         progressStore.setProfile(id)
         libraryStore.setProfile(id)
@@ -708,19 +883,13 @@ final class NuvioSyncManager: ObservableObject {
         collectionsStore.setProfile(id)
         homeCatalogSettings.setProfile(id)
         guard account.accessToken != nil else { return }
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await pullWatchProgress()
-                try await pullLibrary()
-                try await pullWatchedItems()
-                try? await pullCollections()   // collections via the blob below
-                try await pullHomeCatalogSettings()
-                await pullBadgeSettings()
-                await pullAppPreferences()      // includes collections
-            } catch {
-                lastSyncError = describe(error)
-            }
+        // Serialize behind any in-flight full sync (e.g. picking a profile at
+        // the gate while the sign-in sync is still running) so two cycles can't
+        // interleave their pulls/pushes across different profiles.
+        let previous = fullSyncTask
+        fullSyncTask = Task { [weak self] in
+            await previous?.value
+            await self?.syncNow()
         }
     }
 
@@ -799,13 +968,13 @@ final class NuvioSyncManager: ObservableObject {
         // (Android clients that predate the shared platform tag).
         var best: SyncHomeCatalogPayload?
         if let blob = try? await fetchHomeCatalogBlob(platform: HomeCatalogPlatform.shared),
-           let payload = decodeHomeCatalogPayload(blob), !payload.items.isEmpty {
+           let payload = decodeHomeCatalogPayload(blob), !payload.isEmpty {
             best = payload
         } else {
             var newest: (payload: SyncHomeCatalogPayload, updatedAt: String)?
             for platform in HomeCatalogPlatform.legacy {
                 guard let blob = try? await fetchHomeCatalogBlob(platform: platform),
-                      let payload = decodeHomeCatalogPayload(blob), !payload.items.isEmpty else { continue }
+                      let payload = decodeHomeCatalogPayload(blob), !payload.isEmpty else { continue }
                 let stamp = blob.updatedAt ?? ""
                 if newest == nil || stamp > newest!.updatedAt {
                     newest = (payload, stamp)
@@ -900,7 +1069,7 @@ final class NuvioSyncManager: ObservableObject {
     @discardableResult
     private func pullBadgeSettings() async -> String {
         guard let streamBadges else { return "Badge store unavailable" }
-        guard account.accessToken != nil else { return "Sign in to your Nuvio account first" }
+        guard account.accessToken != nil else { return "Sign in to your Orivio account first" }
         var sawAnyBlob = false
         for platform in Self.settingsBlobPlatforms {
             guard let data = try? await authedPost(
@@ -913,15 +1082,15 @@ final class NuvioSyncManager: ObservableObject {
                   let badgeFeature = features["stream_badge_settings"] as? [String: Any],
                   let rulesJSON = Self.preferenceString(badgeFeature["stream_badge_rules"])
             else { continue }
-            NSLog("[NuvioBadges] found badge rules in '%@' settings blob", platform)
+            NSLog("[OrivioBadges] found badge rules in '%@' settings blob", platform)
             streamBadges.applyRemoteRules(rulesJSON)
             if streamBadges.isConfigured {
                 return "Synced \(streamBadges.filterCount) badge filters (\(platform) settings)"
             }
         }
-        NSLog("[NuvioBadges] no badge rules in any settings blob (sawAnyBlob=%d)", sawAnyBlob ? 1 : 0)
+        NSLog("[OrivioBadges] no badge rules in any settings blob (sawAnyBlob=%d)", sawAnyBlob ? 1 : 0)
         return sawAnyBlob
-            ? "Your account has settings, but no badge config — import one in any Nuvio app first"
+            ? "Your account has settings, but no badge config — import one in any Orivio app first"
             : "No synced settings found on this account"
     }
 
@@ -1102,6 +1271,180 @@ final class NuvioSyncManager: ObservableObject {
             "p_origin_client_id": clientID,
         ]
         _ = try? await authedPost(RPC.url(RPC.pushProfileSettingsBlob), body: body)
+    }
+
+    // MARK: - Provider credentials (debrid keys + Trakt) — Android table
+
+    /// Maps our DebridProvider to the Android provider-credential name. AllDebrid
+    /// isn't a synced provider on Android, so it stays blob-only.
+    private static let debridProviderNames: [(DebridProvider, String)] = [
+        (.realDebrid, "realdebrid"), (.premiumize, "premiumize"), (.torbox, "torbox")
+    ]
+
+    private func scheduleProviderCredentialsPush() {
+        pushProviderCredentialsTask?.cancel()
+        pushProviderCredentialsTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            await self?.pushProviderCredentials()
+        }
+    }
+
+    /// Push debrid API keys and the Trakt login into the shared
+    /// `provider_credentials` table. Each row is
+    /// `{provider, credential_json, updated_at}`; `p_credentials` carries them.
+    private func pushProviderCredentials() async {
+        guard account.accessToken != nil else { return }
+        let now = ISO8601DateFormatter().string(from: Date())
+        var credentials: [[String: Any]] = []
+
+        if let debridStore {
+            for (provider, name) in Self.debridProviderNames {
+                let key = debridStore.key(for: provider)
+                guard !key.isEmpty else { continue }
+                credentials.append([
+                    "provider": name,
+                    // snake_case matches this backend's convention; the reader is
+                    // tolerant of camelCase in case a client wrote it differently.
+                    "credential_json": ["api_key": key],
+                    "updated_at": now
+                ])
+            }
+        }
+
+        if let traktStore, let access = traktStore.accessToken, let refresh = traktStore.refreshToken {
+            var json: [String: Any] = ["access_token": access, "refresh_token": refresh]
+            if let username = traktStore.username { json["username"] = username }
+            credentials.append(["provider": "trakt", "credential_json": json, "updated_at": now])
+        }
+
+        guard !credentials.isEmpty else { return }
+        let body: [String: Any] = [
+            "p_credentials": credentials,
+            "p_profile_id": pid,
+            "p_origin_client_id": clientID
+        ]
+        _ = try? await authedPost(RPC.url(RPC.pushProviderCredentials), body: body)
+    }
+
+    /// Pull provider credentials and apply them. Tolerant: `credential_json` may
+    /// arrive as an object or a JSON string, and inner keys may be snake- or
+    /// camel-case — so debrid keys and Trakt logins added on the phone show up
+    /// here regardless of exactly how that client serialized them.
+    private func pullProviderCredentials() async {
+        guard account.accessToken != nil else { return }
+        guard let data = try? await authedPost(
+            RPC.url(RPC.pullProviderCredentials), body: ["p_profile_id": pid]
+        ) else { return }
+        // Rows may arrive as an array or (some PostgREST configs) a bare object.
+        let parsed = try? JSONSerialization.jsonObject(with: data)
+        let rows: [[String: Any]]
+        if let array = parsed as? [[String: Any]] { rows = array }
+        else if let single = parsed as? [String: Any] { rows = [single] }
+        else { return }
+
+        // Collect debrid keys and apply them in ONE guarded applyRemote — calling
+        // setKey directly fired onLocalChange (it isn't the applyingRemote path),
+        // which echoed a credentials push after every pull.
+        var debridKeys: [String: String] = [:]
+        for row in rows {
+            guard let provider = (row["provider"] as? String)?.lowercased() else { continue }
+            let json = Self.credentialJSON(from: row["credential_json"])
+            #if DEBUG
+            NSLog("[OrivioSync] provider_credentials '%@' keys: %@", provider,
+                  json.keys.sorted().joined(separator: ","))
+            #endif
+            if provider == "trakt" {
+                let access = Self.anyString(json["access_token"] ?? json["accessToken"])
+                let refresh = Self.anyString(json["refresh_token"] ?? json["refreshToken"])
+                let username = Self.anyString(json["username"] ?? json["user"])
+                traktStore?.applyRemote(access: access, refresh: refresh, username: username)
+            } else if let match = Self.debridProviderNames.first(where: { $0.1 == provider }) {
+                let key = Self.anyString(
+                    json["api_key"] ?? json["apiKey"] ?? json["apikey"]
+                        ?? json["token"] ?? json["access_token"] ?? json["value"]
+                )
+                if let key, !key.isEmpty { debridKeys[match.0.rawValue] = key }
+            }
+        }
+        if !debridKeys.isEmpty {
+            debridStore?.applyRemote(DebridStore.DebridSnapshot(keys: debridKeys, preferred: nil))
+        }
+    }
+
+    /// `credential_json` tolerated as a nested object OR a JSON-encoded string.
+    private static func credentialJSON(from value: Any?) -> [String: Any] {
+        if let dict = value as? [String: Any] { return dict }
+        if let text = value as? String, let data = text.data(using: .utf8),
+           let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return dict
+        }
+        return [:]
+    }
+
+    private static func anyString(_ value: Any?) -> String? {
+        if let s = value as? String { return s }
+        if let n = value as? NSNumber { return n.stringValue }
+        return nil
+    }
+
+    // MARK: - Plugins — Android table
+
+    private func schedulePluginsPush() {
+        pushPluginsTask?.cancel()
+        pushPluginsTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            guard !Task.isCancelled else { return }
+            try? await self?.pushPlugins()
+        }
+    }
+
+    /// The profile whose plugin rows this device reads/writes. Mirrors Android:
+    /// a profile flagged "uses primary plugins" shares profile 1's rows, so a
+    /// push from that profile must not fork its own plugin set.
+    private var pluginPID: Int {
+        let active = profileStore.allForSync().first { $0.id == pid }
+        return (active?.usesPrimaryPlugins ?? true) ? 1 : pid
+    }
+
+    /// Push plugin repos to the dedicated `plugins` table (`sync_push_plugins`),
+    /// mirroring the Android row shape: url/name/enabled/sort_order/repo_type.
+    /// tvOS scrapers are Nuvio JS repos → repo_type "NUVIO_JS".
+    private func pushPlugins() async throws {
+        guard account.accessToken != nil, let pluginStore else { return }
+        let repos = pluginStore.repositories
+        guard !repos.isEmpty else { return }
+        let entries: [[String: Any]] = repos.enumerated().map { index, repo in
+            [
+                "url": repo.url,
+                "name": repo.name,
+                "enabled": repo.enabled,
+                "sort_order": index,
+                "repo_type": "NUVIO_JS"
+            ]
+        }
+        let body: [String: Any] = [
+            "p_plugins": entries,
+            "p_profile_id": pluginPID,
+            "p_origin_client_id": clientID
+        ]
+        _ = try await authedPost(RPC.url(RPC.pushPlugins), body: body)
+    }
+
+    /// Pull plugin repos via a PostgREST table select (there's no dedicated pull
+    /// RPC — the Android app reads the table directly too). tvOS only needs the
+    /// URLs; PluginStore re-fetches each manifest and installs missing ones.
+    private func pullPlugins() async {
+        guard let userID = account.currentUserID, let pluginStore else { return }
+        let path = "/rest/v1/plugins?user_id=eq.\(userID)&profile_id=eq.\(pluginPID)&select=url,repo_type,sort_order,enabled"
+        guard let data = try? await authedGet(path),
+              let rows = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return }
+        let urls = rows
+            .filter { ($0["repo_type"] as? String)?.uppercased() != "EXTERNAL_DEX" }  // JS only
+            .filter { ($0["enabled"] as? Bool) ?? true }   // don't install repos disabled elsewhere
+            .compactMap { $0["url"] as? String }
+        guard !urls.isEmpty else { return }
+        await pluginStore.applyRemote(PluginStore.PluginSyncSnapshot(repositoryURLs: urls))
     }
 
     private func authedPost(_ endpoint: String, body: [String: Any]) async throws -> Data {

@@ -28,7 +28,6 @@ final class DetailViewModel: ObservableObject {
     }
 
     func load(addonManager: AddonManager, mdbSettings: MDBListSettings = .default, tmdb: TMDBSettings = .default, parentalGuideEnabled: Bool = false) async {
-        defer { isLoading = false }
         useEpisodeExtras = tmdb.useEpisodes
         // Canonicalize the identity FIRST: TMDB-sourced items arrive as
         // `tmdb:<n>`, but progress / watched / library are keyed by id — the
@@ -58,6 +57,14 @@ final class DetailViewModel: ObservableObject {
             selectedSeason = meta.seasons.first
         }
         if let season = selectedSeason { await loadSeason(season) }
+        // Episodes are ready now — stop blocking the episode section (gated on
+        // `isLoading`) behind Trakt comments / MDBList ratings / parental guide
+        // below. Those are unrelated to episodes and can each be slow
+        // themselves; a meta addon that aggregates several sources per request
+        // (e.g. AIOMetadata) was already the slow part of this load, and
+        // chaining three more independent network calls after it responded
+        // just made "episodes" wait even longer for no reason.
+        isLoading = false
 
         if let detail = await enrichTask.value {
             // Granular TMDB toggles gate which enriched sections appear.

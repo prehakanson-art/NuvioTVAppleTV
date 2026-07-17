@@ -173,7 +173,17 @@ final class HomeViewModel: ObservableObject {
                 }
             }
             for await (index, key, entry) in group {
-                if let entry { fetched.append((index, key, entry)) }
+                if let entry {
+                    fetched.append((index, key, entry))
+                    // Reveal rows AS EACH ADDON RESPONDS instead of waiting for
+                    // every addon (including a slow aggregator like AIOMetadata,
+                    // which can take many seconds) before showing anything.
+                    // `rowsContent` drops the loading backdrop the moment
+                    // `entries` is non-empty, so a fast addon's rows no longer
+                    // sit behind a slow one — this was the whole Home screen
+                    // waiting on its single slowest catalog source.
+                    entries = fetched.sorted { $0.index < $1.index }.map(\.entry)
+                }
             }
         }
 
@@ -478,10 +488,31 @@ struct HomeView: View {
                 rowEntry(entry)
             case .collection(let collection):
                 if collection.id == firstCollectionID {
-                    CollectionsRowSection(collections: allCollections, onOpen: onOpenCollection)
+                    CollectionsRowSection(
+                        collections: allCollections,
+                        onOpen: onOpenCollection,
+                        onFocus: { if layout != .grid { hero.focus(heroItem(for: $0)) } }
+                    )
                 }
             }
         }
+    }
+
+    /// A collection has no "meta" of its own, so build a lightweight stand-in
+    /// for the shared hero panel: backdrop + the collection's own logo (a
+    /// folder's cover — for a community category this IS the real Netflix/
+    /// Marvel/etc. logo), same as focusing a regular poster does. `description`
+    /// is set to "" (not nil) so HeroFocus doesn't try to enrich a synthetic id.
+    private func heroItem(for collection: NuvioCollection) -> MetaItem {
+        let firstFolder = collection.folders.first
+        return MetaItem(
+            id: "collection:\(collection.id)",
+            type: "collection",
+            name: collection.title,
+            background: collection.backdropImageUrl ?? firstFolder?.coverImageUrl,
+            logo: firstFolder?.coverImageUrl,
+            description: ""
+        )
     }
 
     @ViewBuilder

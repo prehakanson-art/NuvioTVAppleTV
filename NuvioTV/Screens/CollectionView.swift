@@ -61,6 +61,9 @@ struct CollectionRowSection: View {
 struct CollectionsRowSection: View {
     let collections: [NuvioCollection]
     let onOpen: (NuvioCollection) -> Void
+    /// Reports which collection is focused so Home can drive its hero
+    /// backdrop/logo panel the same way a regular poster card does.
+    var onFocus: (NuvioCollection) -> Void = { _ in }
 
     /// Collections flagged "pin to top" sort first, in their given order;
     /// everything else keeps the Home-layout order after them. Home already
@@ -80,6 +83,9 @@ struct CollectionsRowSection: View {
                 ForEach(ordered) { collection in
                     Button { onOpen(collection) } label: {
                         CollectionTileCard(collection: collection)
+                            .onFocusChange { focused in
+                                if focused { onFocus(collection) }
+                            }
                     }
                     .buttonStyle(PlainCardButtonStyle())
                 }
@@ -258,6 +264,12 @@ struct CollectionView: View {
         if let c = collection.folders.first?.coverImageUrl, !c.isEmpty { return c }
         return nil
     }
+    /// True when `backdropURL` is a genuine wide backdrop PHOTO (meant to fill
+    /// the screen edge-to-edge) rather than the logo fallback (a small brand
+    /// mark — every community category has one — meant to be seen WHOLE, not
+    /// stretched/cropped to cover the frame, which just showed a zoomed-in
+    /// sliver of the mark).
+    private var backdropIsRealPhoto: Bool { collection.backdropImageUrl?.isEmpty == false }
 
     private var hasTabs: Bool { collection.folders.count > 1 || !collection.showAllTab }
     /// Height reserved for the pinned header (title + optional tabs) — the grid
@@ -267,11 +279,14 @@ struct CollectionView: View {
     var body: some View {
         ZStack(alignment: .top) {
             theme.palette.background.ignoresSafeArea()
-            // Same HQ picture as the tile, used as the collection's background.
+            // A real backdrop photo fills edge-to-edge like before; the logo
+            // fallback (every community category has one, no real backdrop)
+            // is shown WHOLE via .fit instead of cropped/zoomed via .fill, at
+            // a bit more opacity so the mark actually reads.
             if let backdrop = backdropURL {
-                RemoteImage(url: backdrop, contentMode: .fill)
+                RemoteImage(url: backdrop, contentMode: backdropIsRealPhoto ? .fill : .fit)
                     .ignoresSafeArea()
-                    .opacity(0.3)
+                    .opacity(backdropIsRealPhoto ? 0.3 : 0.55)
                     .overlay(theme.palette.background.opacity(0.35).ignoresSafeArea())
             }
 

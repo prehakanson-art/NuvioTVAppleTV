@@ -964,6 +964,7 @@ private struct AddonsManagementView: View {
     @State private var showCatalogOrder = false
     @State private var showDiscover = false
     @State private var showCommunityCatalogs = false
+    @State private var showCommunityCollections = false
     @State private var refreshing = false
     @State private var showExport = false
     @State private var pendingRemoval: InstalledAddon?
@@ -1040,6 +1041,17 @@ private struct AddonsManagementView: View {
             }
             .buttonStyle(PlainCardButtonStyle())
 
+            // Community Collections — curated, HQ, one-tap-install collections
+            // (major streaming services / studios) that need zero setup.
+            Button { showCommunityCollections = true } label: {
+                SettingsActionRow(
+                    title: "Community Collections",
+                    subtitle: "One-tap streaming-service and studio collections — install and go",
+                    leadingIcon: "square.stack.3d.up.fill"
+                )
+            }
+            .buttonStyle(PlainCardButtonStyle())
+
             // Refresh Add-ons
             Button { refresh() } label: {
                 SettingsActionRow(
@@ -1089,6 +1101,11 @@ private struct AddonsManagementView: View {
                 .environmentObject(theme)
                 .environmentObject(collections)
                 .environmentObject(addonManager)
+        }
+        .fullScreenCover(isPresented: $showCommunityCollections) {
+            CommunityCollectionsView { showCommunityCollections = false }
+                .environmentObject(theme)
+                .environmentObject(collections)
         }
         .fullScreenCover(isPresented: $showCatalogOrder) {
             CatalogOrderCoverView { showCatalogOrder = false }

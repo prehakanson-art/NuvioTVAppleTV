@@ -619,6 +619,9 @@ struct CollectionEditorView: View {
     @State private var folders: [NuvioCollectionFolder] = []
     @State private var editingFolder: NuvioCollectionFolder?
     @State private var addingFolder = false
+    @State private var pinToTop = false
+    @State private var focusGlowEnabled = true
+    @State private var showAllTab = true
 
     private var isNew: Bool { collection == nil }
 
@@ -634,6 +637,22 @@ struct CollectionEditorView: View {
                     TextField("Collection name", text: $title)
                         .font(.system(size: 26))
                         .frame(maxWidth: 700)
+
+                    SettingsToggleCard(
+                        title: "Pin to top of Home",
+                        subtitle: "Show this collection's row before the catalogs",
+                        isOn: $pinToTop
+                    )
+                    SettingsToggleCard(
+                        title: "Focus glow",
+                        subtitle: "Highlight tiles with a soft glow when focused",
+                        isOn: $focusGlowEnabled
+                    )
+                    SettingsToggleCard(
+                        title: "\"All\" tab",
+                        subtitle: "Show a combined tab alongside each folder's tab in the browser",
+                        isOn: $showAllTab
+                    )
 
                     Text("Folders")
                         .font(.system(size: 28, weight: .bold))
@@ -689,6 +708,9 @@ struct CollectionEditorView: View {
             if let collection {
                 title = collection.title
                 folders = collection.folders
+                pinToTop = collection.pinToTop
+                focusGlowEnabled = collection.focusGlowEnabled ?? true
+                showAllTab = collection.showAllTab
             }
         }
         // Same as Cancel — dismiss without saving.
@@ -717,7 +739,7 @@ struct CollectionEditorView: View {
         let addonCount = folder.addonSources.count
         let otherCount = folder.effectiveSources.count - addonCount
         var parts: [String] = ["\(addonCount) catalog\(addonCount == 1 ? "" : "s")"]
-        if otherCount > 0 { parts.append("\(otherCount) TMDB/Trakt (needs integrations)") }
+        if otherCount > 0 { parts.append("\(otherCount) TMDB/Trakt") }
         return parts.joined(separator: " · ")
     }
 
@@ -727,10 +749,15 @@ struct CollectionEditorView: View {
         if var existing = collection {
             existing.title = trimmed
             existing.folders = folders
+            existing.pinToTop = pinToTop
+            existing.focusGlowEnabled = focusGlowEnabled
+            existing.showAllTab = showAllTab
             collections.update(existing)
         } else {
             var created = NuvioCollection(id: collections.generateID(), title: trimmed, folders: folders)
-            created.folders = folders
+            created.pinToTop = pinToTop
+            created.focusGlowEnabled = focusGlowEnabled
+            created.showAllTab = showAllTab
             collections.add(created)
         }
         onDone()
@@ -753,6 +780,7 @@ private struct FolderEditorView: View {
     @State private var passthroughSources: [CollectionSourceDTO] = []
     @State private var tileShape = "SQUARE"
     @State private var coverURL = ""
+    @State private var showSourcePicker = false
 
     private static let shapes: [(id: String, label: String)] =
         [("SQUARE", "Square"), ("POSTER", "Poster"), ("LANDSCAPE", "Landscape")]
@@ -834,11 +862,32 @@ private struct FolderEditorView: View {
                         .buttonStyle(PlainCardButtonStyle())
                     }
 
-                    if !passthroughSources.isEmpty {
-                        Text("\(passthroughSources.count) TMDB/Trakt source\(passthroughSources.count == 1 ? "" : "s") from another device kept as-is (they need the TMDB/Trakt integrations).")
-                            .font(.system(size: 19))
-                            .foregroundStyle(theme.palette.textSecondary)
-                            .frame(maxWidth: 900, alignment: .leading)
+                    Text("TMDB / Trakt Sources")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundStyle(theme.palette.textPrimary)
+
+                    Button { showSourcePicker = true } label: {
+                        SettingsActionRow(
+                            title: "Add TMDB / Trakt Source",
+                            subtitle: "Studios, networks, people, discover feeds, or a Trakt list",
+                            leadingIcon: "plus.circle.fill"
+                        )
+                    }
+                    .buttonStyle(PlainCardButtonStyle())
+
+                    ForEach(Array(passthroughSources.enumerated()), id: \.offset) { index, source in
+                        HStack(spacing: NuvioSpacing.md) {
+                            SettingsActionRow(
+                                title: source.title?.isEmpty == false ? source.title! : (source.tmdbSourceType ?? "Trakt List"),
+                                subtitle: source.isTraktSource ? "Trakt list" : "TMDB \((source.tmdbSourceType ?? "").capitalized)",
+                                leadingIcon: source.isTraktSource ? "checkmark.seal.fill" : "film.fill"
+                            )
+                            Button(role: .destructive) {
+                                passthroughSources.remove(at: index)
+                            } label: {
+                                Image(systemName: "trash").font(.system(size: 22))
+                            }
+                        }
                     }
 
                     // Tile shape — Square / Poster / Landscape.
@@ -891,6 +940,13 @@ private struct FolderEditorView: View {
         }
         // Same as Cancel — dismiss without saving.
         .onExitCommand { onDone(nil) }
+        .fullScreenCover(isPresented: $showSourcePicker) {
+            CollectionSourcePickerView(
+                onAdd: { passthroughSources.append($0) },
+                onDone: { showSourcePicker = false }
+            )
+            .environmentObject(theme)
+        }
     }
 
     private func save() {

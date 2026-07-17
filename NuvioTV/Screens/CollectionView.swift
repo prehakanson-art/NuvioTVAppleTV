@@ -22,14 +22,15 @@ struct CollectionRowSection: View {
                 LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
                     ForEach(collection.folders) { folder in
                         Button(action: onOpen) {
-                            CollectionFolderCard(folder: folder)
+                            CollectionFolderCard(folder: folder, glowEnabled: collection.focusGlowEnabled ?? true)
                                 .onFocusChange { onCardFocus($0) }
                         }
                         .buttonStyle(PlainCardButtonStyle())
                     }
                     if collection.folders.isEmpty {
                         Button(action: onOpen) {
-                            CollectionFolderCard(folder: nil, fallbackTitle: collection.title)
+                            CollectionFolderCard(folder: nil, fallbackTitle: collection.title,
+                                                 glowEnabled: collection.focusGlowEnabled ?? true)
                                 .onFocusChange { onCardFocus($0) }
                         }
                         .buttonStyle(PlainCardButtonStyle())
@@ -50,10 +51,22 @@ struct CollectionsRowSection: View {
     let collections: [NuvioCollection]
     let onOpen: (NuvioCollection) -> Void
 
+    /// Collections flagged "pin to top" sort first, in their given order;
+    /// everything else keeps the Home-layout order after them. Home already
+    /// folds every collection into this one combined row, so a per-collection
+    /// pin can't move it to its own row position — instead it wins its place
+    /// within this shared tile strip.
+    private var ordered: [NuvioCollection] {
+        let pinned = collections.filter(\.pinToTop)
+        guard !pinned.isEmpty else { return collections }
+        let rest = collections.filter { !$0.pinToTop }
+        return pinned + rest
+    }
+
     var body: some View {
         ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
-                ForEach(collections) { collection in
+                ForEach(ordered) { collection in
                     Button { onOpen(collection) } label: {
                         CollectionTileCard(collection: collection)
                     }
@@ -113,6 +126,11 @@ struct CollectionTileCard: View {
             )
             .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused ? 0.65 : 0),
                     radius: perf.settings.cardShadows && isFocused ? 22 : 0, y: 10)
+            // Collection-authored "focus glow" — a colored halo behind the tile,
+            // distinct from the neutral drop shadow above. Off by default per
+            // folder if the collection disabled it in the editor.
+            .shadow(color: glowEnabled && isFocused ? theme.palette.focusRing.opacity(0.85) : .clear,
+                    radius: glowEnabled && isFocused ? 28 : 0)
 
             Text(collection.title)
                 .font(.system(size: 24, weight: .semibold))
@@ -123,6 +141,8 @@ struct CollectionTileCard: View {
         .scaleEffect(perf.focusZoomEffective && isFocused ? 1.06 : 1.0)
         .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
     }
+
+    private var glowEnabled: Bool { collection.focusGlowEnabled ?? true }
 }
 
 struct CollectionFolderCard: View {
@@ -132,6 +152,7 @@ struct CollectionFolderCard: View {
 
     let folder: NuvioCollectionFolder?
     var fallbackTitle: String = ""
+    var glowEnabled: Bool = true
 
     private var title: String { folder?.title ?? fallbackTitle }
     private var isPoster: Bool { folder?.tileShape == "POSTER" }
@@ -166,6 +187,8 @@ struct CollectionFolderCard: View {
             )
             .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused ? 0.65 : 0),
                     radius: perf.settings.cardShadows && isFocused ? 22 : 0, y: 10)
+            .shadow(color: glowEnabled && isFocused ? theme.palette.focusRing.opacity(0.85) : .clear,
+                    radius: glowEnabled && isFocused ? 28 : 0)
 
             if folder?.hideTitle != true && !title.isEmpty {
                 Text(title)
@@ -280,7 +303,7 @@ struct CollectionView: View {
                 icon: "rectangle.stack",
                 title: "Nothing here yet",
                 message: hasUnsupportedSources
-                    ? "This folder uses TMDB sources — enable TMDB in Settings → Integrations, or Trakt sources which need the Trakt integration."
+                    ? "This folder uses TMDB sources — enable TMDB in Settings → Integrations to show them here."
                     : "This folder has no items. Add catalog sources to it in Settings → Collections."
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -340,18 +363,20 @@ struct CollectionView: View {
         await withTaskGroup(of: (String, [MetaItem]).self) { group in
             for folder in collection.folders {
                 // TMDB sources resolve only when the integration is enabled;
-                // Trakt (and TMDB while disabled) count as unsupported here.
+                // Trakt sources always resolve (public API, no toggle needed).
                 let tmdbSources = folder.effectiveSources.filter { $0.provider.lowercased() == "tmdb" }
+                let traktSources = folder.effectiveSources.filter { $0.isTraktSource }
                 let otherUnsupported = folder.effectiveSources.filter {
-                    !$0.isAddonSource && $0.provider.lowercased() != "tmdb"
+                    !$0.isAddonSource && $0.provider.lowercased() != "tmdb" && !$0.isTraktSource
                 }
                 if !otherUnsupported.isEmpty || (!tmdbSources.isEmpty && !tmdbEnabled) {
                     unsupported = true
                 }
                 let addonSources = folder.addonSources
                 let resolvableTmdb = tmdbEnabled ? tmdbSources : []
-                guard !addonSources.isEmpty || !resolvableTmdb.isEmpty else { continue }
+                guard !addonSources.isEmpty || !resolvableTmdb.isEmpty || !traktSources.isEmpty else { continue }
                 let addons = addonManager.addons
+                let manager = addonManager
                 group.addTask {
                     var items: [MetaItem] = []
                     var seen = Set<String>()
@@ -374,6 +399,12 @@ struct CollectionView: View {
                             items.append(item)
                         }
                     }
+                    for source in traktSources {
+                        let fetched = await Self.resolveTrakt(source: source, addonManager: manager)
+                        for item in fetched where seen.insert(item.id).inserted {
+                            items.append(item)
+                        }
+                    }
                     return (folder.id, items)
                 }
             }
@@ -384,6 +415,37 @@ struct CollectionView: View {
         itemsByFolder = results
         hasUnsupportedSources = unsupported
         isLoading = false
+    }
+
+    /// Trakt list items arrive with no artwork — enrich the first N via the
+    /// installed meta add-on (Cinemeta) so the grid still has posters; the
+    /// rest still display (title only) rather than being dropped.
+    private static func resolveTrakt(source: CollectionSourceDTO, addonManager: AddonManager) async -> [MetaItem] {
+        guard let traktListId = source.traktListId else { return [] }
+        let type = (source.mediaType ?? "movie").lowercased() == "tv" ? "show" : "movie"
+        let sortBy = source.sortBy ?? "rank"
+        let sortHow = source.sortHow ?? "asc"
+        let raw = await TraktService.publicListItems(
+            traktListId: traktListId, type: type, sortBy: sortBy, sortHow: sortHow
+        )
+        var enriched = 0
+        var out: [MetaItem] = []
+        for item in raw {
+            let metaType = item.isMovie ? "movie" : "series"
+            let id = item.imdb ?? item.tmdb.map { "tmdb:\($0)" }
+            guard let id else { continue }
+            if enriched < 30, let addon = await addonManager.metaAddon(for: metaType, id: id),
+               let meta = try? await StremioAPI.meta(addon: addon, type: metaType, id: id) {
+                enriched += 1
+                out.append(meta)
+            } else {
+                out.append(MetaItem(
+                    id: id, type: metaType, name: item.title,
+                    releaseInfo: item.year.map(String.init)
+                ))
+            }
+        }
+        return out
     }
 
     /// Collections reference addons by manifest id (cross-platform stable),

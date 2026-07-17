@@ -71,6 +71,7 @@
 		9B3FA2260743150105A9D5B4 /* DeepLinkService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0CEDB85725047F73A8229A81 /* DeepLinkService.swift */; };
 		9B9E605EC0039FC1C05A6A1C /* VLCKitSPM in Frameworks */ = {isa = PBXBuildFile; productRef = 02A6139CD1D7A76A7D0AC3DC /* VLCKitSPM */; };
 		9E84617B508432C86A202A4E /* SourceSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4D4C53D8C6A8B8FC9F1C1216 /* SourceSelection.swift */; };
+		A055A49823153A5E7FF467CF /* CollectionSourcePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F2F3D404F8090E645BED64F /* CollectionSourcePickerView.swift */; };
 		A0E0B1CA9C96B4892749E9AB /* PauseOverlayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2B5622602D0586649B04485 /* PauseOverlayView.swift */; };
 		A4C392E6EA1199F861E53767 /* DownloadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = D65C4F9D6EA30C04E99A1C3E /* DownloadManager.swift */; };
 		A9F8E8B54CCF719E19974568 /* ScrubberViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = E6F178D2C0DFC1696A87DB92 /* ScrubberViews.swift */; };
@@ -89,6 +90,7 @@
 		D80260DF602808C85646CA6F /* ParentalGuideService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 27E6B87A80D6B01D3A58DD6B /* ParentalGuideService.swift */; };
 		D93146472B6B7BF5F92096A7 /* AnimeSkipService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33630A3CF4A4B769A36A3404 /* AnimeSkipService.swift */; };
 		DE74561D221C4C25B60C7E41 /* CloudLibraryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CB57AA419192D7276E5E56DC /* CloudLibraryService.swift */; };
+		E2CFF35E41DBA1ED383BD452 /* CommunityCollectionsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EDFA7EC018CBBC0C2C165D94 /* CommunityCollectionsView.swift */; };
 		E443BC9DF49F9CC79A5971CD /* AddonCatalogService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 16C3CC132C8AA81FEAD97A0F /* AddonCatalogService.swift */; };
 		E5B79A409AAB47A1AC1155D8 /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 243ACB41C793BA410B49B210 /* DetailView.swift */; };
 		E70E13C52AD92FE35CBC2E4C /* CatalogSeeAllView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */; };
@@ -115,6 +117,7 @@
 		16C3CC132C8AA81FEAD97A0F /* AddonCatalogService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddonCatalogService.swift; sourceTree = "<group>"; };
 		17D137BCE0827FF5B9EBCA42 /* ExternalPlayers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ExternalPlayers.swift; sourceTree = "<group>"; };
 		1EC4C10B5219C8C94F5868AA /* SettingsTraktView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsTraktView.swift; sourceTree = "<group>"; };
+		1F2F3D404F8090E645BED64F /* CollectionSourcePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionSourcePickerView.swift; sourceTree = "<group>"; };
 		23BB59F8EC142A8F67E0D28F /* SettingsPerformanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsPerformanceView.swift; sourceTree = "<group>"; };
 		243ACB41C793BA410B49B210 /* DetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailView.swift; sourceTree = "<group>"; };
 		260D75DAB36C83E9C3ABC4C6 /* CastDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CastDetailView.swift; sourceTree = "<group>"; };
@@ -188,6 +191,7 @@
 		EAE1265EE9F6B43BD02CCC9F /* CollectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CollectionView.swift; sourceTree = "<group>"; };
 		EC76C716994706B4C8031E57 /* NuvioConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NuvioConfig.swift; sourceTree = "<group>"; };
 		EDBD5D6D83637232496C5D02 /* AddonManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AddonManager.swift; sourceTree = "<group>"; };
+		EDFA7EC018CBBC0C2C165D94 /* CommunityCollectionsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityCollectionsView.swift; sourceTree = "<group>"; };
 		F0510E8569C2B8AAC1E46969 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		F1510EE278728A03479CC185 /* NuvioTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NuvioTheme.swift; sourceTree = "<group>"; };
 		F2F37340DE97CB402D9FE2DE /* TopShelfExporter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TopShelfExporter.swift; sourceTree = "<group>"; };
@@ -257,7 +261,9 @@
 				260D75DAB36C83E9C3ABC4C6 /* CastDetailView.swift */,
 				09C3A6238099830333C1A60E /* CatalogSeeAllView.swift */,
 				0427A6C91DE30C948C8A38BF /* CloudLibraryView.swift */,
+				1F2F3D404F8090E645BED64F /* CollectionSourcePickerView.swift */,
 				EAE1265EE9F6B43BD02CCC9F /* CollectionView.swift */,
+				EDFA7EC018CBBC0C2C165D94 /* CommunityCollectionsView.swift */,
 				243ACB41C793BA410B49B210 /* DetailView.swift */,
 				4C01CCB128223FD098404765 /* DiscoverView.swift */,
 				0FB737837B726FAD666FA4B3 /* DownloadsView.swift */,
@@ -494,8 +500,10 @@
 				E70E13C52AD92FE35CBC2E4C /* CatalogSeeAllView.swift in Sources */,
 				DE74561D221C4C25B60C7E41 /* CloudLibraryService.swift in Sources */,
 				EA3331CD768BFEBD84DF3E31 /* CloudLibraryView.swift in Sources */,
+				A055A49823153A5E7FF467CF /* CollectionSourcePickerView.swift in Sources */,
 				AE0CFA7CB5922AEB4625975A /* CollectionView.swift in Sources */,
 				2072F1BAB7047F8207172DA4 /* CollectionsStore.swift in Sources */,
+				E2CFF35E41DBA1ED383BD452 /* CommunityCollectionsView.swift in Sources */,
 				BF6961891F5345E7DBE28277 /* Components.swift in Sources */,
 				C7A329FA86460E8FE3DFCA59 /* DVRemuxer.swift in Sources */,
 				0DFE89CB6E0C80C4497E341F /* DebridService.swift in Sources */,

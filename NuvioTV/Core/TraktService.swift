@@ -552,4 +552,77 @@ enum TraktService {
               (body["movies"] as? [Any])?.count ?? 0, (body["shows"] as? [Any])?.count ?? 0, http.statusCode)
         return (200..<300).contains(http.statusCode)
     }
+
+    // MARK: Public lists (collection sources)
+
+    struct PublicListInfo: Hashable {
+        let traktListId: Int64
+        let title: String
+        let description: String?
+    }
+
+    /// Parse a bare list id, a slug, or a full trakt.tv list URL — mirrors the
+    /// Android app's tolerant input (`parseTraktListPath`).
+    static func parseListIDPath(_ input: String) -> String? {
+        let trimmed = input.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        if Int64(trimmed) != nil { return trimmed }
+        for pattern in [#"[?&]id=([^&#/]+)"#, #"trakt\.tv/lists/([^/?#]+)"#, #"trakt\.tv/users/[^/]+/lists/([^/?#]+)"#] {
+            if let range = trimmed.range(of: pattern, options: .regularExpression) {
+                let match = String(trimmed[range])
+                if let idRange = match.range(of: #"[^/=]+$"#, options: .regularExpression) {
+                    return String(match[idRange])
+                }
+            }
+        }
+        let slugCharset = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-")
+        return trimmed.unicodeScalars.allSatisfy(slugCharset.contains) ? trimmed : nil
+    }
+
+    /// Metadata for a public (or the signed-in user's own) Trakt list — no auth
+    /// required. `input` accepts an id, slug, or full trakt.tv URL.
+    static func publicListInfo(input: String) async -> PublicListInfo? {
+        guard let idPath = parseListIDPath(input) else { return nil }
+        struct Response: Decodable {
+            struct IDs: Decodable { let trakt: Int64? }
+            let name: String?; let description: String?; let ids: IDs?
+        }
+        let req = request("/lists/\(idPath)?extended=full")
+        guard let (data, response) = try? await session.data(for: req),
+              let http = response as? HTTPURLResponse, http.statusCode == 200,
+              let body = try? JSONDecoder().decode(Response.self, from: data),
+              let traktID = body.ids?.trakt, let name = body.name else { return nil }
+        return PublicListInfo(traktListId: traktID, title: name, description: body.description)
+    }
+
+    /// One raw item from a public list — enough to build a MetaItem once the
+    /// caller resolves poster art (Trakt's own image extension needs VIP).
+    struct PublicListItem: Hashable {
+        let imdb: String?
+        let tmdb: Int?
+        let title: String
+        let year: Int?
+        let isMovie: Bool
+    }
+
+    /// Items in a public Trakt list. `type` is "movie" or "show".
+    static func publicListItems(traktListId: Int64, type: String, sortBy: String, sortHow: String) async -> [PublicListItem] {
+        struct Row: Decodable {
+            struct IDs: Decodable { let imdb: String?; let tmdb: Int? }
+            struct Media: Decodable { let title: String?; let year: Int?; let ids: IDs? }
+            let type: String?; let movie: Media?; let show: Media?
+        }
+        let path = "/lists/\(traktListId)/items/\(type)"
+        let req = request(path + "?extended=full&limit=200&sort_by=\(sortBy)&sort_how=\(sortHow)")
+        guard let (data, response) = try? await session.data(for: req),
+              let http = response as? HTTPURLResponse else { return [] }
+        if http.statusCode != 200 { NSLog("[OrivioTrakt] GET %@ → HTTP %d", path, http.statusCode) }
+        guard let rows = try? JSONDecoder().decode([Row].self, from: data) else { return [] }
+        return rows.compactMap { row in
+            let isMovie = (row.type ?? type) == "movie"
+            guard let media = isMovie ? row.movie : row.show, let title = media.title else { return nil }
+            return PublicListItem(imdb: media.ids?.imdb, tmdb: media.ids?.tmdb, title: title,
+                                  year: media.year, isMovie: isMovie)
+        }
+    }
 }

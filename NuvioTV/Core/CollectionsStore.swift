@@ -65,6 +65,33 @@ struct CollectionSourceDTO: Codable, Hashable {
         self.genre = genre
     }
 
+    /// A TMDB source (LIST/COLLECTION/COMPANY/NETWORK/DISCOVER/PERSON/DIRECTOR).
+    init(
+        tmdbSourceType: String, title: String, tmdbId: Int?,
+        mediaType: String = "movie", sortBy: String? = nil, filters: TmdbFiltersDTO? = nil
+    ) {
+        self.provider = "tmdb"
+        self.tmdbSourceType = tmdbSourceType
+        self.title = title
+        self.tmdbId = tmdbId
+        self.mediaType = mediaType
+        self.sortBy = sortBy
+        self.filters = filters
+    }
+
+    /// A Trakt public/personal list source.
+    init(traktListId: Int64, title: String, mediaType: String = "movie", sortBy: String = "rank", sortHow: String = "asc") {
+        self.provider = "trakt"
+        self.traktListId = traktListId
+        self.title = title
+        self.mediaType = mediaType
+        self.sortBy = sortBy
+        self.sortHow = sortHow
+    }
+
+    var isTMDBSource: Bool { provider.lowercased() == "tmdb" }
+    var isTraktSource: Bool { provider.lowercased() == "trakt" }
+
     // Gson omits nulls; match that so the blob compares stable across pushes.
     func encode(to encoder: Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)

@@ -164,6 +164,104 @@ enum TMDBService {
         return imdb?.isEmpty == false ? imdb : nil
     }
 
+    // MARK: - Collection source discovery (editor: search / id lookup)
+
+    struct CompanySearchResult: Identifiable, Hashable {
+        let id: Int
+        let name: String
+        let logoURL: String?
+    }
+
+    /// TMDB has no company-name matching in `/search/company` beyond substring,
+    /// but that's exactly what the editor needs to let a user find "Marvel" etc.
+    static func searchCompanies(_ query: String) async -> [CompanySearchResult] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return [] }
+        struct Response: Decodable {
+            struct Item: Decodable { let id: Int; let name: String; let logo_path: String? }
+            let results: [Item]
+        }
+        guard let body: Response = try? await get("/search/company", query: ["query": trimmed]) else { return [] }
+        return body.results.prefix(20).map {
+            CompanySearchResult(id: $0.id, name: $0.name, logoURL: imageURL($0.logo_path, size: "w300"))
+        }
+    }
+
+    struct PersonSearchResult: Identifiable, Hashable {
+        let id: Int
+        let name: String
+        let profileURL: String?
+        let knownFor: String?
+    }
+
+    static func searchPeople(_ query: String) async -> [PersonSearchResult] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return [] }
+        struct Response: Decodable {
+            struct Item: Decodable {
+                let id: Int; let name: String; let profile_path: String?
+                let known_for_department: String?
+            }
+            let results: [Item]
+        }
+        guard let body: Response = try? await get("/search/person", query: ["query": trimmed]) else { return [] }
+        return body.results.prefix(20).map {
+            PersonSearchResult(id: $0.id, name: $0.name,
+                               profileURL: imageURL($0.profile_path, size: "w300"),
+                               knownFor: $0.known_for_department)
+        }
+    }
+
+    /// TMDB has no network SEARCH endpoint — only lookup by id (matches
+    /// Android, which requires the id and fetches the name for confirmation).
+    static func networkName(id: Int) async -> String? {
+        struct Response: Decodable { let name: String? }
+        return (try? await get("/network/\(id)") as Response)?.name
+    }
+
+    struct BrandInfo { let name: String; let logoURL: String? }
+
+    /// Network name + logo (for Community Collections tiles — official HQ art,
+    /// fetched live so it's never stale even if TMDB reshuffles a logo).
+    static func networkBrand(id: Int) async -> BrandInfo? {
+        struct Response: Decodable { let name: String?; let logo_path: String? }
+        guard let body: Response = try? await get("/network/\(id)"), let name = body.name else { return nil }
+        return BrandInfo(name: name, logoURL: imageURL(body.logo_path, size: "w500"))
+    }
+
+    /// Company name + logo, same purpose as `networkBrand` for studios.
+    static func companyBrand(id: Int) async -> BrandInfo? {
+        struct Response: Decodable { let name: String?; let logo_path: String? }
+        guard let body: Response = try? await get("/company/\(id)"), let name = body.name else { return nil }
+        return BrandInfo(name: name, logoURL: imageURL(body.logo_path, size: "w500"))
+    }
+
+    static func collectionName(id: Int, language: String) async -> String? {
+        struct Response: Decodable { let name: String? }
+        return (try? await get("/collection/\(id)", query: ["language": language]) as Response)?.name
+    }
+
+    static func listName(id: Int, language: String) async -> String? {
+        struct Response: Decodable { let name: String? }
+        return (try? await get("/list/\(id)", query: ["language": language]) as Response)?.name
+    }
+
+    /// Parse a bare numeric id, or the id embedded in a themoviedb.org URL
+    /// (`/list/123-slug`, `/collection/456-slug`) — mirrors the Android app's
+    /// tolerant input so pasting either a URL or a plain id works.
+    static func parseTMDBID(from input: String) -> Int? {
+        let trimmed = input.trimmingCharacters(in: .whitespaces)
+        if let n = Int(trimmed) { return n }
+        guard let range = trimmed.range(of: #"(?:list|collection)/(\d+)"#, options: .regularExpression) else {
+            // Fall back to the first run of digits anywhere in the string.
+            let digits = trimmed.prefix { $0.isNumber }
+            return digits.isEmpty ? nil : Int(digits)
+        }
+        let match = String(trimmed[range])
+        let digits = match.drop { !$0.isNumber }
+        return Int(digits)
+    }
+
     // MARK: - Collection source resolution
 
     /// Resolve a TMDB collection source into MetaItems. Each item's id is its

@@ -179,7 +179,6 @@ struct RootView: View {
                         trakt: trakt, watched: watched, progress: progressStore,
                         library: library, ratings: ratings, addonManager: addonManager
                     )
-                    traktSync?.syncNow(force: true)
                     // "Who's watching?" gate on cold launch when 2+ profiles.
                     // Skipped in the demo modes so the screen isn't covered.
                     let args = ProcessInfo.processInfo.arguments

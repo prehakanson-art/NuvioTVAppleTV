@@ -38,6 +38,17 @@ final class TraktSyncManager: ObservableObject {
         ratings.onTraktUnrate = { [weak self] id, type in self?.pushUnrate(id, type) }
         // Toggling a Trakt sync setting on kicks a full sync.
         trakt.onTraktSettingChange = { [weak self] in self?.syncNow(force: true) }
+
+        // Sync the moment we become signed in (device-code login completes, or
+        // tokens arrive from account sync) — and once now if already signed in.
+        // Without this, a fresh sign-in didn't sync until the next relaunch.
+        trakt.$accessToken
+            .map { $0 != nil }
+            .removeDuplicates()
+            .sink { [weak self] signedIn in
+                if signedIn { self?.syncNow(force: true) }
+            }
+            .store(in: &cancellables)
     }
 
     // MARK: - Full sync
@@ -45,15 +56,27 @@ final class TraktSyncManager: ObservableObject {
     /// Run a full two-way sync (debounced). `force` bypasses the throttle
     /// (sign-in, manual "Sync now", a setting flip).
     func syncNow(force: Bool = false) {
-        guard trakt.isSignedIn else { return }
+        guard trakt.isSignedIn else {
+            NSLog("[OrivioTrakt] syncNow skipped — not signed in")
+            return
+        }
         if !force, Date().timeIntervalSince(lastFullSync) < 60 { return }
         lastFullSync = Date()
-        syncTask?.cancel()
-        syncTask = Task { [weak self] in await self?.runSync() }
+        // Don't cancel an in-flight sync — a rapid second trigger (sign-in +
+        // foreground) used to abort the first mid-way. Coalesce instead.
+        if let t = syncTask, !t.isCancelled { return }
+        syncTask = Task { [weak self] in
+            await self?.runSync()
+            self?.syncTask = nil
+        }
     }
 
     private func runSync() async {
+        NSLog("[OrivioTrakt] runSync start (history=%d playback=%d watchlist=%d ratings=%d)",
+              trakt.syncWatchHistory ? 1 : 0, trakt.syncPlayback ? 1 : 0,
+              trakt.syncWatchlist ? 1 : 0, trakt.syncRatings ? 1 : 0)
         guard let token = await validToken() else {
+            NSLog("[OrivioTrakt] runSync aborted — no valid token")
             trakt.setSyncStatus("Trakt session expired — sign in again")
             return
         }
@@ -74,6 +97,7 @@ final class TraktSyncManager: ObservableObject {
             let n = await syncRatings(token: token)
             parts.append("\(n) ratings")
         }
+        NSLog("[OrivioTrakt] runSync done: %@", parts.joined(separator: ", "))
         trakt.setSyncStatus(parts.isEmpty ? "Trakt: nothing to sync" : "Trakt synced (\(parts.joined(separator: ", ")))")
     }
 
@@ -228,14 +252,21 @@ final class TraktSyncManager: ObservableObject {
 
     // MARK: - Token health
 
-    /// A valid access token, refreshing once if the current one is rejected.
+    /// A usable access token. If a health check fails we TRY to refresh, but if
+    /// refresh isn't possible we still return the existing token and let the
+    /// real calls run — a flaky settings check must not disable the whole sync.
     private func validToken() async -> String? {
         guard let token = trakt.accessToken else { return nil }
         if await TraktService.fetchUsername(accessToken: token) != nil { return token }
-        guard let refresh = trakt.refreshToken,
-              let fresh = await TraktService.refreshToken(refresh) else { return nil }
-        trakt.store(access: fresh.access, refresh: fresh.refresh)
-        return fresh.access
+        NSLog("[OrivioTrakt] token health check failed — attempting refresh")
+        if let refresh = trakt.refreshToken,
+           let fresh = await TraktService.refreshToken(refresh) {
+            NSLog("[OrivioTrakt] token refreshed")
+            trakt.store(access: fresh.access, refresh: fresh.refresh)
+            return fresh.access
+        }
+        NSLog("[OrivioTrakt] refresh unavailable — proceeding with existing token")
+        return token
     }
 
     // MARK: - ID mapping

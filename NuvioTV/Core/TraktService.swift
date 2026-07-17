@@ -436,7 +436,11 @@ enum TraktService {
         var req = request(path, method: "POST", bearer: token)
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         guard let (_, response) = try? await session.data(for: req),
-              let http = response as? HTTPURLResponse else { return false }
+              let http = response as? HTTPURLResponse else {
+            NSLog("[OrivioTrakt] POST %@ — network error", path); return false
+        }
+        NSLog("[OrivioTrakt] POST %@ (movies=%d shows=%d) → HTTP %d", path,
+              (body["movies"] as? [Any])?.count ?? 0, (body["shows"] as? [Any])?.count ?? 0, http.statusCode)
         return (200..<300).contains(http.statusCode)
     }
 
@@ -450,7 +454,11 @@ enum TraktService {
     private static func get(_ path: String, _ token: String) async -> (Data, Int)? {
         let req = request(path, bearer: token)
         guard let (data, response) = try? await session.data(for: req),
-              let http = response as? HTTPURLResponse else { return nil }
+              let http = response as? HTTPURLResponse else {
+            NSLog("[OrivioTrakt] GET %@ — network error", path)
+            return nil
+        }
+        if http.statusCode != 200 { NSLog("[OrivioTrakt] GET %@ → HTTP %d", path, http.statusCode) }
         return (data, http.statusCode)
     }
 
@@ -537,7 +545,11 @@ enum TraktService {
         var req = request(path, method: "POST", bearer: token)
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         guard let (_, response) = try? await session.data(for: req),
-              let http = response as? HTTPURLResponse else { return false }
+              let http = response as? HTTPURLResponse else {
+            NSLog("[OrivioTrakt] POST %@ — network error", path); return false
+        }
+        NSLog("[OrivioTrakt] POST %@ (movies=%d shows=%d) → HTTP %d", path,
+              (body["movies"] as? [Any])?.count ?? 0, (body["shows"] as? [Any])?.count ?? 0, http.statusCode)
         return (200..<300).contains(http.statusCode)
     }
 }

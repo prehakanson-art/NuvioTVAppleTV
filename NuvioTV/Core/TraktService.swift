@@ -316,6 +316,9 @@ enum TraktService {
         var progress: Double? = nil    // playback only, 0–100
         var watchedAt: Date? = nil     // history / paused_at
         var rating: Int? = nil         // ratings sync, 1–10
+        /// Trakt's row id for a /sync/playback item — required to DELETE that
+        /// row when the user removes it from Continue Watching locally.
+        var playbackID: Int? = nil
     }
 
     private static let iso: ISO8601DateFormatter = {
@@ -370,26 +373,43 @@ enum TraktService {
     }
 
     /// In-progress playback (Continue Watching) for movies + episodes.
-    static func playbackProgress(accessToken: String) async -> [SyncItem] {
+    /// No `limit` — Trakt returns the whole playback list unpaginated, and a
+    /// cap silently dropped older in-progress items ("doesn't sync everything").
+    /// Returns nil on FAILURE (network/HTTP/decode) — callers must not treat an
+    /// outage like an empty list, or the local→Trakt backfill would re-scrobble
+    /// the entire local Continue Watching every sync during Trakt downtime.
+    static func playbackProgress(accessToken: String) async -> [SyncItem]? {
         struct Row: Decodable {
             struct Ep: Decodable { let season: Int?; let number: Int? }
+            let id: Int?
             let progress: Double?; let paused_at: String?; let type: String?
             let movie: TraktMedia?; let episode: Ep?; let show: TraktMedia?
         }
-        guard let (data, code) = await get("/sync/playback?limit=100", accessToken), code == 200,
-              let rows = try? JSONDecoder().decode([Row].self, from: data) else { return [] }
+        guard let (data, code) = await get("/sync/playback", accessToken), code == 200,
+              let rows = try? JSONDecoder().decode([Row].self, from: data) else { return nil }
         return rows.compactMap { r in
             if r.type == "movie", let m = r.movie {
                 return SyncItem(imdb: m.ids?.imdb, tmdb: m.ids?.tmdb, type: "movie",
                                 title: m.title ?? "", season: nil, episode: nil,
-                                progress: r.progress, watchedAt: parseDate(r.paused_at))
+                                progress: r.progress, watchedAt: parseDate(r.paused_at),
+                                playbackID: r.id)
             } else if let show = r.show, let ep = r.episode {
                 return SyncItem(imdb: show.ids?.imdb, tmdb: show.ids?.tmdb, type: "series",
                                 title: show.title ?? "", season: ep.season, episode: ep.number,
-                                progress: r.progress, watchedAt: parseDate(r.paused_at))
+                                progress: r.progress, watchedAt: parseDate(r.paused_at),
+                                playbackID: r.id)
             }
             return nil
         }
+    }
+
+    /// Delete one row from Trakt's playback list (their Continue Watching).
+    @discardableResult
+    static func removePlayback(playbackID: Int, accessToken: String) async -> Bool {
+        let req = request("/sync/playback/\(playbackID)", method: "DELETE", bearer: accessToken)
+        guard let (_, response) = try? await session.data(for: req),
+              let http = response as? HTTPURLResponse else { return false }
+        return (200..<300).contains(http.statusCode)
     }
 
     /// Add items to Trakt watch history. Returns true on success.

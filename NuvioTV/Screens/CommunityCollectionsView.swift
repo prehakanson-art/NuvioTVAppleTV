@@ -326,17 +326,42 @@ enum CommunityCollections {
     /// One-time fix for categories installed BEFORE tileShape was measured:
     /// every logo-covered folder was hardcoded "LANDSCAPE" regardless of its
     /// real proportions. Re-measures each already-installed community
-    /// folder's actual logo and corrects its declared shape.
+    /// folder's actual logo and corrects its declared shape — and when a
+    /// brand's installed logo is squarish (Warner Bros' shield), upgrades it
+    /// to the brand's WIDE logo variant when TMDB hosts one, so the tile
+    /// matches the rest of the landscape row.
+    /// One-shot guard: the remeasure downloads EVERY installed community logo
+    /// (to read its pixel size) and hits TMDB's images endpoint for each
+    /// square one — repeating that on every launch forever is pure waste,
+    /// especially for brands with no wide variant (Paramount, DC) that can
+    /// never converge. Fresh installs pick the wide logo up front, so once
+    /// this pass has run, launches skip it. Bump the key to re-run everywhere.
+    private static let logoMigrationKey = "nuvio.community.logoMigration.v2"
+
     @MainActor
     static func remeasureInstalledLogos(collections: CollectionsStore) async {
+        guard !UserDefaults.standard.bool(forKey: logoMigrationKey) else { return }
+        defer { UserDefaults.standard.set(true, forKey: logoMigrationKey) }
         for collection in collections.collections where collection.id.hasPrefix(idPrefix) {
             var changed = false
             var updated = collection
             for i in updated.folders.indices {
-                guard let cover = updated.folders[i].coverImageUrl, !cover.isEmpty else { continue }
-                let correctShape = await measuredTileShape(for: cover)
-                if updated.folders[i].tileShape != correctShape {
-                    updated.folders[i].tileShape = correctShape
+                let folder = updated.folders[i]
+                guard let cover = folder.coverImageUrl, !cover.isEmpty else { continue }
+                var shape = await measuredTileShape(for: cover)
+                if shape != "LANDSCAPE",
+                   let preset = presets.first(where: { $0.id == folder.id }),
+                   let tmdbId = preset.primarySource.tmdbId,
+                   let wide = await TMDBService.brandWideLogo(
+                       id: tmdbId,
+                       isNetwork: preset.primarySource.tmdbSourceType?.uppercased() == "NETWORK"
+                   ), wide != cover {
+                    updated.folders[i].coverImageUrl = wide
+                    shape = "LANDSCAPE"
+                    changed = true
+                }
+                if updated.folders[i].tileShape != shape {
+                    updated.folders[i].tileShape = shape
                     changed = true
                 }
             }
@@ -536,11 +561,17 @@ struct CommunityCollectionsView: View {
     }
 
     /// Official studio/network logo for a preset source, when TMDB has one.
+    /// Prefers the brand's WIDE logo variant (matches the landscape tiles);
+    /// falls back to the primary mark for brands with no wide logo.
     private static func brandLogo(for source: CollectionSourceDTO) async -> String? {
         guard let id = source.tmdbId else { return nil }
         switch source.tmdbSourceType?.uppercased() {
-        case "NETWORK": return await TMDBService.networkBrand(id: id)?.logoURL
-        case "COMPANY": return await TMDBService.companyBrand(id: id)?.logoURL
+        case "NETWORK":
+            if let wide = await TMDBService.brandWideLogo(id: id, isNetwork: true) { return wide }
+            return await TMDBService.networkBrand(id: id)?.logoURL
+        case "COMPANY":
+            if let wide = await TMDBService.brandWideLogo(id: id, isNetwork: false) { return wide }
+            return await TMDBService.companyBrand(id: id)?.logoURL
         default: return nil
         }
     }

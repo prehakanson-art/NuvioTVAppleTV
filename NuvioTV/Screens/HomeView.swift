@@ -38,8 +38,15 @@ enum HomeCatalogCache {
     }
 
     static func save(_ rows: [String: [MetaItem]]) {
-        guard let data = try? JSONEncoder().encode(rows) else { return }
-        try? data.write(to: fileURL, options: .atomic)
+        // Encode + write OFF the main thread. This is called from the @MainActor
+        // Home load right after a refresh; encoding ~15 rows × 30 MetaItems and
+        // writing the file synchronously there is a visible hitch on the A8 the
+        // moment Home finishes loading. It's fire-and-forget persistence, so a
+        // utility-queue hop costs the UI nothing.
+        DispatchQueue.global(qos: .utility).async {
+            guard let data = try? JSONEncoder().encode(rows) else { return }
+            try? data.write(to: fileURL, options: .atomic)
+        }
     }
 }
 
@@ -67,14 +74,18 @@ final class HomeViewModel: ObservableObject {
     ) async {
         // Fingerprint includes catalog counts (so rows refresh when the live
         // manifests replace the bundled seed) plus the layout customization
-        // state and collection list, so edits re-render immediately.
+        // state and collection list, so edits re-render immediately. viewMode +
+        // pinToTop are included so changing a collection's Home layout or its
+        // pin re-renders without a relaunch.
         var fingerprint = addonManager.catalogAddons.map {
             "\($0.id)#\(($0.manifest.catalogs ?? []).count)"
         }
         fingerprint.append(settings.orderKeys.joined(separator: ","))
         fingerprint.append(settings.disabledKeys.sorted().joined(separator: ","))
         fingerprint.append(settings.customTitles.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ","))
-        fingerprint.append(collections.collections.map { "\($0.id)#\($0.folders.count)#\($0.title)" }.joined(separator: ","))
+        fingerprint.append(collections.collections.map {
+            "\($0.id)#\($0.folders.count)#\($0.title)#\($0.viewMode)#\($0.pinToTop)"
+        }.joined(separator: ","))
         guard entries.isEmpty || fingerprint != loadedFingerprint else { return }
         loadedFingerprint = fingerprint
         await load(addonManager: addonManager, collections: collections, settings: settings)
@@ -110,18 +121,33 @@ final class HomeViewModel: ObservableObject {
             collectionByKey[key] = collection
         }
 
-        let orderedKeys = settings
+        let mergedKeys = settings
             .mergedOrder(catalogKeys: catalogKeys, collectionKeys: collectionKeys)
             .filter { settings.isEnabled(key: $0) }
+        // Pin to top: a collection flagged pinToTop jumps to the front of the
+        // Home order (keeping relative order among pins), so it renders above
+        // the catalogs instead of wherever the merged order placed it.
+        let pinnedKeys = Set(collections.collections.filter(\.pinToTop)
+            .map { HomeCatalogSettingsStore.collectionKey($0.id) })
+        let orderedKeys = pinnedKeys.isEmpty ? mergedKeys
+            : mergedKeys.filter { pinnedKeys.contains($0) } + mergedKeys.filter { !pinnedKeys.contains($0) }
 
         // STALE: on a cold start, paint the last-saved catalog items instantly
         // (paired with the live addon/catalog so "See All" still works), then
         // refresh below.
         if entries.isEmpty {
-            let cached = HomeCatalogCache.load()
+            // Read + JSON-decode the on-disk cache OFF the main thread — on the
+            // A8 this blocked the very first frame (the loading backdrop) until
+            // the file was parsed. Awaiting a detached read lets the backdrop
+            // paint immediately, then the stale rows swap in when it returns.
+            let cached = await Task.detached(priority: .userInitiated) {
+                HomeCatalogCache.load()
+            }.value
             var stale: [HomeEntry] = []
             for key in orderedKeys {
                 if let collection = collectionByKey[key] {
+                    // Collections are pure markers (buttons/tiles, no content
+                    // fetch) in every view mode, so all paint instantly.
                     stale.append(.collection(collection))
                 } else if let request = catalogByKey[key], let items = cached[key], !items.isEmpty {
                     stale.append(.catalog(HomeRow(
@@ -148,7 +174,10 @@ final class HomeViewModel: ObservableObject {
             loadingStep = "Loading catalogs…"
         }
 
-        // REVALIDATE: fetch every catalog in parallel.
+        // REVALIDATE: fetch every catalog in parallel. Collections are just
+        // markers here — Home shows them as buttons/tiles; their catalog content
+        // is resolved on demand when the user opens a folder/collection's
+        // discover page, so Home never eagerly fetches collection content.
         var fetched: [(index: Int, key: String?, entry: HomeEntry)] = []
         await withTaskGroup(of: (Int, String?, HomeEntry?).self) { group in
             for (index, key) in orderedKeys.enumerated() {
@@ -172,16 +201,12 @@ final class HomeViewModel: ObservableObject {
                     return (index, key, .catalog(row))
                 }
             }
+            if !fetched.isEmpty { entries = fetched.sorted { $0.index < $1.index }.map(\.entry) }
             for await (index, key, entry) in group {
                 if let entry {
                     fetched.append((index, key, entry))
-                    // Reveal rows AS EACH ADDON RESPONDS instead of waiting for
-                    // every addon (including a slow aggregator like AIOMetadata,
-                    // which can take many seconds) before showing anything.
-                    // `rowsContent` drops the loading backdrop the moment
-                    // `entries` is non-empty, so a fast addon's rows no longer
-                    // sit behind a slow one — this was the whole Home screen
-                    // waiting on its single slowest catalog source.
+                    // Reveal rows AS EACH SOURCE RESPONDS so a slow aggregator
+                    // doesn't hold up the whole screen.
                     entries = fetched.sorted { $0.index < $1.index }.map(\.entry)
                 }
             }
@@ -194,10 +219,14 @@ final class HomeViewModel: ObservableObject {
         // Keep stale rows on screen if the refresh came back empty (offline).
         if !freshEntries.isEmpty { entries = freshEntries }
 
-        // Persist fresh catalog items for the next cold start.
+        // Persist fresh catalog items for the next cold start. Only real
+        // add-on catalog rows (whose key maps back to a live catalog) are
+        // cached; collection-derived rows re-resolve on next launch.
         var toCache: [String: [MetaItem]] = [:]
         for row in ordered {
-            if let key = row.key, case .catalog(let r) = row.entry { toCache[key] = r.items }
+            if let key = row.key, catalogByKey[key] != nil, case .catalog(let r) = row.entry {
+                toCache[key] = r.items
+            }
         }
         if !toCache.isEmpty { HomeCatalogCache.save(toCache) }
 
@@ -252,6 +281,31 @@ final class HomeViewModel: ObservableObject {
         }.first
         return firstCatalog?.items.first { $0.background != nil } ?? firstCatalog?.items.first
     }
+
+    /// The top titles for the Apple TV hero's spotlight rotation: the first
+    /// catalog row's items that actually have backdrop art (a hero with no
+    /// backdrop is a dead frame), capped at `max`.
+    func spotlightItems(max: Int) -> [MetaItem] {
+        let firstCatalog = entries.lazy.compactMap { entry -> HomeRow? in
+            if case .catalog(let row) = entry { return row }
+            return nil
+        }.first
+        let items = (firstCatalog?.items ?? []).filter { $0.background != nil }
+        return Array(items.prefix(max))
+    }
+
+    /// Titles for the inline Fusion hero bar. Sourced from the SECOND catalog
+    /// row (falling back to the first) so the bar doesn't echo the top
+    /// spotlight, which rotates the first row.
+    func heroBarItems(max: Int) -> [MetaItem] {
+        let catalogs = entries.compactMap { entry -> HomeRow? in
+            if case .catalog(let row) = entry { return row }
+            return nil
+        }
+        let source = catalogs.count > 1 ? catalogs[1] : catalogs.first
+        let items = (source?.items ?? []).filter { $0.background != nil }
+        return Array(items.prefix(max))
+    }
 }
 
 /// The live billboard title, updated as focus moves across cards. Kept separate
@@ -264,6 +318,64 @@ final class HeroFocus: ObservableObject {
     /// store name + art) — set by HomeView. Successful results are cached.
     var enrich: ((MetaItem) async -> MetaItem?)?
     private var task: Task<Void, Never>?
+
+    // MARK: Spotlight rotation (Apple TV theme)
+    /// The top titles the hero auto-cycles through when idle. Empty disables
+    /// rotation (Classic keeps the pure focus-follow behavior).
+    var spotlight: [MetaItem] = []
+    /// Position within `spotlight` — published (read-only outside this class)
+    /// so the Fusion spotlight can render pagination dots (§20.5).
+    @Published private(set) var spotlightIndex = 0
+    /// Last time the user drove the hero (focused a card / touched the hero),
+    /// so rotation pauses while browsing and resumes once idle.
+    private var lastInteraction = Date.distantPast
+    /// When the spotlight last advanced, so each title stays up for a readable
+    /// dwell instead of flipping on every timer tick.
+    private var lastRotation = Date.distantPast
+    /// Seconds each spotlight title stays on screen before the next.
+    private let dwellSeconds: TimeInterval = 9
+    /// True while the hero's own Play button holds focus — rotation stays
+    /// frozen so the title can't change out from under a press.
+    var heroButtonFocused = false
+
+    /// Seed the rotation set and show its first title. Safe to call repeatedly;
+    /// only re-seeds when the set actually changed.
+    func setSpotlight(_ items: [MetaItem]) {
+        guard items.map(\.id) != spotlight.map(\.id) else { return }
+        spotlight = items
+        spotlightIndex = 0
+        if item == nil, let first = items.first { item = first }
+    }
+
+    /// Record a user interaction so the timer holds off for a beat.
+    func markInteraction() { lastInteraction = Date() }
+
+    /// Manual prev/next through the spotlight (Left/Right on the hero). Wraps,
+    /// pauses auto-rotation, and shows the chosen title immediately.
+    func stepSpotlight(by delta: Int) {
+        guard spotlight.count > 1 else { return }
+        lastInteraction = Date()
+        lastRotation = Date()
+        spotlightIndex = (spotlightIndex + delta + spotlight.count) % spotlight.count
+        let next = spotlight[spotlightIndex]
+        let fade = PerformanceSettingsStore.shared.heroCrossfadeEffective
+        withAnimation(fade ? .easeInOut(duration: 0.4) : nil) { item = next }
+    }
+
+    /// Timer tick: advance to the next spotlight title, but only if the user
+    /// hasn't touched anything for a few seconds (so it never yanks the hero
+    /// out from under someone browsing).
+    func rotateIfIdle() {
+        let now = Date()
+        guard spotlight.count > 1, !heroButtonFocused,
+              now.timeIntervalSince(lastInteraction) > 6,
+              now.timeIntervalSince(lastRotation) >= dwellSeconds else { return }
+        lastRotation = now
+        spotlightIndex = (spotlightIndex + 1) % spotlight.count
+        let next = spotlight[spotlightIndex]
+        let fade = PerformanceSettingsStore.shared.heroCrossfadeEffective
+        withAnimation(fade ? .easeInOut(duration: 0.7) : nil) { item = next }
+    }
     /// The id the debounce is ABOUT to commit. Guarding only against the
     /// COMMITTED item had a race: moving X→Y→X inside the debounce window
     /// passed the guard (item still X) without cancelling the pending Y, so Y
@@ -273,12 +385,31 @@ final class HeroFocus: ObservableObject {
 
     /// Debounced so fast scrolling through a row doesn't thrash the backdrop,
     /// animated for a smooth crossfade.
+    ///
+    /// The settle window is tier-aware. Committing the hero means decoding a
+    /// full-screen backdrop (~1920px on the HD) and compositing it edge to
+    /// edge — at 60ms nearly every D-pad step through a row commits, so on the
+    /// A8 the CPU spends the whole browse decoding backdrops it immediately
+    /// replaces (the core "stepping through a row stutters" cost on that box).
+    /// 220ms means a steady step-step-step never commits; the hero lands the
+    /// moment you rest, which is when anyone actually looks at it. The 3 GB
+    /// 4K gen 1 decodes up-to-3840px backdrops (~33 MB each), so it gets a
+    /// middle window: fast enough to feel live, long enough that a steady
+    /// scrub skips most intermediate commits.
+    private var settleNanos: UInt64 {
+        if PerformanceProfile.isLowPower { return 220_000_000 }
+        if PerformanceProfile.isMidPower { return 120_000_000 }
+        return 60_000_000
+    }
+
     func focus(_ newItem: MetaItem) {
+        // Browsing cards counts as interaction — pause spotlight rotation.
+        lastInteraction = Date()
         guard newItem.id != (pendingID ?? item?.id) else { return }
         task?.cancel()
         pendingID = newItem.id
         task = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 60_000_000)   // let focus settle
+            try? await Task.sleep(nanoseconds: settleNanos)   // let focus settle
             guard !Task.isCancelled else { return }
             let display = enriched[newItem.id] ?? newItem
             let fade = PerformanceSettingsStore.shared.heroCrossfadeEffective
@@ -320,6 +451,10 @@ struct HomeView: View {
     /// Fires when the first load attempt finishes (success or error), so the
     /// root can re-enable the sidebar only once content exists to hold focus.
     var onContentReady: () -> Void = {}
+    /// Called when Back is pressed at the START of a row (or on the hero/other
+    /// non-row content): opens the sidebar (Classic) or focuses the tab bar
+    /// (Fusion). Passed from RootView.
+    var onHomeBack: () -> Void = {}
 
     private var layout: HomeLayout { homeCatalogSettings.homeLayout }
 
@@ -329,13 +464,28 @@ struct HomeView: View {
     /// no billboard at all.
     private var showsHeroPanel: Bool { layout == .modern }
 
+    /// Whether the hero backdrop/billboard tracks the focused card. Classic
+    /// does (Netflix-style). Fusion deliberately does NOT — its spotlight stays
+    /// pinned on its rotating Top-10 title as you browse down, per the design.
+    /// Grid never drives the hero either way.
+    private var heroFollowsFocus: Bool { layout != .grid && !theme.isAppleTVTheme && !theme.isStremioTheme }
+
     /// How far the row scroll starts below the top. Modern reserves room for the
     /// hero panel; Classic shows just a sliver of backdrop; Grid starts flush.
     private var rowsTopInset: CGFloat {
         switch layout {
         case .grid: return 0
-        case .modern: return 130
-        case .classic: return 60
+        // 130 left the rows viewport barely taller than a single poster row,
+        // so the focus engine's minimal scroll landed rows with their header
+        // ("See All") sliced off at the clip line, and the previous row's
+        // caption letters peeking. 60 reclaims ~70pt so a full row + its
+        // header always fit below the billboard.
+        case .modern: return 60
+        // Fusion's Classic layout uses the taller 300pt backdrop sliver
+        // (§22.1), so rows need more clearance than Classic theme's original
+        // thin strip — the sliver's title sits near its bottom edge, so give
+        // a real gap below the full 300pt band.
+        case .classic: return theme.isAppleTVTheme ? 340 : 60
         }
     }
 
@@ -343,24 +493,24 @@ struct HomeView: View {
     // hero changes must re-render only the billboard subviews, never the rows.
     @State private var hero = HeroFocus()
 
+    /// Drives the Apple TV hero's spotlight rotation. Ticks every 2s; the hero
+    /// only advances when it's been idle for a few seconds (see rotateIfIdle).
+    private let spotlightTick = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
+
+    /// False while Home is covered (player fullScreenCover, pushed screen,
+    /// other tab). Home stays mounted in those states, so without this gate the
+    /// spotlight kept rotating unseen — decoding a full-screen backdrop every
+    /// 9s DURING playback, real decode/memory contention on the 2–3 GB boxes.
+    @State private var isVisible = true
+
     var body: some View {
-        ZStack(alignment: .top) {
-            theme.palette.background.ignoresSafeArea()
-            if layout != .grid && perf.settings.heroBackdrop { HeroBackdropView(hero: hero) }
-            // The billboard (backdrop + info) is PINNED at the top; only the
-            // rows scroll beneath it. That's what keeps the hero locked to the
-            // focused title as you move through the 2nd, 3rd… rows (Netflix).
-            VStack(alignment: .leading, spacing: 0) {
-                if showsHeroPanel {
-                    HeroInfoView(hero: hero)
-                        .padding(.top, 56)
-                        .padding(.leading, NuvioSpacing.huge)
-                        // Rows scroll BEHIND the billboard (scrollClipDisabled
-                        // lets them protrude above the scroll area), so the
-                        // billboard must win the sibling draw order.
-                        .zIndex(1)
-                }
-                rowsScroll
+        layoutContent
+        .onAppear { isVisible = true }
+        .onDisappear { isVisible = false }
+        .onReceive(spotlightTick) { _ in
+            // §55: Reduce Motion disables automatic hero rotation.
+            if isVisible && theme.isAppleTVTheme && !perf.reduceMotion {
+                hero.rotateIfIdle()
             }
         }
         .task {
@@ -409,6 +559,68 @@ struct HomeView: View {
         .onChange(of: homeCatalogSettings.customTitles) { _, _ in Task { await reload() } }
     }
 
+    @ViewBuilder
+    private var layoutContent: some View {
+        // Fusion Modern: the hero is the FIRST item of one big vertical scroll,
+        // so it scrolls UP and off as you move down (like the TV app), instead
+        // of staying pinned. Every other case keeps the pinned billboard.
+        if theme.isAppleTVTheme && layout == .modern {
+            fusionModernLayout
+        } else {
+            pinnedLayout
+        }
+    }
+
+    private var pinnedLayout: some View {
+        ZStack(alignment: .top) {
+            theme.palette.background.ignoresSafeArea()
+            if perf.settings.heroBackdrop {
+                // Fusion's Classic layout gets the shallow §22.1 sliver instead
+                // of the full-bleed backdrop. Grid never shows one.
+                if theme.isAppleTVTheme && layout == .classic {
+                    ATVClassicHeroSliver(hero: hero)
+                } else if layout != .grid {
+                    HeroBackdropView(hero: hero)
+                }
+            }
+            // The billboard is PINNED at the top; only the rows scroll beneath.
+            VStack(alignment: .leading, spacing: 0) {
+                if showsHeroPanel {
+                    HeroInfoView(hero: hero)
+                        .padding(.top, 56)
+                        .padding(.leading, NuvioSpacing.huge)
+                        .zIndex(1)
+                }
+                rowsScroll
+            }
+        }
+    }
+
+    private var fusionModernLayout: some View {
+        ZStack {
+            theme.palette.background.ignoresSafeArea()
+            ScrollView(.vertical) {
+                VStack(alignment: .leading, spacing: NuvioSpacing.xl) {
+                    if perf.settings.heroBackdrop {
+                        FusionHeroHeader(hero: hero, onPlay: { onSelect($0) })
+                            // Group the hero as its own focus section so a vertical
+                            // UP from ANY card in the row below reaches it.
+                            .focusSection()
+                    }
+                    rowsContent
+                        // Rows keep a title-safe inset; the hero (above) does not,
+                        // so its art can bleed to the very edges.
+                        .padding(.horizontal, NuvioSpacing.lg)
+                }
+                .padding(.bottom, NuvioSpacing.huge)
+            }
+            // The whole scroll ignores the safe area so the hero backdrop fills
+            // edge to edge (like the Detail page); rows re-inset themselves above.
+            .ignoresSafeArea(edges: [.top, .horizontal])
+            .scrollClipDisabled()
+        }
+    }
+
     private func reload() async {
         await viewModel.loadIfNeeded(
             addonManager: addonManager,
@@ -416,6 +628,12 @@ struct HomeView: View {
             settings: homeCatalogSettings
         )
         if hero.item == nil { hero.item = viewModel.initialHero }
+        // Apple TV theme: seed the auto-rotating spotlight with the top titles
+        // (first catalog row's items that have backdrop art), so the hero
+        // oscillates through them when idle.
+        if theme.isAppleTVTheme {
+            hero.setSpotlight(viewModel.spotlightItems(max: 10))
+        }
         onContentReady()
     }
 
@@ -474,28 +692,73 @@ struct HomeView: View {
             continueRow(continueItems)
         }
 
-        // All collections render as ONE headerless row, positioned where the
-        // first collection sits in the order. Other collection entries are
-        // skipped (folded into that single row).
-        let allCollections = viewModel.entries.compactMap { entry -> NuvioCollection? in
-            if case .collection(let c) = entry { return c } else { return nil }
+        // Fusion (§21): an inline hero bar between Continue Watching and the
+        // catalog rows, sourced from a different row than the top spotlight.
+        if theme.isAppleTVTheme && layout == .modern && perf.settings.heroBackdrop {
+            let barItems = viewModel.heroBarItems(max: 6)
+            if barItems.count >= 2 {
+                FusionHeroBar(
+                    items: barItems,
+                    eyebrow: "Featured",
+                    // "Go to Movie" opens the title's Detail page (not the source
+                    // list) — matches the reference and the spotlight button.
+                    onPlay: { onSelect($0) },
+                    onDetails: { onSelect($0) }
+                )
+                .focusSection()
+            }
         }
-        let firstCollectionID = allCollections.first?.id
+
+        // Collections render by viewMode:
+        // • ROWS      → each collection is its OWN row of folder buttons; a
+        //               folder button opens that folder's discover page.
+        // • FOLDERS/COMBINED → all share ONE "Collections" row of collection
+        //               buttons (rendered at the first such collection's slot);
+        //               a button opens that whole collection's discover/browse.
+        let sharedCollections = viewModel.entries.compactMap { entry -> NuvioCollection? in
+            if case .collection(let c) = entry, c.viewMode != "ROWS" { return c } else { return nil }
+        }
+        let firstSharedID = sharedCollections.first?.id
 
         ForEach(viewModel.entries) { entry in
             switch entry {
             case .catalog:
                 rowEntry(entry)
             case .collection(let collection):
-                if collection.id == firstCollectionID {
+                if collection.viewMode == "ROWS" {
+                    let key = HomeCatalogSettingsStore.collectionKey(collection.id)
+                    CollectionRowSection(
+                        collection: collection,
+                        title: homeCatalogSettings.customTitle(for: key) ?? collection.title,
+                        onOpenFolder: { openFolder($0, in: collection) },
+                        onOpenCollection: { onOpenCollection(collection) },
+                        onFolderFocus: { folder in
+                            if heroFollowsFocus { hero.focus(heroItem(for: folder, in: collection)) }
+                        },
+                        onBackAtStart: onHomeBack
+                    )
+                } else if collection.id == firstSharedID {
                     CollectionsRowSection(
-                        collections: allCollections,
+                        collections: sharedCollections,
                         onOpen: onOpenCollection,
-                        onFocus: { if layout != .grid { hero.focus(heroItem(for: $0)) } }
+                        onFocus: { if heroFollowsFocus { hero.focus(heroItem(for: $0)) } },
+                        onBackAtStart: onHomeBack
                     )
                 }
             }
         }
+    }
+
+    /// Open one folder's discover page: a browse view scoped to just that
+    /// folder (its content + Sort, no tabs), reusing the collection browser
+    /// with a synthetic single-folder collection.
+    private func openFolder(_ folder: NuvioCollectionFolder, in collection: NuvioCollection) {
+        let single = NuvioCollection(
+            id: "folder:\(collection.id):\(folder.id)",
+            title: folder.title,
+            folders: [folder]
+        )
+        onOpenCollection(single)
     }
 
     /// A collection has no "meta" of its own, so build a lightweight stand-in
@@ -516,27 +779,37 @@ struct HomeView: View {
             type: "collection",
             name: collection.title,
             background: realBackdrop,
-            logo: firstFolder?.coverImageUrl,
+            logo: TMDBService.originalSize(firstFolder?.coverImageUrl),
             description: ""
         )
     }
 
+    /// Hero stand-in for ONE focused folder (category): its own backdrop if it
+    /// has one, and its brand logo (full-res) shown WHOLE by the hero — so the
+    /// billboard changes per category and the logo never renders zoomed/cropped.
+    private func heroItem(for folder: NuvioCollectionFolder, in collection: NuvioCollection) -> MetaItem {
+        let backdrop = folder.heroBackdropUrl?.isEmpty == false ? folder.heroBackdropUrl
+            : (collection.backdropImageUrl?.isEmpty == false ? collection.backdropImageUrl : nil)
+        return MetaItem(
+            id: "collection:\(collection.id):\(folder.id)",
+            type: "collection",
+            name: folder.title,
+            background: backdrop,
+            logo: TMDBService.originalSize(folder.coverImageUrl),
+            description: ""
+        )
+    }
+
+    /// Only catalog rows go through here; collection rows are handled directly
+    /// in `rowsList` (they render by viewMode).
     @ViewBuilder
     private func rowEntry(_ entry: HomeEntry) -> some View {
-        switch entry {
-        case .catalog(let row):
+        if case .catalog(let row) = entry {
             if layout == .grid {
                 posterGrid(row)
             } else {
                 horizontalRow(row)
             }
-        case .collection(let collection):
-            let key = HomeCatalogSettingsStore.collectionKey(collection.id)
-            CollectionRowSection(
-                collection: collection,
-                title: homeCatalogSettings.customTitle(for: key) ?? collection.title,
-                onOpen: { onOpenCollection(collection) }
-            )
         }
     }
 
@@ -544,9 +817,7 @@ struct HomeView: View {
         ContinueWatchingRow(
             items: items,
             hero: hero,
-            // Grid renders no backdrop/billboard, so don't pay the per-focus
-            // hero update (and its enrich fetch) where nothing displays it.
-            drivesHero: layout != .grid,
+            drivesHero: heroFollowsFocus,
             imageFor: continueImage,
             subtitleFor: continueSubtitle,
             blurFor: { [blur = homeCatalogSettings.blurContinueWatchingNextUp] progress in
@@ -554,7 +825,10 @@ struct HomeView: View {
             },
             heroItemFor: heroItem(from:),
             onResume: onResume,
-            menuFor: { progress in AnyView(continueMenu(progress)) }
+            onDetails: { onSelect(heroItem(from: $0)) },
+            onPlayManuallyMenu: { onPlayManually(heroItem(from: $0), metaVideo(from: $0)) },
+            onResumeFromStartMenu: { onResumeFromStart($0) },
+            onBackAtStart: onHomeBack
         )
     }
 
@@ -585,51 +859,20 @@ struct HomeView: View {
         layout == .modern && homeCatalogSettings.landscapePosters
     }
 
+    // Thin wrapper — the row lives in its own view (HomePosterRow) so it can
+    // own local @FocusState for the Back-to-start-of-row behavior without
+    // re-rendering all of Home on every focus move.
     private func horizontalRow(_ row: HomeRow) -> some View {
-        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
-            catalogHeader(row)
-            ScrollView(.horizontal) {
-                LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
-                    ForEach(row.items) { item in
-                        Button {
-                            onSelect(item)
-                        } label: {
-                            Group {
-                                if useLandscape {
-                                    LandscapeCard(
-                                        imageURL: item.background ?? item.poster,
-                                        title: item.name,
-                                        subtitle: nil,
-                                        width: 340
-                                    )
-                                } else {
-                                    PosterCard(item: item)
-                                }
-                            }
-                            .onFocusChange { focused in
-                                if focused { hero.focus(item) }
-                            }
-                        }
-                        .buttonStyle(PlainCardButtonStyle())
-                        .contextMenu { posterMenu(item) }
-                        // ⏯ on a focused card skips the Detail page and goes
-                        // straight to the source picker.
-                        .onPlayPauseCommand { onPlayManually(item, nil) }
-                    }
-                }
-                .padding(.horizontal, NuvioSpacing.huge)
-                .padding(.vertical, NuvioSpacing.lg)
-            }
-            .scrollClipDisabled()
-            // The focus section wraps ONLY the card strip, not the header.
-            // Full-width, it catches any vertical move at zero horizontal
-            // offset, so up/down lands on the nearest card even when it isn't
-            // column-aligned with where focus came from — while the "See All"
-            // pill (outside the section) only wins a vertical move when focus
-            // is directly above/below it. Wrapping the whole row (header
-            // included) made the pill the nearest target for half the screen.
-            .focusSection()
-        }
+        HomePosterRow(
+            row: row,
+            useLandscape: useLandscape,
+            heroFollowsFocus: heroFollowsFocus,
+            hero: hero,
+            onSelect: onSelect,
+            onPlayManually: onPlayManually,
+            onSeeAll: onSeeAll,
+            onBackAtStart: onHomeBack
+        )
     }
 
     private func posterGrid(_ row: HomeRow) -> some View {
@@ -643,70 +886,37 @@ struct HomeView: View {
                 spacing: NuvioSpacing.xl
             ) {
                 ForEach(row.items) { item in
-                    Button {
-                        onSelect(item)
-                    } label: {
-                        // Grid shows no billboard, so we deliberately do NOT
-                        // drive the hero here — that per-focus enrich fetch was
-                        // firing a network request on every D-pad move and is
-                        // what made grid navigation lag.
-                        PosterCard(item: item)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Button {
+                            onSelect(item)
+                        } label: {
+                            // Grid shows no billboard, so we deliberately do NOT
+                            // drive the hero here — that per-focus enrich fetch was
+                            // firing a network request on every D-pad move and is
+                            // what made grid navigation lag.
+                            PosterCard(item: item)
+                        }
+                        .mediaCardButtonStyle()
+                        .posterHoldMenu(item) { onSelect(item) }
+                        // ⏯ parity with the horizontal rows: skip Detail, go
+                        // straight to the source picker.
+                        .onPlayPauseCommand { onPlayManually(item, nil) }
+
+                        if theme.isAppleTVTheme {
+                            ATVCardCaption(
+                                title: item.name,
+                                subtitle: item.year,
+                                width: homeCatalogSettings.posterSize.posterWidth
+                            )
+                        }
                     }
-                    .buttonStyle(PlainCardButtonStyle())
-                    .contextMenu { posterMenu(item) }
-                    // ⏯ parity with the horizontal rows: skip Detail, go
-                    // straight to the source picker.
-                    .onPlayPauseCommand { onPlayManually(item, nil) }
                 }
             }
             .padding(.horizontal, NuvioSpacing.huge)
             .padding(.vertical, NuvioSpacing.md)
-            // Same rule as the horizontal rows: the grid (full width) is its
-            // own focus section, so vertical moves land on the nearest poster
-            // and the header's "See All" pill only catches focus when you're
-            // directly above/below it.
-            .focusSection()
-        }
-    }
-
-    /// Hold-Select options for a poster: Details / Library / Watched. Same set
-    /// for movies and shows (user asked for parity).
-    @ViewBuilder
-    private func posterMenu(_ item: MetaItem) -> some View {
-        Button { onSelect(item) } label: { Label("Go to Details", systemImage: "info.circle") }
-        Button {
-            library.toggle(item)
-        } label: {
-            Label(library.contains(item) ? "Remove from Library" : "Add to Library",
-                  systemImage: library.contains(item) ? "bookmark.slash" : "bookmark")
-        }
-        Button {
-            watched.toggleMovie(item)
-        } label: {
-            Label(watched.isWatched(item) ? "Mark as Unwatched" : "Mark as Watched",
-                  systemImage: watched.isWatched(item) ? "eye.slash" : "checkmark.circle")
-        }
-    }
-
-    /// Hold-Select options for a Continue Watching card.
-    @ViewBuilder
-    private func continueMenu(_ progress: WatchProgress) -> some View {
-        Button { onSelect(heroItem(from: progress)) } label: {
-            Label("Go to Details", systemImage: "info.circle")
-        }
-        Button { onPlayManually(heroItem(from: progress), metaVideo(from: progress)) } label: {
-            Label("Play Manually", systemImage: "list.and.film")
-        }
-        Button { onResumeFromStart(progress) } label: {
-            Label("Start from Beginning", systemImage: "gobackward")
-        }
-        Button(role: .destructive) {
-            // Remove the whole show (all episodes), like Netflix/Hulu — deleting
-            // only this episode would let another episode of the same show pop
-            // straight back into the row.
-            progressStore.removeShow(metaID: progress.metaID)
-        } label: {
-            Label("Remove from Continue Watching", systemImage: "xmark")
+            // No .focusSection() — a LazyVGrid already preserves the column on
+            // vertical moves, and the section wrapper made cross-grid moves
+            // re-home to a center poster ("focus goes to the middle").
         }
     }
 
@@ -764,7 +974,162 @@ struct HomeView: View {
 /// re-rendered the ENTIRE Home body — all rows — once per step. That's why
 /// only this row lagged while the rest of Home was fine. Here, a focus step
 /// re-renders just this row.
+/// A catalog poster row with LOCAL focus state, so a focus move re-renders
+/// only this row (not all of Home) and the row can implement Back navigation:
+/// Back while scrolled into the row jumps to the first card; Back on the first
+/// card bubbles up (`onBackAtStart`) to open the sidebar / focus the tab bar.
+private struct HomePosterRow: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @EnvironmentObject private var homeCatalogSettings: HomeCatalogSettingsStore
+    let row: HomeRow
+    let useLandscape: Bool
+    let heroFollowsFocus: Bool
+    let hero: HeroFocus
+    let onSelect: (MetaItem) -> Void
+    let onPlayManually: (MetaItem, MetaVideo?) -> Void
+    let onSeeAll: (InstalledAddon, ManifestCatalog, String) -> Void
+    let onBackAtStart: () -> Void
+
+    @FocusState private var focusedID: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
+            header
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
+                        ForEach(row.items) { item in
+                            // Equatable cell: a focus step writes the row's
+                            // @FocusState, which re-runs THIS row body — with
+                            // plain cells every materialized card re-built its
+                            // Button/card/caption tree per step. The == gate
+                            // (item + layout inputs) lets SwiftUI skip every
+                            // unchanged cell body, so a step re-renders nothing
+                            // but the two cards whose focus visuals actually
+                            // change (they invalidate via \.isFocused, which
+                            // bypasses ==). Focus/scroll bookkeeping stays out
+                            // here on the wrapper.
+                            HomePosterCell(
+                                item: item,
+                                useLandscape: useLandscape,
+                                captionWidth: useLandscape ? 340 : homeCatalogSettings.posterSize.posterWidth,
+                                heroFollowsFocus: heroFollowsFocus,
+                                hero: hero,
+                                onSelect: onSelect,
+                                onPlayManually: onPlayManually
+                            )
+                            .equatable()
+                            .focused($focusedID, equals: item.id)
+                            // Scroll target for the Back-to-start jump.
+                            .id(item.id)
+                        }
+                    }
+                    .padding(.horizontal, NuvioSpacing.huge)
+                    .padding(.vertical, NuvioSpacing.lg)
+                }
+                .scrollClipDisabled()
+                // No .focusSection() — preserves the column on vertical moves.
+                // Back: jump to the first card if scrolled in; on the first
+                // card, bubble up (sidebar / tab bar).
+                .onExitCommand { backToStart(proxy) }
+            }
+        }
+    }
+
+    /// Back: if scrolled into the row, scroll back to the first card AND focus
+    /// it. The scroll is essential — a `LazyHStack` unloads off-screen cards, so
+    /// when you're deep in the row the first card doesn't exist yet and setting
+    /// focus alone fails (the "doesn't work far into the row" bug). Scrolling it
+    /// into view renders it, then focus can land on it.
+    private func backToStart(_ proxy: ScrollViewProxy) {
+        guard let first = row.items.first?.id, focusedID != first else {
+            onBackAtStart()
+            return
+        }
+        withAnimation(FusionMotion.focusMove) { proxy.scrollTo(first, anchor: .leading) }
+        // Defer the focus so the just-rendered first card exists to receive it.
+        DispatchQueue.main.async { focusedID = first }
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline) {
+            RowHeader(title: row.title)
+            if let addon = row.addon, let catalog = row.catalog {
+                Spacer()
+                Button {
+                    onSeeAll(addon, catalog, row.title)
+                } label: {
+                    SeeAllLabel()
+                }
+                .buttonStyle(PlainCardButtonStyle())
+                .padding(.trailing, NuvioSpacing.huge)
+            }
+        }
+    }
+}
+
+/// One poster cell, Equatable so a row re-render (every focus step writes the
+/// row's @FocusState) skips the bodies of unchanged cells. == covers the data
+/// and layout inputs; the closures/hero are deliberately ignored — they're
+/// stable for the life of the row, and focus visuals invalidate through
+/// \.isFocused / EnvironmentObject, which bypass the == gate.
+private struct HomePosterCell: View, Equatable {
+    @EnvironmentObject private var theme: ThemeManager
+    let item: MetaItem
+    let useLandscape: Bool
+    let captionWidth: CGFloat
+    let heroFollowsFocus: Bool
+    let hero: HeroFocus
+    let onSelect: (MetaItem) -> Void
+    let onPlayManually: (MetaItem, MetaVideo?) -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.item == rhs.item
+            && lhs.useLandscape == rhs.useLandscape
+            && lhs.captionWidth == rhs.captionWidth
+            && lhs.heroFollowsFocus == rhs.heroFollowsFocus
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                onSelect(item)
+            } label: {
+                Group {
+                    if useLandscape {
+                        LandscapeCard(
+                            imageURL: item.background ?? item.poster,
+                            title: item.name,
+                            subtitle: nil,
+                            width: 340,
+                            showsCaption: !theme.isAppleTVTheme
+                        )
+                    } else {
+                        PosterCard(item: item)
+                    }
+                }
+                .onFocusChange { focused in
+                    if focused && heroFollowsFocus { hero.focus(item) }
+                }
+            }
+            .mediaCardButtonStyle()
+            .posterHoldMenu(item) { onSelect(item) }
+            .onPlayPauseCommand { onPlayManually(item, nil) }
+
+            if theme.isAppleTVTheme {
+                ATVCardCaption(
+                    title: item.name,
+                    subtitle: item.year,
+                    width: captionWidth
+                )
+            }
+        }
+    }
+}
+
 private struct ContinueWatchingRow: View {
+    @EnvironmentObject private var theme: ThemeManager
     let items: [WatchProgress]
     /// Plain let (not observed): the row only CALLS into the hero, it never
     /// renders from it.
@@ -776,94 +1141,152 @@ private struct ContinueWatchingRow: View {
     let blurFor: (WatchProgress) -> Bool
     let heroItemFor: (WatchProgress) -> MetaItem
     let onResume: (WatchProgress) -> Void
-    let menuFor: (WatchProgress) -> AnyView
+    // Hold-Select actions fed into the shared `continueHoldMenu` modifier.
+    let onDetails: (WatchProgress) -> Void
+    let onPlayManuallyMenu: (WatchProgress) -> Void
+    let onResumeFromStartMenu: (WatchProgress) -> Void
+    /// Back on the first card bubbles up (sidebar / tab bar).
+    var onBackAtStart: () -> Void = {}
 
-    // Last-focused card. Coming back UP into the row after its horizontal
-    // scroll moved, the focus engine can pick a geometrically-wrong card (the
-    // "jumps to the 5th" bug). Two defenses: prefersDefaultFocus marks the
-    // remembered card, and a FocusState snap-back forcibly returns focus to
-    // it when the row is ENTERED on a different one.
-    @State private var focusedContinueID: String?
+    // Tracks the focused card for the Back-to-start jump. Uses the same plain
+    // @FocusState model as HomePosterRow (no .focusScope / .prefersDefaultFocus)
+    // — that focus-scope machinery re-asserted focus within the row and cancelled
+    // the hold-menu long-press on Modern. Entry into the row is handled by the
+    // .focusSection() below, exactly like the poster rows.
     @FocusState private var focusedCWCard: String?
-    @Namespace private var continueScope
 
     var body: some View {
-        // .focusSection() lets a vertical D-pad move land on the nearest card in
-        // this row even when it's not column-aligned with where focus came from
-        // (e.g. one CW card while you're 3 posters deep in the row below).
+        // Focus model mirrors HomePosterRow (plain @FocusState, no .focusScope /
+        // .focusSection).
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             RowHeader(title: "Continue Watching")
+            ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
                     ForEach(items) { progress in
-                        Button {
-                            onResume(progress)
-                        } label: {
-                            LandscapeCard(
-                                imageURL: imageFor(progress),
-                                title: progress.name,
-                                subtitle: subtitleFor(progress),
-                                progress: progress.fraction,
-                                blurImage: blurFor(progress)
-                            )
-                            // Hero bar follows focus here too, like every other
-                            // row. Inside the label: `\.isFocused` only resolves
-                            // within the focusable Button, not around it.
-                            // (The remembered card is updated in the FocusState
-                            // onChange below — NOT here, or the wrong entry card
-                            // would overwrite it before the snap-back runs.)
-                            .onFocusChange { focused in
-                                if focused, drivesHero { hero.focus(heroItemFor(progress)) }
-                            }
-                        }
-                        .buttonStyle(PlainCardButtonStyle())
-                        .focused($focusedCWCard, equals: progress.id)
-                        // Returning to the row lands on the card you left, not
-                        // the geometrically-nearest one after the pin scroll.
-                        .prefersDefaultFocus(focusedContinueID == progress.id, in: continueScope)
-                        .contextMenu { menuFor(progress) }
-                        // ⏯ resumes instantly from a focused CW card too.
-                        .onPlayPauseCommand { onResume(progress) }
+                      // Equatable cell, same reasoning as HomePosterCell: focus
+                      // steps write the row's @FocusState and re-run this body;
+                      // the == gate skips every unchanged card. Derived values
+                      // (image/subtitle/blur) are computed HERE and passed as
+                      // stored properties so they participate in == — a settings
+                      // toggle that changes them still re-renders. NB: no
+                      // row-level focus glow — LandscapeCard draws its own off
+                      // \.isFocused; a row-level shadow keyed on focusedCWCard
+                      // used to re-render the whole row per move and cancelled
+                      // the hold-menu long-press.
+                      ContinueWatchingCell(
+                        progress: progress,
+                        imageURL: imageFor(progress),
+                        subtitle: subtitleFor(progress),
+                        blur: blurFor(progress),
+                        drivesHero: drivesHero,
+                        hero: hero,
+                        heroItemFor: heroItemFor,
+                        onResume: onResume,
+                        onDetails: { onDetails(progress) },
+                        onPlayManuallyMenu: { onPlayManuallyMenu(progress) },
+                        onResumeFromStartMenu: { onResumeFromStartMenu(progress) }
+                      )
+                      .equatable()
+                      .focused($focusedCWCard, equals: progress.id)
+                      .id(progress.id)
                     }
                 }
                 .padding(.horizontal, NuvioSpacing.huge)
                 .padding(.vertical, NuvioSpacing.lg)
             }
             .scrollClipDisabled()
-            .focusScope(continueScope)
-            // A card removed while focused (hold-Select → Remove) must hand the
-            // highlight to the NEXT available card in this row, not drop it.
-            // Only acts when this row owns focus (focusedCWCard non-nil), so a
-            // background progress update never yanks focus here. If the row
-            // empties, focusSection re-homes focus to the row below.
+            // Back: scroll to + focus the first card if scrolled in; on the first
+            // card, bubble up (tab bar).
+            .onExitCommand {
+                if let first = items.first?.id, focusedCWCard != first {
+                    withAnimation(FusionMotion.focusMove) { proxy.scrollTo(first, anchor: .leading) }
+                    DispatchQueue.main.async { focusedCWCard = first }
+                } else {
+                    onBackAtStart()
+                }
+            }
+            // A card removed while focused hands focus to the next available card.
             .onChange(of: items.map(\.id)) { oldIDs, newIDs in
                 guard let focused = focusedCWCard, !newIDs.contains(focused),
                       !newIDs.isEmpty else { return }
                 let oldIndex = oldIDs.firstIndex(of: focused) ?? 0
                 focusedCWCard = newIDs[min(oldIndex, newIDs.count - 1)]
             }
-            .onChange(of: focusedCWCard) { oldValue, newValue in
-                if let newValue {
-                    // ENTERING the row on the wrong (geometric) card — snap
-                    // back to the one the user left. In-row moves (oldValue
-                    // non-nil) do NOTHING: writing @State on every left/right
-                    // step re-rendered the whole row (every card + its
-                    // progress-strip GeometryReader) each move — the lag.
-                    if oldValue == nil,
-                       let last = focusedContinueID, last != newValue,
-                       items.contains(where: { $0.id == last }) {
-                        focusedCWCard = last
-                    }
-                } else {
-                    // LEAVING the row: record the card we were on so the next
-                    // entry lands back on it. One re-render, off the hot path
-                    // (focus has already left) — and it refreshes the
-                    // prefersDefaultFocus markers for that next entry.
-                    focusedContinueID = oldValue
+            }   // ScrollViewReader
+        }
+        // No .focusSection() — matches HomePosterRow. The focus section governs
+        // focus transitions, and on Modern it blocked the hold-menu context menu
+        // from presenting even though the long-press reached the card (confirmed
+        // via a press probe). Poster rows never had it and their hold menu works.
+    }
+}
+
+/// One Continue Watching cell, Equatable so row re-renders (focus steps) skip
+/// unchanged card bodies — see HomePosterCell. Derived display values are
+/// stored properties so they participate in ==. The hold-Select menu is applied
+/// with the shared `continueHoldMenu` modifier (built inline from these
+/// closures), NOT a threaded @ViewBuilder — the threaded path failed to present
+/// the menu on the Apple TV card style.
+private struct ContinueWatchingCell: View, Equatable {
+    @EnvironmentObject private var theme: ThemeManager
+    let progress: WatchProgress
+    let imageURL: String?
+    let subtitle: String?
+    let blur: Bool
+    let drivesHero: Bool
+    let hero: HeroFocus
+    let heroItemFor: (WatchProgress) -> MetaItem
+    let onResume: (WatchProgress) -> Void
+    let onDetails: () -> Void
+    let onPlayManuallyMenu: () -> Void
+    let onResumeFromStartMenu: () -> Void
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.progress == rhs.progress
+            && lhs.imageURL == rhs.imageURL
+            && lhs.subtitle == rhs.subtitle
+            && lhs.blur == rhs.blur
+            && lhs.drivesHero == rhs.drivesHero
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                onResume(progress)
+            } label: {
+                LandscapeCard(
+                    imageURL: imageURL,
+                    title: progress.name,
+                    subtitle: subtitle,
+                    progress: progress.fraction,
+                    blurImage: blur,
+                    // ATV: caption goes BELOW the platter (see below) so it
+                    // isn't bridged to the still by the slab.
+                    showsCaption: !theme.isAppleTVTheme
+                )
+                // Hero bar follows focus here too, like every other row.
+                // Inside the label: `\.isFocused` only resolves within the
+                // focusable Button, not around it.
+                .onFocusChange { focused in
+                    if focused, drivesHero { hero.focus(heroItemFor(progress)) }
                 }
             }
+            .mediaCardButtonStyle()
+            .continueHoldMenu(progress, onDetails: onDetails,
+                              onPlayManually: onPlayManuallyMenu,
+                              onResumeFromStart: onResumeFromStartMenu)
+            // ⏯ resumes instantly from a focused CW card too.
+            .onPlayPauseCommand { onResume(progress) }
+
+            if theme.isAppleTVTheme {
+                ATVCardCaption(
+                    title: progress.name,
+                    subtitle: subtitle,
+                    width: 380
+                )
+            }
         }
-        .focusSection()
     }
 }
 
@@ -940,7 +1363,7 @@ struct RetryLabel: View {
         .foregroundStyle(isFocused ? theme.palette.onSecondary : theme.palette.textPrimary)
         .padding(.horizontal, 30)
         .padding(.vertical, 12)
-        .background(Capsule().fill(isFocused ? theme.palette.secondary : Color.white.opacity(0.1)))
+        .background(Capsule().fill(isFocused ? theme.palette.secondary : Color.primary.opacity(0.1)))
         .overlay(Capsule().strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3))
         .scaleEffect(PerformanceSettingsStore.shared.buttonAnimationsEffective && isFocused ? 1.05 : 1)
         .animation(PerformanceSettingsStore.shared.buttonAnimationsEffective
@@ -967,7 +1390,7 @@ struct SeeAllLabel: View {
         .padding(.vertical, 6)
         .background(
             Capsule(style: .continuous)
-                .fill(isFocused ? theme.palette.focusBackground : Color.white.opacity(0.08))
+                .fill(isFocused ? theme.palette.focusBackground : Color.primary.opacity(0.08))
         )
         .overlay(
             Capsule(style: .continuous)
@@ -1007,21 +1430,132 @@ private struct FocusChangeModifier: ViewModifier {
 
 // MARK: - Billboard (isolated so hero updates don't re-render the rows)
 
+/// Fusion (§22.1): the Classic home layout's shallow "backdrop sliver" —
+/// artwork confined to the upper-right of a 300pt band, faded hard into the
+/// background, with only a compact title label (no synopsis, no buttons).
+/// Classic is meant to feel lighter/faster than Modern's full spotlight.
+private struct ATVClassicHeroSliver: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject var hero: HeroFocus
+    private let sliverHeight: CGFloat = 300
+
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .bottomLeading) {
+                if let art = hero.item?.background ?? hero.item?.poster {
+                    RemoteImage(url: art, alignment: .topTrailing)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                }
+                // Strong left + bottom fade — only the upper-right corner
+                // reads as art; everything else dissolves into the page.
+                LinearGradient(
+                    stops: [
+                        .init(color: theme.palette.background, location: 0),
+                        .init(color: theme.palette.background.opacity(0.62), location: 0.32),
+                        .init(color: .clear, location: 0.62)
+                    ],
+                    startPoint: .leading, endPoint: .trailing
+                )
+                LinearGradient(
+                    colors: [.clear, theme.palette.background],
+                    startPoint: UnitPoint(x: 0.5, y: 0.3), endPoint: UnitPoint(x: 0.5, y: 1)
+                )
+                if let name = hero.item?.name {
+                    // Compact label only — no synopsis/buttons (§22.1).
+                    Text(name)
+                        .font(FusionType.moduleHeading(theme.font))
+                        .foregroundStyle(theme.palette.textPrimary)
+                        .lineLimit(1)
+                        .shadow(color: .black.opacity(0.4), radius: 8, y: 3)
+                        .padding(.leading, NuvioSpacing.huge)
+                        .padding(.bottom, NuvioSpacing.lg)
+                }
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+        .frame(height: sliverHeight)
+        .ignoresSafeArea(edges: .horizontal)
+    }
+}
+
 /// Full-bleed backdrop for the focused title. Observes `HeroFocus` on its own,
 /// so the animated hero swap re-renders ONLY this view — not the poster rows
 /// (that re-render was cancelling the first long-press on a card).
 private struct HeroBackdropView: View {
     @EnvironmentObject private var theme: ThemeManager
     @ObservedObject var hero: HeroFocus
+    /// Light appearance (Apple TV theme only — Classic is always dark). The
+    /// dark scrim ramps read as cinematic shadow, but the same opacities in
+    /// WHITE read as fog over the whole image — light mode uses tighter ramps
+    /// that keep the art vivid and only clear a zone for the text.
+    @Environment(\.colorScheme) private var scheme
+    private var isLight: Bool { scheme == .light }
 
     var body: some View {
         GeometryReader { geo in
             ZStack {
                 if let item = hero.item {
-                    // No .id() — RemoteImage crossfades internally as the URL
-                    // changes, dissolving between titles instead of reloading.
-                    RemoteImage(url: item.background ?? item.poster)
+                    if item.type == "collection", (item.background ?? item.poster) == nil, let logo = item.logo {
+                        // A category with no real backdrop: show its brand logo
+                        // WHOLE (fit), large, high on the art side — never a
+                        // cropped, zoomed-in .fill. Changes per focused folder.
+                        RemoteImage(url: logo, contentMode: .fit)
+                            .frame(width: geo.size.width * 0.4, height: geo.size.height * 0.34)
+                            .padding(.top, geo.size.height * 0.1)
+                            .padding(.trailing, geo.size.width * 0.08)
+                            .frame(width: geo.size.width, height: geo.size.height, alignment: .topTrailing)
+                    } else {
+                        // No .id() — RemoteImage crossfades internally as the URL
+                        // changes, dissolving between titles instead of reloading.
+                        RemoteImage(url: item.background ?? item.poster)
+                            .frame(width: geo.size.width, height: geo.size.height)
+                    }
+                }
+                // Apple TV theme: progressive-blur dissolve (the tvOS TV-app
+                // treatment) — the art frosts into the background toward the
+                // text column and the rows, instead of dying under a flat
+                // color band. A blurred copy of the same backdrop (cache hit,
+                // hero-only cost) is revealed by gradient masks at the left
+                // and bottom; the color scrims above then need far less
+                // opacity, so the art stays vivid where it matters.
+                if theme.isAppleTVTheme, !PerformanceProfile.isLowPower, let item = hero.item,
+                   let art = item.background ?? item.poster,
+                   !(item.type == "collection" && item.background == nil && item.poster == nil) {
+                    // The progressive-blur dissolve needs a SECOND full-screen
+                    // layer + gradient masks — a composite the 2 GB Apple TV HD
+                    // can't spare even with the blur pre-rendered. There the
+                    // flat color scrims below carry the fade instead.
+                    //
+                    // PRE-blurred (BlurredRemoteImage): the old live
+                    // `.blur(radius: 60)` here made Core Animation re-run a
+                    // full-screen gaussian on every composited frame — the
+                    // heaviest recurring GPU cost on the A10X while Home
+                    // scrolls. The pre-blurred rendition is pixel-equivalent
+                    // under these masks at a plain-composite price.
+                    BlurredRemoteImage(url: art, screenBlurRadius: 60)
                         .frame(width: geo.size.width, height: geo.size.height)
+                        .mask(
+                            ZStack {
+                                LinearGradient(
+                                    stops: [
+                                        .init(color: .white, location: 0),
+                                        .init(color: .white.opacity(0.9), location: 0.30),
+                                        .init(color: .clear, location: 0.60)
+                                    ],
+                                    startPoint: .leading, endPoint: .trailing
+                                )
+                                LinearGradient(
+                                    stops: [
+                                        .init(color: .clear, location: 0),
+                                        .init(color: .clear, location: 0.34),
+                                        .init(color: .white.opacity(0.85), location: 0.58),
+                                        .init(color: .white, location: 0.72)
+                                    ],
+                                    startPoint: .top, endPoint: .bottom
+                                )
+                            }
+                        )
+                        .allowsHitTesting(false)
                 }
                 // Netflix scrim: art reads on the top-right; the left third is
                 // darkened for the title/synopsis; the lower half dissolves into
@@ -1030,23 +1564,42 @@ private struct HeroBackdropView: View {
                 // so there's no flat near-solid block that reads as a second
                 // "tone" next to the sidebar — it just dissolves into the art.
                 LinearGradient(
-                    stops: [
-                        .init(color: theme.palette.background, location: 0),
-                        .init(color: theme.palette.background.opacity(0.92), location: 0.14),
-                        .init(color: theme.palette.background.opacity(0.72), location: 0.30),
-                        .init(color: theme.palette.background.opacity(0.45), location: 0.46),
-                        .init(color: theme.palette.background.opacity(0.20), location: 0.62),
-                        .init(color: .clear, location: 0.80)
-                    ],
+                    stops: isLight
+                        ? [
+                            // Over the blur this tint reads as white frosted
+                            // glass (blur + tint = material), so it stays
+                            // strong through the text column and only drops
+                            // once the art goes sharp.
+                            .init(color: theme.palette.background, location: 0),
+                            .init(color: theme.palette.background.opacity(0.90), location: 0.22),
+                            .init(color: theme.palette.background.opacity(0.78), location: 0.40),
+                            .init(color: theme.palette.background.opacity(0.45), location: 0.52),
+                            .init(color: .clear, location: 0.64)
+                        ]
+                        : [
+                            .init(color: theme.palette.background, location: 0),
+                            .init(color: theme.palette.background.opacity(0.92), location: 0.14),
+                            .init(color: theme.palette.background.opacity(0.72), location: 0.30),
+                            .init(color: theme.palette.background.opacity(0.45), location: 0.46),
+                            .init(color: theme.palette.background.opacity(0.20), location: 0.62),
+                            .init(color: .clear, location: 0.80)
+                        ],
                     startPoint: .leading, endPoint: .trailing
                 )
                 LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .clear, location: 0.32),
-                        .init(color: theme.palette.background.opacity(0.55), location: 0.52),
-                        .init(color: theme.palette.background, location: 0.66)
-                    ],
+                    stops: isLight
+                        ? [
+                            .init(color: .clear, location: 0),
+                            .init(color: .clear, location: 0.40),
+                            .init(color: theme.palette.background.opacity(0.60), location: 0.56),
+                            .init(color: theme.palette.background, location: 0.70)
+                        ]
+                        : [
+                            .init(color: .clear, location: 0),
+                            .init(color: .clear, location: 0.32),
+                            .init(color: theme.palette.background.opacity(0.55), location: 0.52),
+                            .init(color: theme.palette.background, location: 0.66)
+                        ],
                     startPoint: .top, endPoint: .bottom
                 )
             }
@@ -1062,6 +1615,9 @@ private struct HeroInfoView: View {
     @EnvironmentObject private var theme: ThemeManager
     @ObservedObject private var perf = PerformanceSettingsStore.shared
     @ObservedObject var hero: HeroFocus
+    /// Light appearance (ATV theme): title-treatment logos are usually white
+    /// art and float unanchored on a light backdrop without a shadow.
+    @Environment(\.colorScheme) private var scheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
@@ -1088,9 +1644,26 @@ private struct HeroInfoView: View {
 
     @ViewBuilder
     private func content(_ item: MetaItem) -> some View {
+        // A category (collection folder): its logo is shown large in the
+        // backdrop, so the info block is just the category name — no small
+        // duplicate logo and no empty movie-meta row.
+        if item.type == "collection" {
+            Text(item.name)
+                .font(.system(size: 52, weight: .heavy))
+                .foregroundStyle(theme.palette.textPrimary)
+                .lineLimit(2)
+        } else {
+            realTitleContent(item)
+        }
+    }
+
+    @ViewBuilder
+    private func realTitleContent(_ item: MetaItem) -> some View {
         if let logo = item.logo {
             RemoteImage(url: logo, contentMode: .fit, alignment: .bottomLeading)
                 .frame(width: 460, height: 150)
+                .shadow(color: .black.opacity(scheme == .light ? 0.35 : 0),
+                        radius: 14, y: 5)
         } else {
             Text(item.name)
                 .font(.system(size: 58, weight: .heavy))
@@ -1121,6 +1694,242 @@ private struct HeroInfoView: View {
                 .foregroundStyle(theme.palette.textSecondary)
                 .lineLimit(3)
                 .frame(maxWidth: 820, alignment: .leading)
+        }
+    }
+}
+
+/// Fusion Modern's scroll-away hero header: a tall backdrop (art + scrim) with
+/// the spotlight info block anchored at its bottom. It's the FIRST item of the
+/// Home scroll, so it moves up and off the screen as the user browses down —
+/// the hero is part of the page, not pinned to the viewport.
+private struct FusionHeroHeader: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject var hero: HeroFocus
+    let onPlay: (MetaItem) -> Void
+    /// Tall like the Detail page's backdrop — the art dominates the first
+    /// screen, with the first content row peeking at the very bottom.
+    var height: CGFloat = 880
+
+    var body: some View {
+        ZStack(alignment: .bottomLeading) {
+            // Full-bleed backdrop (the scroll ignores the safe area, so this
+            // fills the whole screen width like the Detail-page backdrop).
+            GeometryReader { geo in
+                if let art = hero.item?.background ?? hero.item?.poster {
+                    RemoteImage(url: art)
+                        .frame(width: geo.size.width, height: geo.size.height)
+                        .clipped()
+                }
+            }
+            // Left readability wash.
+            LinearGradient(
+                stops: [
+                    .init(color: theme.palette.background, location: 0),
+                    .init(color: theme.palette.background.opacity(0.82), location: 0.16),
+                    .init(color: theme.palette.background.opacity(0.45), location: 0.34),
+                    .init(color: .clear, location: 0.60)
+                ],
+                startPoint: .leading, endPoint: .trailing
+            )
+            // Strong bottom gradient blending into the grey page.
+            LinearGradient(
+                stops: [
+                    .init(color: theme.palette.background, location: 0),
+                    .init(color: theme.palette.background.opacity(0.9), location: 0.14),
+                    .init(color: theme.palette.background.opacity(0.5), location: 0.32),
+                    .init(color: .clear, location: 0.6)
+                ],
+                startPoint: .bottom, endPoint: .top
+            )
+            // Spotlight info — extra leading inset so text/logo stay title-safe
+            // even though the art bleeds to the edge.
+            ATVHeroInfoView(hero: hero, onPlay: onPlay)
+                .padding(.leading, NuvioSpacing.xl)
+        }
+        .frame(height: height)
+        .frame(maxWidth: .infinity)
+        // "TOP 10" eyebrow at the very top-left of the hero.
+        .overlay(alignment: .topLeading) {
+            if hero.spotlight.count > 1 {
+                Text("TOP 10")
+                    .font(FusionType.badge(theme.font))
+                    .tracking(2)
+                    .foregroundStyle(theme.palette.secondary)
+                    .padding(.leading, NuvioSpacing.huge + NuvioSpacing.xl)
+                    .padding(.top, 130)   // clear the top tab bar
+            }
+        }
+    }
+}
+
+/// The Apple TV theme's prominent spotlight hero: a tall, bottom-anchored
+/// billboard (logo, rating/meta line, synopsis, and a focusable Play button)
+/// over the full-bleed backdrop. Auto-rotates through the top titles when idle
+/// (see `HeroFocus.rotateIfIdle`) and follows card focus while browsing.
+private struct ATVHeroInfoView: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var perf = PerformanceSettingsStore.shared
+    @Environment(\.colorScheme) private var scheme
+    @ObservedObject var hero: HeroFocus
+    let onPlay: (MetaItem) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
+            Spacer(minLength: 0)
+            if let item = hero.item {
+                content(item)
+            }
+        }
+        .frame(height: 560, alignment: .bottomLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.top, 40)
+        .padding(.leading, NuvioSpacing.huge)
+        .padding(.bottom, NuvioSpacing.md)
+    }
+
+    @ViewBuilder
+    private func content(_ item: MetaItem) -> some View {
+        if item.type == "collection" {
+            Text(item.name)
+                .font(.system(size: 60, weight: .heavy))
+                .foregroundStyle(theme.palette.textPrimary)
+                .lineLimit(2)
+        } else {
+            // (The "TOP 10" eyebrow now lives at the hero's top-left corner —
+            // see FusionHeroHeader.)
+            // Title treatment (logo) or big text fallback.
+            if let logo = item.logo {
+                RemoteImage(url: logo, contentMode: .fit, alignment: .bottomLeading)
+                    .frame(width: 540, height: 180)
+                    // Grounds a white logo on both a light frost and dark art.
+                    .shadow(color: .black.opacity(scheme == .light ? 0.32 : 0.5),
+                            radius: 16, y: 6)
+            } else {
+                Text(item.name)
+                    .font(FusionType.heroTitle(theme.font))
+                    .foregroundStyle(theme.palette.textPrimary)
+                    .lineLimit(2)
+                    .shadow(color: .black.opacity(scheme == .light ? 0 : 0.4), radius: 10, y: 4)
+            }
+
+            metaLine(item)
+
+            if let description = item.description, !description.isEmpty {
+                Text(description)
+                    .font(FusionType.bodyText(theme.font))
+                    .foregroundStyle(theme.palette.textSecondary)
+                    .lineLimit(2)
+                    .frame(maxWidth: 820, alignment: .leading)
+            }
+
+            ATVHeroPlayButton(title: item.type == "series" ? "Go to Show" : "Go to Movie") {
+                onPlay(item)
+            }
+            .onFocusChange { focused in
+                hero.heroButtonFocused = focused
+                if focused { hero.markInteraction() }
+            }
+            // Left/Right on the (horizontally-alone) Play button browse the
+            // spotlight titles; Up/Down fall through to the focus engine so
+            // Down still reaches the content rows.
+            .onMoveCommand { direction in
+                switch direction {
+                case .left: hero.stepSpotlight(by: -1)
+                case .right: hero.stepSpotlight(by: 1)
+                default: break
+                }
+            }
+            .padding(.top, NuvioSpacing.xs)
+
+            // §20.5 pagination — tracks spotlight rotation position.
+            if hero.spotlight.count > 1 {
+                paginationDots
+                    .padding(.top, NuvioSpacing.sm)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var paginationDots: some View {
+        HStack(spacing: 8) {
+            ForEach(hero.spotlight.indices, id: \.self) { i in
+                Capsule()
+                    .fill(i == hero.spotlightIndex ? theme.palette.secondary : Color.white.opacity(0.35))
+                    .frame(width: i == hero.spotlightIndex ? 24 : 7, height: 7)
+            }
+        }
+        .animation(FusionMotion.focusEntry, value: hero.spotlightIndex)
+    }
+
+    /// Rating (green, TV-app style) then a dot-separated Year • Genre • Runtime.
+    @ViewBuilder
+    private func metaLine(_ item: MetaItem) -> some View {
+        let segments = [item.year, item.genres?.first, item.runtimeFormatted].compactMap { $0 }
+        HStack(spacing: NuvioSpacing.sm) {
+            if let rating = item.imdbRating {
+                HStack(spacing: 6) {
+                    Image(systemName: "star.fill").font(.system(size: 17, weight: .bold))
+                    Text(rating).font(.system(size: 23, weight: .bold))
+                }
+                .foregroundStyle(NuvioPrimitives.success)
+                if !segments.isEmpty { MetaDot() }
+            }
+            ForEach(Array(segments.enumerated()), id: \.offset) { index, seg in
+                if index > 0 { MetaDot() }
+                MetaDotText(seg)
+            }
+        }
+    }
+}
+
+/// White capsule Play button for the Apple TV hero (reference "Go to Movie"
+/// affordance). Lifts on focus with the native-feeling scale + shadow.
+private struct ATVHeroPlayButton: View {
+    let title: String
+    let action: () -> Void
+
+    @EnvironmentObject private var theme: ThemeManager
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: "play.fill").font(.system(size: 24, weight: .bold))
+                Text(title).font(FusionType.button(theme.font))
+            }
+        }
+        .buttonStyle(ATVHeroPlayButtonStyle())
+    }
+}
+
+private struct ATVHeroPlayButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        Chrome(configuration: configuration)
+    }
+
+    private struct Chrome: View {
+        @EnvironmentObject private var theme: ThemeManager
+        @Environment(\.isFocused) private var isFocused
+        let configuration: ButtonStyle.Configuration
+
+        var body: some View {
+            configuration.label
+                // Focused: accent fill + white text; at rest: neutral white pill.
+                .foregroundStyle(isFocused ? .white : .black)
+                .padding(.horizontal, 36)
+                .padding(.vertical, 16)
+                .background(Capsule().fill(isFocused ? theme.palette.secondary : Color.white.opacity(0.9)))
+                // Bright ring on focus so it reads as selected even over busy art.
+                .overlay(
+                    Capsule().strokeBorder(isFocused ? Color.white.opacity(0.95) : .clear, lineWidth: 4)
+                )
+                // Accent glow beneath the focused pill.
+                .shadow(color: isFocused ? theme.palette.secondary.opacity(0.7) : .black.opacity(0.14),
+                        radius: isFocused ? 26 : 6, y: isFocused ? 12 : 6)
+                .scaleEffect(isFocused ? 1.12 : 1)
+                .scaleEffect(configuration.isPressed ? 0.98 : 1)
+                .animation(FusionMotion.focusEntry, value: isFocused)
+                .animation(configuration.isPressed ? FusionMotion.pressDown : FusionMotion.pressRelease,
+                           value: configuration.isPressed)
         }
     }
 }

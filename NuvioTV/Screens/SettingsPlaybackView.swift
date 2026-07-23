@@ -258,7 +258,7 @@ struct PlaybackSettingsDetail: View {
                 PlaybackToggleRow(
                     icon: "tv.fill",
                     title: "Match content display mode",
-                    subtitle: "Switch the TV into the video's HDR mode for native Dolby Vision/HDR. Uses the gentlest switch possible (dynamic range only, no refresh-rate change) to reduce grey-screen risk — but some TVs still mis-handshake and stick on grey until power-cycled, so leave off if that happens. Off = tone-map into the home screen's format (like Stremio).",
+                    subtitle: "Switch the TV into the video's HDR mode for native Dolby Vision/HDR. Uses the gentlest switch possible (dynamic range only, no refresh-rate change) to reduce grey-screen risk — but some TVs still mis-handshake and stick on grey until power-cycled, so leave off if that happens. Off = tone-map into the home screen's format.",
                     isOn: s.matchContentDisplayMode
                 )
 

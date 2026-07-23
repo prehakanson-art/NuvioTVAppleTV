@@ -220,7 +220,7 @@ struct InfuseScrubHUD: View {
                                 .foregroundStyle(.white)
                                 .padding(.horizontal, NuvioSpacing.md)
                                 .padding(.vertical, 6)
-                                .background(.ultraThinMaterial, in: Capsule())
+                                .playerChrome(in: Capsule())
                         }
                         .frame(width: 260, alignment: .center)
                         .offset(x: x - 130, y: preview != nil ? -110 : 40)

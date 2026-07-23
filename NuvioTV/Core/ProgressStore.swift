@@ -43,6 +43,11 @@ final class ProgressStore: ObservableObject {
     /// account sync can delete them server-side too — otherwise they'd
     /// resurrect on the next pull.
     var onRemove: (([String]) -> Void)?
+    /// Fired when the USER removes a title from Continue Watching (with its
+    /// metaID), so Trakt sync can delete the matching playback rows there too.
+    /// Not fired for internal migrations (recanonicalize) — the title is still
+    /// being watched, its key just changed.
+    var onTraktRemove: ((String) -> Void)?
     private var suppressChange = false
 
     /// Recently-removed progress keys → removal time. A pull's server snapshot
@@ -53,6 +58,25 @@ final class ProgressStore: ObservableObject {
     /// server no longer returns it). A local re-watch clears the tombstone.
     private var tombstones: [String: Date] = [:]
     private static let tombstoneGrace: TimeInterval = 180
+
+    /// Keys that arrived from an EXTERNAL source (Trakt playback) this session
+    /// — PERMANENT for the session. Trakt sync consults this to avoid pushing
+    /// Trakt's own rows back at it, which would resurrect items the user
+    /// deleted on trakt.tv.
+    private var externallyMerged: Set<String> = []
+
+    /// Externally-merged keys whose account push hasn't been CONFIRMED by a
+    /// server snapshot yet — TEMPORARY. The account reconcile must not delete
+    /// these as "absent from the server": they carry their real (old) watch
+    /// timestamps, so the 2-minute deletion grace — which protects fresh local
+    /// rows while their push is in flight — offers them no protection. Once a
+    /// snapshot contains the key (the push landed) it's pruned, so a removal
+    /// made on another device can still propagate here afterwards.
+    private var awaitingServerAck: Set<String> = []
+
+    /// Whether a progress row originally arrived from an external source
+    /// (Trakt) rather than local playback.
+    func wasExternallyMerged(_ id: String) -> Bool { externallyMerged.contains(id) }
 
     private func pruneTombstones() {
         let cutoff = Date().addingTimeInterval(-Self.tombstoneGrace)
@@ -121,8 +145,12 @@ final class ProgressStore: ObservableObject {
         let remoteIDs = Set(remote.map(\.id))
         let cutoff = Date().addingTimeInterval(-Self.deletionGrace)
         // Collect first, then remove — mutating `items` mid-iteration is unsafe.
+        // A snapshot that CONTAINS an externally-merged key proves its push
+        // landed — release the exemption so future reconciles govern it.
+        awaitingServerAck.subtract(remoteIDs)
         let staleIDs = items.compactMap { id, local in
-            (!remoteIDs.contains(id) && local.updatedAt < cutoff) ? id : nil
+            (!remoteIDs.contains(id) && local.updatedAt < cutoff
+             && !awaitingServerAck.contains(id)) ? id : nil
         }
         for id in staleIDs {
             items.removeValue(forKey: id)
@@ -185,26 +213,44 @@ final class ProgressStore: ObservableObject {
     /// can't fight the Nuvio full-snapshot reconcile.
     func mergeExternal(_ remote: [WatchProgress]) {
         suppressChange = true
-        defer { suppressChange = false }
         var changed = false
         for entry in remote {
             if let local = items[entry.id] {
-                // Only advance position if external is further and newer-ish.
+                // Only advance position if external is further and MEANINGFULLY
+                // newer (60s slack). External positions are rebuilt from a
+                // percentage × a guessed runtime, so they're approximate — the
+                // slack keeps a row this device just scrobble-pushed (whose
+                // paused_at lands seconds after our own updatedAt) from
+                // clobbering the precise local resume point with the
+                // round-tripped estimate. A genuine watch on another device is
+                // comfortably past 60s.
                 if entry.positionSeconds > local.positionSeconds + 5,
-                   entry.updatedAt > local.updatedAt {
+                   entry.updatedAt > local.updatedAt.addingTimeInterval(60) {
                     var merged = local
                     merged.positionSeconds = entry.positionSeconds
                     if entry.durationSeconds > 0 { merged.durationSeconds = entry.durationSeconds }
                     merged.updatedAt = entry.updatedAt
                     items[entry.id] = merged
+                    externallyMerged.insert(entry.id)
+                    awaitingServerAck.insert(entry.id)
                     changed = true
                 }
             } else if tombstones[entry.id] == nil {
                 items[entry.id] = entry
+                externallyMerged.insert(entry.id)
+                awaitingServerAck.insert(entry.id)
                 changed = true
             }
         }
         if changed { save() }
+        suppressChange = false
+        // Push the merged rows to the ACCOUNT server too. Without this, the
+        // account's full-snapshot reconcile (mergeRemote, run by the 30s
+        // Continue Watching poll) saw Trakt-pulled rows as "absent from the
+        // server" and deleted them within seconds — Trakt items flashed into
+        // Continue Watching and then silently vanished, which is why Trakt
+        // sync never seemed to show everything.
+        if changed { onLocalUpdate?() }
     }
 
     /// Items that should appear in the Continue Watching row.
@@ -369,7 +415,10 @@ final class ProgressStore: ObservableObject {
     /// from Continue Watching" works on Netflix/Hulu. Deleting just the visible
     /// episode would leave the show's other episodes behind, so the card would
     /// immediately reappear with a different episode.
-    func removeShow(metaID: String) {
+    /// `notifyTrakt` must be passed ONLY from an explicit user action ("Remove
+    /// from Continue Watching") — it deletes the title's playback rows on the
+    /// user's Trakt account, which no internal cleanup/migration should do.
+    func removeShow(metaID: String, notifyTrakt: Bool = false) {
         let removedKeys = items.values.filter { $0.metaID == metaID }.map(\.id)
         guard !removedKeys.isEmpty else { return }
         let now = Date()
@@ -380,6 +429,7 @@ final class ProgressStore: ObservableObject {
         save()
         if !suppressChange {
             onRemove?(removedKeys)
+            if notifyTrakt { onTraktRemove?(metaID) }
             onLocalUpdate?()
         }
     }

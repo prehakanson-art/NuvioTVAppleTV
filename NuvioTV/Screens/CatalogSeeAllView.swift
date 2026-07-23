@@ -71,7 +71,7 @@ struct CatalogSeeAllView: View {
                                 } label: {
                                     PosterCard(item: item)
                                 }
-                                .buttonStyle(PlainCardButtonStyle())
+                                .mediaCardButtonStyle()
                                 .onAppear {
                                     // Prefetch the next page as the tail comes into view.
                                     if item.id == viewModel.items.last?.id {

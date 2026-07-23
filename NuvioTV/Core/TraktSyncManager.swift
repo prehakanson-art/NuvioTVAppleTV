@@ -36,6 +36,7 @@ final class TraktSyncManager: ObservableObject {
         library.onTraktRemove = { [weak self] item in self?.pushWatchlistRemove(item) }
         ratings.onTraktRate = { [weak self] id, type, r in self?.pushRating(id, type, r) }
         ratings.onTraktUnrate = { [weak self] id, type in self?.pushUnrate(id, type) }
+        progress.onTraktRemove = { [weak self] metaID in self?.pushPlaybackRemove(metaID) }
         // Toggling a Trakt sync setting on kicks a full sync.
         trakt.onTraktSettingChange = { [weak self] in self?.syncNow(force: true) }
 
@@ -121,11 +122,16 @@ final class TraktSyncManager: ObservableObject {
     }
 
     /// Pull Trakt playback progress into Continue Watching (additive), enriched
-    /// with meta for artwork + runtime. Returns count added/updated.
+    /// with meta for artwork + runtime — then push LOCAL Continue Watching rows
+    /// Trakt is missing (scrobble-pause sets their playback position there).
+    /// Returns count pulled.
     private func pullPlayback(token: String) async -> Int {
-        let items = await TraktService.playbackProgress(accessToken: token)
-            .filter { ($0.progress ?? 0) > 1 && ($0.progress ?? 0) < 95 }
-        guard !items.isEmpty else { return 0 }
+        // Keep anything genuinely in progress — dropping ≤1% hid barely-started
+        // titles that Trakt showed. ≥95% still counts as finished, matching the
+        // player's own auto-clear threshold. nil = the fetch FAILED — bail out
+        // entirely rather than mistaking an outage for an empty list.
+        guard let remote = await TraktService.playbackProgress(accessToken: token) else { return 0 }
+        let items = remote.filter { ($0.progress ?? 0) > 0 && ($0.progress ?? 0) < 95 }
         var rows: [WatchProgress] = []
         var enriched = 0
         for s in items {
@@ -157,7 +163,59 @@ final class TraktSyncManager: ObservableObject {
                 updatedAt: s.watchedAt ?? Date()))
         }
         progress.mergeExternal(rows)
+
+        // LOCAL → TRAKT: Continue Watching rows Trakt doesn't have (scrobble
+        // was off, failed, or predates sign-in). A scrobble "pause" at the
+        // local position creates the playback row on Trakt's side. Only tt…
+        // ids scrobble cleanly; cap the burst so a big backlog can't hammer
+        // the API in one sync. remoteKeys carries BOTH the imdb- and tmdb-keyed
+        // forms of every Trakt row, so a local row keyed under one identity
+        // can't be mistaken for missing because Trakt reported the other.
+        // Rows that ORIGINATED from Trakt are excluded: pushing those back
+        // would resurrect items the user deleted on trakt.tv itself.
+        var remoteKeys = Set<String>()
+        for s in remote {
+            var idForms: [String] = []
+            if let imdb = s.imdb { idForms.append(imdb) }
+            if let tmdb = s.tmdb { idForms.append("tmdb:\(tmdb)") }
+            for id in idForms {
+                if s.type == "series", let sea = s.season, let ep = s.episode {
+                    remoteKeys.insert("\(id):\(sea):\(ep)")
+                } else {
+                    remoteKeys.insert(id)
+                }
+            }
+        }
+        let localOnly = progress.allForSync()
+            .filter { $0.metaID.hasPrefix("tt") && !remoteKeys.contains($0.id) }
+            .filter { !progress.wasExternallyMerged($0.id) }
+            .filter { $0.durationSeconds > 0 }
+            .filter { let f = $0.positionSeconds / $0.durationSeconds; return f > 0.01 && f < 0.95 }
+            .sorted { $0.updatedAt > $1.updatedAt }
+            .prefix(30)
+        for row in localOnly {
+            _ = await TraktService.scrobble(
+                action: .pause, imdbID: row.metaID, type: row.type,
+                season: row.season, episode: row.episode,
+                progress: row.positionSeconds / row.durationSeconds * 100,
+                accessToken: token
+            )
+        }
         return rows.count
+    }
+
+    /// The user removed a title from Continue Watching — delete its playback
+    /// rows (movie, or every episode of the show) on Trakt too.
+    private func pushPlaybackRemove(_ metaID: String) {
+        guard trakt.isSignedIn, trakt.syncPlayback else { return }
+        Task { [weak self] in
+            guard let self, let token = await self.validToken() else { return }
+            guard let rows = await TraktService.playbackProgress(accessToken: token) else { return }
+            for s in rows where self.localID(from: s) == metaID {
+                guard let pid = s.playbackID else { continue }
+                _ = await TraktService.removePlayback(playbackID: pid, accessToken: token)
+            }
+        }
     }
 
     /// Two-way watchlist ↔ Library. Pull Trakt → add missing to Library

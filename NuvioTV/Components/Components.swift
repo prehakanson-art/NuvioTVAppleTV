@@ -2,6 +2,7 @@ import SwiftUI
 import UIKit
 import CryptoKit
 import ImageIO
+import CoreImage
 
 // MARK: - Image cache
 
@@ -147,20 +148,85 @@ final class ImageCache: @unchecked Sendable {
     }
 
     /// Warm the cache for images that will be needed soon (posters in rows
-    /// below the fold). Downloads straight into the disk layer at utility
-    /// priority; anything already in memory or on disk is skipped.
+    /// below the fold). DISK-ONLY: persists the encoded bytes so the first real
+    /// display is a disk hit (no network round-trip), and stops there.
+    ///
+    /// It deliberately does NOT decode or populate memory. The old version
+    /// decoded each prefetched image at the full device cap (1920px on the HD —
+    /// ~9 MB decoded for a poster drawn at ~330px) and inserted it under the
+    /// PLAIN url key, but the display path (`RemoteImage`) only ever reads under
+    /// a budget-bucketed key (`url#<budget>`). So every prefetch decode was both
+    /// far too large AND stored under a key nothing reads — it just churned CPU
+    /// and RAM (a real jetsam risk on the 2 GB box when a Home load prefetched
+    /// 100+ posters) before being evicted, for zero display benefit. The display
+    /// path decodes from this disk cache at its own tight per-card budget.
     func prefetch(urls: [String]) {
         Task.detached(priority: .utility) { [weak self] in
             for urlString in urls {
                 guard let self, let url = URL(string: urlString) else { continue }
-                if self.image(for: urlString) != nil { continue }
-                if FileManager.default.fileExists(atPath: self.fileURL(for: urlString).path) { continue }
-                guard let (data, _) = try? await ImageCache.downloadSession.data(from: url),
-                      // Pre-decode (downsampled) so the first display is free.
-                      let prepared = ImageCache.decodeDownsampled(data) else { continue }
-                self.insert(prepared, for: urlString, data: data)
+                let fileURL = self.fileURL(for: urlString)
+                if self.fm.fileExists(atPath: fileURL.path) { continue }
+                guard let (data, _) = try? await ImageCache.downloadSession.data(from: url) else { continue }
+                self.ioQueue.async { try? data.write(to: fileURL, options: .atomic) }
             }
         }
+    }
+
+    // MARK: Pre-blurred renditions (hero "progressive blur")
+
+    /// Shared CIContext for the pre-blur path. Creating one per blur would
+    /// re-initialize a Metal pipeline each hero change.
+    private static let ciContext = CIContext(options: [.cacheIntermediates: false])
+
+    /// A small pre-blurred rendition of the image at `key`, built ONCE off-main
+    /// and memory-cached. Replaces live `.blur(radius:)` layers: Core Animation
+    /// re-applies a live gaussian on EVERY composited frame, so a full-screen
+    /// blurred backdrop was one of the heaviest recurring GPU costs on the
+    /// A10X/A8 while Home scrolls. A 60pt blur destroys all detail anyway, so
+    /// blurring a ~480px copy once and stretching it is visually identical —
+    /// and the per-frame cost drops to an ordinary image composite.
+    ///
+    /// `screenBlurRadius` is the SwiftUI blur the rendition stands in for, at
+    /// the 1920pt reference width — the CI sigma is scaled to the downsampled
+    /// copy so the softness matches what `.blur(radius:)` showed.
+    func blurredImage(for key: String, screenBlurRadius: CGFloat = 60) async -> UIImage? {
+        let baseWidth: CGFloat = 480
+        let blurKey = "\(key)#blur\(Int(screenBlurRadius))"
+        if let hit = image(for: blurKey) { return hit }
+
+        // Base bytes: disk first (the sharp hero rendering beneath this layer
+        // has nearly always persisted them already), then network.
+        let fileURL = fileURL(for: key)
+        var data: Data? = await withCheckedContinuation { continuation in
+            ioQueue.async { continuation.resume(returning: try? Data(contentsOf: fileURL)) }
+        }
+        if data == nil, let url = URL(string: key),
+           let (fetched, _) = try? await Self.downloadSession.data(from: url) {
+            data = fetched
+            ioQueue.async { try? fetched.write(to: fileURL, options: .atomic) }
+        }
+        guard let data else { return nil }
+
+        let blurred = await Task.detached(priority: .userInitiated) { () -> UIImage? in
+            guard let base = Self.decodeDownsampled(data, budget: baseWidth),
+                  let cg = base.cgImage else { return nil }
+            let input = CIImage(cgImage: cg)
+            // Match the live blur's softness at this scale (blur radius is
+            // proportional to layer size).
+            let sigma = screenBlurRadius * (input.extent.width / 1920)
+            guard let filter = CIFilter(name: "CIGaussianBlur") else { return nil }
+            // Clamp first so the gaussian doesn't pull in transparent edges
+            // (the dark-vignette artifact), then crop back to the frame.
+            filter.setValue(input.clampedToExtent(), forKey: kCIInputImageKey)
+            filter.setValue(sigma, forKey: kCIInputRadiusKey)
+            guard let output = filter.outputImage?.cropped(to: input.extent),
+                  let rendered = Self.ciContext.createCGImage(output, from: input.extent) else {
+                return nil
+            }
+            return UIImage(cgImage: rendered)
+        }.value
+        if let blurred { insertMemory(blurred, for: blurKey) }
+        return blurred
     }
 
     /// Evict oldest files (by mtime) until the directory is under budget.
@@ -286,6 +352,51 @@ struct RemoteImage: View {
     }
 }
 
+/// A pre-blurred rendition of a remote image, for the hero's "progressive
+/// blur" dissolve. Displays `ImageCache.blurredImage` — blurred ONCE off-main
+/// at ~1/4 scale — as a plain stretched image, so the per-frame compositor
+/// cost is an ordinary alpha blend instead of a live full-screen gaussian
+/// (see `blurredImage` for why that mattered on the A10X/A8 tiers).
+/// Mirrors RemoteImage's keep-last-image crossfade so hero changes dissolve.
+struct BlurredRemoteImage: View {
+    let url: String?
+    var screenBlurRadius: CGFloat = 60
+
+    @State private var image: UIImage?
+    @State private var shownKey: String?
+
+    var body: some View {
+        Color.clear.overlay {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .id(shownKey)
+                    .transition(.opacity)
+            }
+        }
+        .clipped()
+        .task(id: url) { await load(url) }
+    }
+
+    private func load(_ value: String?) async {
+        guard let value else { return }
+        if value == shownKey { return }
+        guard let blurred = await ImageCache.shared.blurredImage(
+            for: value, screenBlurRadius: screenBlurRadius
+        ), !Task.isCancelled else { return }
+        // Ride the hero-crossfade setting like the sharp layer beneath, so the
+        // two renditions always dissolve (or snap) together.
+        if PerformanceSettingsStore.shared.heroCrossfadeEffective {
+            withAnimation(.easeOut(duration: 0.3)) { image = blurred; shownKey = value }
+        } else {
+            var t = Transaction()
+            t.disablesAnimations = true
+            withTransaction(t) { image = blurred; shownKey = value }
+        }
+    }
+}
+
 /// Dimmed placeholder shown while an image downloads. Deliberately STATIC:
 /// the earlier breathing animation started a repeat-forever animation in
 /// every freshly created cell — during a fast row scroll that's dozens of
@@ -402,7 +513,11 @@ struct PosterCard: View {
 
     private var cardWidth: CGFloat { layout.posterSize.posterWidth }
     private var cardHeight: CGFloat { cardWidth * 3 / 2 }
-    private var cornerRadius: CGFloat { CGFloat(layout.posterCornerRadius) }
+    private var stremio: Bool { theme.isStremioTheme }
+    /// Stremio uses generously rounded poster corners.
+    private var cornerRadius: CGFloat {
+        stremio ? StremioFocus.cardRadius : CGFloat(layout.posterCornerRadius)
+    }
 
     /// Explicit progress wins; otherwise an O(1) Continue Watching lookup so
     /// a started movie/show carries its progress bar EVERYWHERE it appears
@@ -410,6 +525,21 @@ struct PosterCard: View {
     private var effectiveProgress: Double? {
         if let progress { return progress }
         return progressStore.continueFractions[item.id]
+    }
+
+    /// Apple TV theme: the native CardButtonStyle platter supplies focus
+    /// (raise + trackpad wiggle), so the card's own ring / scale / shadow /
+    /// caption are suppressed — posters read as clean "icons".
+    private var atv: Bool { theme.isAppleTVTheme }
+
+    /// Focus ring fallback. Classic always rings its focused card. Fusion
+    /// normally lets the accent GLOW mark focus — but the glow rides the Card
+    /// Shadows switch (off by default on the A8/A10X tiers), and with parallax
+    /// and zoom also off that left NO focus indicator at all. When the glow is
+    /// unavailable, fall back to the ring: a single stroked outline is one
+    /// vector stroke — no offscreen pass, nothing recomposited per frame.
+    private var showsFocusRing: Bool {
+        isFocused && (!atv || !perf.settings.cardShadows)
     }
 
     var body: some View {
@@ -426,21 +556,46 @@ struct PosterCard: View {
             .frame(width: cardWidth, height: cardHeight)
             .background(theme.palette.backgroundCard)
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+            // Fusion (§13.4): dim unfocused cards a touch so the focused one
+            // pops. This USED to be .saturation(0.94) + .brightness(-0.05) — two
+            // color-matrix filters, each an offscreen render pass, on EVERY
+            // unfocused card, every scroll frame (the single biggest scroll cost
+            // in this theme, and brutal in the simulator, which composites
+            // offscreen passes far slower than the device). A flat dark overlay
+            // is a plain alpha composite — no offscreen pass — for the same
+            // "focused pops" read. Nothing is drawn when focused.
+            .overlay {
+                // Fusion: unfocused cards rest slightly darker so the focused
+                // one pops (flat overlay — no live filters).
+                if atv && !isFocused {
+                    RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                        .fill(Color.black.opacity(0.11))
+                }
+            }
             .overlay(alignment: .topTrailing) {
                 if watched.isWatched(item) { WatchedBadge().padding(10) }
             }
             .overlay(
+                // Stremio marks focus with a thicker purple border.
                 RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                    .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
+                    .strokeBorder(showsFocusRing ? theme.palette.focusRing : .clear,
+                                  lineWidth: stremio ? StremioFocus.borderWidth : 3)
             )
             // FOCUSED card only. A drop shadow is an offscreen render pass per
             // card; with the old always-on ambient shadow every visible poster
             // paid one, which is a large share of the scroll cost on the
             // A8/A10X boxes. One shadow (the focused pop) keeps the depth cue.
-            .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused ? 0.65 : 0),
-                    radius: perf.settings.cardShadows && isFocused ? 22 : 0, y: 10)
+            .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused && !atv ? 0.65 : 0),
+                    radius: perf.settings.cardShadows && isFocused && !atv ? 22 : 0, y: 10)
+            // Fusion (§13.3): an accent focus glow beneath the native focus
+            // platter — the theme's signature "ambient lighting" on focus.
+            // Stremio: the same purple ambient glow marks focus.
+            .shadow(color: isFocused ? theme.effectiveFocusGlow : .clear,
+                    radius: atv && isFocused ? 30 : 0)
+            .shadow(color: stremio && isFocused ? StremioFocus.glow.opacity(0.75) : .clear,
+                    radius: stremio && isFocused ? 26 : 0, y: 6)
 
-            if layout.showPosterLabels {
+            if layout.showPosterLabels && !atv {
                 MarqueeText(
                     text: item.name,
                     font: .system(size: 22, weight: .medium),
@@ -450,8 +605,17 @@ struct PosterCard: View {
                 .frame(width: cardWidth, alignment: .leading)
             }
         }
-        .scaleEffect(perf.focusZoomEffective && isFocused ? 1.08 : 1.0)
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
+        .scaleEffect(scaleWhenFocused)
+        .animation(cardAnimation, value: isFocused)
+    }
+
+    private var scaleWhenFocused: CGFloat {
+        guard perf.focusZoomEffective && isFocused && !atv else { return 1.0 }
+        return stremio ? StremioFocus.posterScale : 1.08
+    }
+
+    private var cardAnimation: Animation {
+        atv ? FusionMotion.focusMove : .spring(response: 0.32, dampingFraction: 0.82)
     }
 }
 
@@ -480,6 +644,9 @@ struct LandscapeCard: View {
     @ObservedObject private var perf = PerformanceSettingsStore.shared
     @Environment(\.isFocused) private var isFocused
 
+    private var stremio: Bool { theme.isStremioTheme }
+    private var cardRadius: CGFloat { stremio ? StremioFocus.cardRadius : NuvioRadius.md }
+
     let imageURL: String?
     let title: String
     let subtitle: String?
@@ -489,6 +656,10 @@ struct LandscapeCard: View {
     var width: CGFloat = 380
     /// Spoiler-blur the still until the card is focused (then it reveals).
     var blurImage: Bool = false
+    /// When false, the title/subtitle caption is omitted — the Apple TV theme
+    /// renders it BELOW the focus platter instead (see `ATVCardCaption`), so
+    /// the platter doesn't bridge art and label into one slab.
+    var showsCaption: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.sm) {
@@ -511,7 +682,7 @@ struct LandscapeCard: View {
             }
             .frame(width: width, height: width * 9 / 16)
             .background(theme.palette.backgroundCard)
-            .clipShape(RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: cardRadius, style: .continuous))
             .overlay(alignment: .topLeading) {
                 if let rating { RatingBadge(rating: rating).padding(10) }
             }
@@ -519,33 +690,54 @@ struct LandscapeCard: View {
                 if watched { WatchedBadge().padding(10) }
             }
             .overlay(
-                RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
-                    .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
+                RoundedRectangle(cornerRadius: cardRadius, style: .continuous)
+                    // ATV theme: the accent glow normally carries focus, but it
+                    // rides the Card Shadows switch — when that's off (A8/A10X
+                    // tier defaults), fall back to the ring so the focused card
+                    // is always marked. One vector stroke, no offscreen pass
+                    // (see PosterCard.showsFocusRing). Stremio: thicker purple.
+                    .strokeBorder(isFocused && (!theme.isAppleTVTheme || !perf.settings.cardShadows)
+                                      ? theme.palette.focusRing : .clear,
+                                  lineWidth: stremio ? StremioFocus.borderWidth : 3)
             )
             // Focused card only — same offscreen-pass reasoning as PosterCard.
-            .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused ? 0.65 : 0),
-                    radius: perf.settings.cardShadows && isFocused ? 22 : 0, y: 10)
+            .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused && !theme.isAppleTVTheme ? 0.65 : 0),
+                    radius: perf.settings.cardShadows && isFocused && !theme.isAppleTVTheme ? 22 : 0, y: 10)
+            // Fusion (§13.3): accent focus glow.
+            .shadow(color: isFocused ? theme.effectiveFocusGlow : .clear,
+                    radius: theme.isAppleTVTheme && isFocused ? 32 : 0)
+            // Stremio: purple ambient focus glow.
+            .shadow(color: stremio && isFocused ? StremioFocus.glow.opacity(0.75) : .clear,
+                    radius: stremio && isFocused ? 26 : 0, y: 6)
 
-            VStack(alignment: .leading, spacing: 2) {
-                MarqueeText(
-                    text: title,
-                    font: .system(size: 22, weight: .medium),
-                    color: isFocused ? theme.palette.textPrimary : theme.palette.textSecondary,
-                    active: isFocused
-                )
-                if let subtitle, !subtitle.isEmpty {
+            if showsCaption {
+                VStack(alignment: .leading, spacing: 2) {
                     MarqueeText(
-                        text: subtitle,
-                        font: .system(size: 19),
-                        color: theme.palette.textTertiary,
+                        text: title,
+                        font: .system(size: 22, weight: .medium),
+                        color: isFocused ? theme.palette.textPrimary : theme.palette.textSecondary,
                         active: isFocused
                     )
+                    if let subtitle, !subtitle.isEmpty {
+                        MarqueeText(
+                            text: subtitle,
+                            font: .system(size: 19),
+                            color: theme.palette.textTertiary,
+                            active: isFocused
+                        )
+                    }
                 }
+                .frame(width: width, alignment: .leading)
             }
-            .frame(width: width, alignment: .leading)
         }
-        .scaleEffect(perf.focusZoomEffective && isFocused ? 1.06 : 1.0)
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
+        .scaleEffect(landscapeScale)
+        .animation(theme.isAppleTVTheme ? FusionMotion.focusMove
+                   : .spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
+    }
+
+    private var landscapeScale: CGFloat {
+        guard perf.focusZoomEffective && isFocused && !theme.isAppleTVTheme else { return 1.0 }
+        return stremio ? StremioFocus.landscapeScale : 1.06
     }
 }
 
@@ -564,6 +756,99 @@ private struct SpoilerBlur: ViewModifier {
         } else {
             content
         }
+    }
+}
+
+/// Caption shown BELOW an Apple TV–theme card, OUTSIDE the focus platter.
+/// The native `CardButtonStyle` draws its raised platter behind the whole
+/// button label, so any caption kept inside the button gets bridged to the
+/// artwork by a connecting slab (the "weird square"). Rendering the label as a
+/// sibling below the button — the way the real tvOS home screen and TV app do
+/// it — keeps the poster a clean tile and the title a free-floating label.
+struct ATVCardCaption: View {
+    @EnvironmentObject private var theme: ThemeManager
+    let title: String
+    var subtitle: String? = nil
+    var width: CGFloat
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(FusionType.cardTitle(theme.font))
+                .foregroundStyle(theme.palette.textPrimary)
+                .lineLimit(1)
+            if let subtitle, !subtitle.isEmpty {
+                Text(subtitle)
+                    .font(FusionType.metadata(theme.font))
+                    .foregroundStyle(theme.palette.textSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(width: width, alignment: .leading)
+        .padding(.top, 4)
+    }
+}
+
+/// Card-button chrome per app theme. The Apple TV theme uses the native tvOS
+/// `CardButtonStyle` — the raised platter with the trackpad tilt/wiggle
+/// parallax, exactly like home-screen icons — while Classic keeps the
+/// borderless style so cards draw their own focus ring. Reads the theme from
+/// the environment so call sites don't need a ThemeManager in scope.
+private struct MediaCardButtonStyleModifier: ViewModifier {
+    @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var perf = PerformanceSettingsStore.shared
+    var onPressChanged: ((Bool) -> Void)?
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if theme.isAppleTVTheme && perf.settings.cardParallax {
+            // Native platter: raised card + trackpad tilt/parallax.
+            content.buttonStyle(CardButtonStyle())
+        } else if theme.isAppleTVTheme {
+            // "Card wiggle & lift" off (Settings → Performance): a lightweight
+            // scale-only focus that never re-composites the card as the finger
+            // moves — the cheap path for the A8. Cards still respond to focus;
+            // their own glow/border (drawn off \.isFocused) still shows.
+            content.buttonStyle(FlatCardButtonStyle(onPressChanged: onPressChanged))
+        } else {
+            content.buttonStyle(PlainCardButtonStyle(onPressChanged: onPressChanged))
+        }
+    }
+}
+
+/// Apple TV theme, parallax OFF: focus is a plain scale (like Classic's
+/// PlainCardButtonStyle) with no native platter — so there's no per-frame tilt
+/// recomposition of the focused poster. The card's own focus glow/border still
+/// render (they read `\.isFocused`, which this style leaves intact).
+struct FlatCardButtonStyle: ButtonStyle {
+    var onPressChanged: ((Bool) -> Void)? = nil
+
+    func makeBody(configuration: Configuration) -> some View {
+        Chrome(configuration: configuration, onPressChanged: onPressChanged)
+    }
+
+    private struct Chrome: View {
+        @Environment(\.isFocused) private var isFocused
+        let configuration: ButtonStyle.Configuration
+        let onPressChanged: ((Bool) -> Void)?
+
+        var body: some View {
+            let zoom = PerformanceSettingsStore.shared.focusZoomEffective
+            return configuration.label
+                .scaleEffect((zoom && isFocused ? 1.06 : 1) * (configuration.isPressed ? 0.97 : 1))
+                .animation(.easeOut(duration: 0.18), value: isFocused)
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+                .onChange(of: configuration.isPressed) { _, pressed in
+                    onPressChanged?(pressed)
+                }
+        }
+    }
+}
+
+extension View {
+    /// Apply to Buttons whose label is a media card (poster / landscape).
+    func mediaCardButtonStyle(onPressChanged: ((Bool) -> Void)? = nil) -> some View {
+        modifier(MediaCardButtonStyleModifier(onPressChanged: onPressChanged))
     }
 }
 
@@ -630,8 +915,10 @@ struct MetaLine: View {
 
 struct MetaBadge: View {
     let text: String
-    var tint: Color = .white.opacity(0.14)
-    var textColor: Color = .white
+    // `.primary` == white under Classic's forced-dark scheme (identical to
+    // the old hardcoded white) and flips dark in ATV light mode.
+    var tint: Color = .primary.opacity(0.14)
+    var textColor: Color = .primary
 
     var body: some View {
         Text(text)
@@ -715,7 +1002,7 @@ struct ImdbBadge: View {
                 .background(NuvioPrimitives.imdb, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
             Text(rating)
                 .font(.system(size: 21, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(.primary)
         }
     }
 }
@@ -728,7 +1015,10 @@ struct RowHeader: View {
 
     var body: some View {
         Text(title)
-            .font(.system(size: 30, weight: .bold))
+            // Fusion uses its module-heading role (serif-capable); Classic
+            // keeps its original weight.
+            .font(theme.isAppleTVTheme ? FusionType.moduleHeading(theme.font)
+                  : .system(size: 30, weight: .bold))
             .foregroundStyle(theme.palette.textPrimary)
             .padding(.leading, NuvioSpacing.huge)
     }
@@ -757,27 +1047,48 @@ struct LibrarySection<Content: View>: View {
 struct HeroGradient: View {
     let background: Color
     var fullBleed: Bool = false
+    /// Light appearance (Apple TV theme only — Classic is always dark): the
+    /// dark-tuned scrim opacities read as fog when the background is white,
+    /// so light mode uses tighter ramps that leave the art vivid.
+    @Environment(\.colorScheme) private var scheme
+    private var isLight: Bool { scheme == .light }
 
     var body: some View {
         ZStack {
             LinearGradient(
-                stops: [
-                    .init(color: background, location: 0),
-                    .init(color: background.opacity(0.86), location: 0.22),
-                    .init(color: background.opacity(0.56), location: 0.46),
-                    .init(color: background.opacity(0.16), location: 0.76),
-                    .init(color: .clear, location: 1)
-                ],
+                stops: isLight
+                    ? [
+                        .init(color: background, location: 0),
+                        .init(color: background.opacity(0.86), location: 0.20),
+                        .init(color: background.opacity(0.50), location: 0.42),
+                        .init(color: background.opacity(0.12), location: 0.62),
+                        .init(color: .clear, location: 0.78)
+                    ]
+                    : [
+                        .init(color: background, location: 0),
+                        .init(color: background.opacity(0.86), location: 0.22),
+                        .init(color: background.opacity(0.56), location: 0.46),
+                        .init(color: background.opacity(0.16), location: 0.76),
+                        .init(color: .clear, location: 1)
+                    ],
                 startPoint: .leading,
                 endPoint: UnitPoint(x: fullBleed ? 0.65 : 0.45, y: 0.5)
             )
             LinearGradient(
-                stops: [
-                    .init(color: .clear, location: 0),
-                    .init(color: background.opacity(0.25), location: 0.4),
-                    .init(color: background.opacity(0.65), location: 0.75),
-                    .init(color: background, location: 1)
-                ],
+                stops: isLight
+                    ? [
+                        .init(color: .clear, location: 0),
+                        .init(color: .clear, location: 0.38),
+                        .init(color: background.opacity(0.40), location: 0.62),
+                        .init(color: background.opacity(0.80), location: 0.85),
+                        .init(color: background, location: 1)
+                    ]
+                    : [
+                        .init(color: .clear, location: 0),
+                        .init(color: background.opacity(0.25), location: 0.4),
+                        .init(color: background.opacity(0.65), location: 0.75),
+                        .init(color: background, location: 1)
+                    ],
                 startPoint: .top,
                 endPoint: .bottom
             )
@@ -871,5 +1182,67 @@ enum TimeFormat {
     static func signedDelta(_ seconds: Double) -> String {
         let sign = seconds < 0 ? "-" : "+"
         return sign + clock(abs(seconds))
+    }
+}
+
+// MARK: - Toasts (§54)
+
+/// Lightweight app-wide toast center for browsing-side confirmations
+/// (Added to Library, Marked Watched, Rating Saved…). Separate from the
+/// player's own `toast`. Auto-dismisses after `FusionMotion.toastVisibleSeconds`.
+@MainActor
+final class ToastCenter: ObservableObject {
+    static let shared = ToastCenter()
+    @Published var message: String?
+    @Published var icon: String?
+    private var task: Task<Void, Never>?
+
+    func show(_ message: String, icon: String? = nil) {
+        withAnimation(FusionMotion.toastEnter) {
+            self.message = message
+            self.icon = icon
+        }
+        task?.cancel()
+        task = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(FusionMotion.toastVisibleSeconds * 1_000_000_000))
+            guard !Task.isCancelled else { return }
+            withAnimation(FusionMotion.toastExit) { self?.message = nil }
+        }
+    }
+}
+
+/// Lower-center toast (§54): dark glass pill, white text, optional accent icon.
+/// Never takes focus. Hosted at the app root; only renders in the Fusion theme.
+struct FusionToastHost: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var center = ToastCenter.shared
+
+    var body: some View {
+        VStack {
+            Spacer()
+            // Fusion and Netflix both surface browse toasts (§54 / Netflix
+            // spec §95); Classic keeps its original toast-free behavior.
+            if theme.isAppleTVTheme || theme.isNetflixTheme, let message = center.message {
+                HStack(spacing: NuvioSpacing.sm) {
+                    if let icon = center.icon {
+                        Image(systemName: icon)
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundStyle(theme.palette.secondary)
+                    }
+                    Text(message)
+                        .font(FusionType.button(theme.font))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, NuvioSpacing.xl)
+                .padding(.vertical, NuvioSpacing.md)
+                .atvGlass(in: Capsule())
+                .overlay(Capsule().strokeBorder(.white.opacity(0.12), lineWidth: 1))
+                .shadow(color: .black.opacity(0.4), radius: 20, y: 10)
+                .padding(.bottom, NuvioSpacing.huge)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .allowsHitTesting(false)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }

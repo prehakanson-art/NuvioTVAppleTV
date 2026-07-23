@@ -114,7 +114,12 @@ struct SubtitleOverlayView: View {
         } else {
             base.foregroundStyle(textColor)
                 .shadow(color: .black.opacity(0.95), radius: 2, y: 1)
-                .shadow(color: .black.opacity(0.6), radius: 8)
+                // The soft radius-8 glow is a second offscreen blur composited
+                // over the moving video on every displayed frame — enough to
+                // cost playback frames on the A8 whenever captions are up. The
+                // crisp radius-2 shadow alone keeps them readable there.
+                .shadow(color: .black.opacity(PerformanceProfile.isLowPower ? 0 : 0.6),
+                        radius: PerformanceProfile.isLowPower ? 0 : 8)
         }
     }
 }

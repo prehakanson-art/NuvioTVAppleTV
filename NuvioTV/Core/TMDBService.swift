@@ -161,6 +161,15 @@ enum TMDBService {
         return "\(imageBase)/\(size)\(path)"
     }
 
+    /// Upgrade a stored TMDB image URL (…/t/p/w500/…) to full-resolution
+    /// `original`, so brand logos render crisp on a big TV. Non-TMDB URLs (and
+    /// already-`original` ones) pass through untouched.
+    static func originalSize(_ urlString: String?) -> String? {
+        guard let urlString, urlString.contains("image.tmdb.org") else { return urlString }
+        return urlString.replacingOccurrences(
+            of: "/t/p/w[0-9]+/", with: "/t/p/original/", options: .regularExpression)
+    }
+
     // MARK: - ID mapping
 
     /// Map a TMDB id to an IMDB tt id via /external_ids. Cached; nil on failure.
@@ -233,6 +242,24 @@ enum TMDBService {
 
     /// Network name + logo (for Community Collections tiles — official HQ art,
     /// fetched live so it's never stale even if TMDB reshuffles a logo).
+    /// Widest logo variant (ratio ≥ 1.5) from a company/network's alternative
+    /// logos. Some brands' PRIMARY mark is squarish (Warner Bros' shield,
+    /// ratio ~1.1), which lands a mismatched square tile in an otherwise
+    /// landscape row — but TMDB usually also hosts the wide wordmark banner
+    /// (WB's is 1280×331). Highest-resolution wide variant wins; nil when the
+    /// brand has no wide logo at all.
+    static func brandWideLogo(id: Int, isNetwork: Bool) async -> String? {
+        struct ImagesResponse: Decodable { let logos: [Logo]? }
+        struct Logo: Decodable { let file_path: String?; let aspect_ratio: Double?; let width: Int? }
+        let path = isNetwork ? "/network/\(id)/images" : "/company/\(id)/images"
+        guard let body: ImagesResponse = try? await get(path, query: [:]) else { return nil }
+        return (body.logos ?? [])
+            .filter { ($0.aspect_ratio ?? 0) >= 1.5 }
+            .sorted { ($0.width ?? 0) > ($1.width ?? 0) }
+            .first
+            .flatMap { imageURL($0.file_path, size: "w500") }
+    }
+
     static func networkBrand(id: Int) async -> BrandInfo? {
         struct Response: Decodable { let name: String?; let logo_path: String? }
         guard let body: Response = try? await get("/network/\(id)"), let name = body.name else { return nil }
@@ -278,7 +305,11 @@ enum TMDBService {
     /// IMDB tt id (resolved best-effort so it plays through Cinemeta); items
     /// whose IMDB id can't be resolved fall back to a `tmdb:<id>` id and still
     /// display. `language` comes from TMDB settings (ISO-639-1).
-    static func resolve(source: CollectionSourceDTO, language: String) async -> [MetaItem] {
+    /// `maxPages` caps how many TMDB discover pages are fetched. The collection
+    /// BROWSE page wants the full catalog (default = unlimited), but Home rows
+    /// only need ~one page of posters, so they pass maxPages: 1 to avoid firing
+    /// hundreds of requests per folder on every Home load.
+    static func resolve(source: CollectionSourceDTO, language: String, maxPages: Int = Int.max) async -> [MetaItem] {
         guard source.provider.lowercased() == "tmdb",
               let sourceType = source.tmdbSourceType?.uppercased() else { return [] }
         let mediaIsMovie = (source.mediaType ?? "movie").lowercased() != "tv"
@@ -290,7 +321,7 @@ enum TMDBService {
             case "COLLECTION":
                 raw = try await resolveCollection(id: source.tmdbId, language: language)
             case "COMPANY", "NETWORK", "DISCOVER":
-                raw = try await resolveDiscover(source: source, sourceType: sourceType, isMovie: mediaIsMovie, language: language)
+                raw = try await resolveDiscover(source: source, sourceType: sourceType, isMovie: mediaIsMovie, language: language, maxPages: maxPages)
             case "PERSON", "DIRECTOR":
                 raw = try await resolvePerson(id: source.tmdbId, director: sourceType == "DIRECTOR", isMovie: mediaIsMovie, language: language)
             default:
@@ -409,7 +440,7 @@ enum TMDBService {
         }
     }
 
-    private static func resolveDiscover(source: CollectionSourceDTO, sourceType: String, isMovie: Bool, language: String) async throws -> [TMDBRawItem] {
+    private static func resolveDiscover(source: CollectionSourceDTO, sourceType: String, isMovie: Bool, language: String, maxPages: Int = Int.max) async throws -> [TMDBRawItem] {
         let f = source.filters
         // NETWORK forces TV, because TMDB's with_networks filter is TV-only —
         // UNLESS a watch-provider override is present. Watch-provider data
@@ -505,7 +536,7 @@ enum TMDBService {
         let batchSize = 20
         guard let first = await fetchPage(1) else { return [] }
         var allResults = first.results ?? []
-        let totalPages = min(first.total_pages ?? 1, tmdbPageCeiling)
+        let totalPages = min(first.total_pages ?? 1, tmdbPageCeiling, max(1, maxPages))
         var page = 2
         while page <= totalPages {
             let upper = min(page + batchSize - 1, totalPages)
@@ -788,6 +819,23 @@ enum TMDBService {
         let raw = (await movies) + (await tv)
         let sorted = raw.sorted { ($0.rating ?? 0) > ($1.rating ?? 0) }
         return await mapToMetaItems(Array(sorted.prefix(40)))
+    }
+
+    /// Whether a genre NAME is known for movies / TV (so callers can decide which
+    /// media type(s) to query for a Categories genre).
+    static func hasMovieGenre(_ name: String) -> Bool { movieGenres.values.contains(name) }
+    static func hasTVGenre(_ name: String) -> Bool { tvGenres.values.contains(name) }
+
+    /// ONE page of a genre's catalog (movies or TV), popularity-desc. Paginated
+    /// so a browse grid can keep appending pages until the genre is exhausted.
+    static func titlesByGenre(name: String, isMovie: Bool, page: Int, language: String = preferredLanguage) async -> [MetaItem] {
+        let map = isMovie ? movieGenres : tvGenres
+        guard let id = map.first(where: { $0.value == name })?.key else { return [] }
+        let path = isMovie ? "/discover/movie" : "/discover/tv"
+        let raw = await discover(path: path,
+                                 with: ["with_genres": String(id), "sort_by": "popularity.desc", "page": String(page)],
+                                 isMovie: isMovie, language: language)
+        return await mapToMetaItems(raw)
     }
 
     private static func discover(path: String, with extra: [String: String], isMovie: Bool, language: String) async -> [TMDBRawItem] {

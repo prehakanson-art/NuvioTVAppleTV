@@ -239,6 +239,7 @@ struct DetailView: View {
             ) { newRating in
                 ratings.setRating(newRating, for: viewModel.meta.id, type: viewModel.meta.type)
                 showRatingPicker = false
+                ToastCenter.shared.show("Rating Saved", icon: "star.fill")
             } onCancel: { showRatingPicker = false }
             .environmentObject(theme)
         }
@@ -325,9 +326,45 @@ struct DetailView: View {
                     .frame(maxWidth: 900, alignment: .leading)
             }
 
-            // Action row: Play (labeled pill) + circular add / watched / trailer.
-            // Its own focus section so Down/Up move cleanly to/from the rows
-            // below instead of the focus engine skipping a row.
+            actionRow
+
+            if let director = viewModel.director {
+                Text("Director: \(director)")
+                    .font(.system(size: 22))
+                    .foregroundStyle(theme.palette.textTertiary)
+            }
+
+            if let description = viewModel.meta.description {
+                // Clickable teaser → full-description overlay (the Android
+                // app's scrollable hero-description feature).
+                DescriptionTeaser(text: description, title: viewModel.meta.name)
+            }
+
+            // Meta line 1: Genres • Full release date • IMDb.
+            MetaLine(segments: primaryMetaSegments, imdbRating: viewModel.meta.imdbRating)
+            // Meta line 2: Runtime • Country • Language.
+            if !secondaryMetaSegments.isEmpty {
+                MetaLine(segments: secondaryMetaSegments)
+            }
+
+            if let mdbRatings = viewModel.mdbRatings {
+                let entries = mdbRatings.entries(settings: mdblist.settings)
+                if !entries.isEmpty {
+                    MDBListRatingsRow(entries: entries)
+                }
+            }
+
+            if !viewModel.parentalGuide.isEmpty {
+                ParentalGuideRow(entries: viewModel.parentalGuide)
+            }
+        }
+        .padding(.leading, NuvioSpacing.huge)
+    }
+
+    /// Play/Resume (+ Start Over) + circular add / watched / rate / trailer.
+    /// Its own focus section so Down/Up move cleanly to/from the rows below
+    /// instead of the focus engine skipping a row.
+    private var actionRow: some View {
             HStack(spacing: NuvioSpacing.md) {
                 if viewModel.meta.isSeries {
                     if let target = seriesPlayTarget {
@@ -364,13 +401,23 @@ struct DetailView: View {
                 CircleIconButton(
                     systemName: library.contains(viewModel.meta) ? "checkmark" : "plus",
                     active: library.contains(viewModel.meta)
-                ) { library.toggle(viewModel.meta) }
+                ) {
+                    let wasSaved = library.contains(viewModel.meta)
+                    library.toggle(viewModel.meta)
+                    ToastCenter.shared.show(wasSaved ? "Removed from Library" : "Added to Library",
+                                            icon: wasSaved ? "bookmark.slash" : "checkmark")
+                }
                 if !viewModel.meta.isSeries {
                     // Eye = seen. Filled + accent when watched, outline when not.
                     CircleIconButton(
                         systemName: watched.isWatched(viewModel.meta) ? "eye.fill" : "eye",
                         active: watched.isWatched(viewModel.meta)
-                    ) { watched.toggleMovie(viewModel.meta) }
+                    ) {
+                        let wasWatched = watched.isWatched(viewModel.meta)
+                        watched.toggleMovie(viewModel.meta)
+                        ToastCenter.shared.show(wasWatched ? "Marked Unwatched" : "Marked Watched",
+                                                icon: "eye.fill")
+                    }
                 }
                 // Rate (Trakt) — star fills when you've rated; opens a 1–10 picker.
                 CircleIconButton(
@@ -391,38 +438,6 @@ struct DetailView: View {
             // the card below is scrolled far right).
             .frame(maxWidth: .infinity, alignment: .leading)
             .focusSection()
-
-            if let director = viewModel.director {
-                Text("Director: \(director)")
-                    .font(.system(size: 22))
-                    .foregroundStyle(theme.palette.textTertiary)
-            }
-
-            if let description = viewModel.meta.description {
-                // Clickable teaser → full-description overlay (the Android
-                // app's scrollable hero-description feature).
-                DescriptionTeaser(text: description, title: viewModel.meta.name)
-            }
-
-            // Meta line 1: Genres • Full release date • IMDb.
-            MetaLine(segments: primaryMetaSegments, imdbRating: viewModel.meta.imdbRating)
-            // Meta line 2: Runtime • Country • Language.
-            if !secondaryMetaSegments.isEmpty {
-                MetaLine(segments: secondaryMetaSegments)
-            }
-
-            if let mdbRatings = viewModel.mdbRatings {
-                let entries = mdbRatings.entries(settings: mdblist.settings)
-                if !entries.isEmpty {
-                    MDBListRatingsRow(entries: entries)
-                }
-            }
-
-            if !viewModel.parentalGuide.isEmpty {
-                ParentalGuideRow(entries: viewModel.parentalGuide)
-            }
-        }
-        .padding(.leading, NuvioSpacing.huge)
     }
 
     private var primaryMetaSegments: [String] {
@@ -745,6 +760,7 @@ struct DetailView: View {
 /// through to the actor's filmography.
 struct CastChip: View {
     @EnvironmentObject private var theme: ThemeManager
+    @ObservedObject private var perf = PerformanceSettingsStore.shared
     @Environment(\.isFocused) private var isFocused
 
     let member: TMDBService.CastMember
@@ -758,7 +774,14 @@ struct CastChip: View {
                 .overlay(
                     Circle().strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 4)
                 )
-                .shadow(color: .black.opacity(isFocused ? 0.6 : 0.3), radius: isFocused ? 18 : 8, y: 6)
+                // Resting shadow rides the Card Shadows switch: every chip in the
+                // cast row paid a radius-8 offscreen blur per scroll frame even
+                // unfocused — a whole row of them is real cost on the A8 tier,
+                // where the switch defaults off. Focused-only otherwise-shaped
+                // identically.
+                .shadow(color: perf.settings.cardShadows
+                            ? .black.opacity(isFocused ? 0.6 : 0.3) : .clear,
+                        radius: perf.settings.cardShadows ? (isFocused ? 18 : 8) : 0, y: 6)
 
             Text(member.name)
                 .font(.system(size: 20, weight: .semibold))
@@ -884,8 +907,11 @@ private struct CircleIconLabel: View {
                 )
             )
             .overlay(Circle().strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3))
+            // Fusion accent focus glow.
+            .shadow(color: isFocused ? theme.effectiveFocusGlow : .clear,
+                    radius: theme.isAppleTVTheme && isFocused ? 22 : 0)
             .scaleEffect(isFocused ? 1.06 : 1)
-            .animation(.spring(response: 0.3, dampingFraction: 0.8), value: isFocused)
+            .animation(theme.isAppleTVTheme ? FusionMotion.focusEntry : .spring(response: 0.3, dampingFraction: 0.8), value: isFocused)
     }
 }
 

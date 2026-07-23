@@ -622,6 +622,16 @@ struct CollectionEditorView: View {
     @State private var pinToTop = false
     @State private var focusGlowEnabled = true
     @State private var showAllTab = true
+    @State private var viewMode = "TABBED_GRID"
+    /// Stable id used for every autosave write (a new collection keeps the same
+    /// id across edits instead of creating duplicates).
+    @State private var collectionID = ""
+    /// Gates autosave until the initial values are loaded, so seeding the
+    /// fields in onAppear doesn't immediately write back.
+    @State private var didLoad = false
+    /// Title edits arrive per keystroke; each store write re-fingerprints Home
+    /// and triggers a full catalog reload, so the title autosave is debounced.
+    @State private var titlePersistTask: Task<Void, Never>?
 
     private var isNew: Bool { collection == nil }
 
@@ -653,6 +663,7 @@ struct CollectionEditorView: View {
                         subtitle: "Show a combined tab alongside each folder's tab in the browser",
                         isOn: $showAllTab
                     )
+                    CollectionLayoutPicker(viewMode: $viewMode)
 
                     Text("Folders")
                         .font(.system(size: 28, weight: .bold))
@@ -679,22 +690,27 @@ struct CollectionEditorView: View {
                             .buttonStyle(PlainCardButtonStyle())
                             Button(role: .destructive) {
                                 folders.removeAll { $0.id == folder.id }
+                                persist()
                             } label: {
                                 Image(systemName: "trash").font(.system(size: 22))
                             }
                         }
                     }
 
+                    // Changes autosave — no Save button. "Done" flushes any
+                    // debounced title edit, then dismisses.
                     HStack(spacing: NuvioSpacing.lg) {
-                        Button("Save", action: save)
-                            .disabled(title.trimmingCharacters(in: .whitespaces).isEmpty)
-                        if !isNew {
+                        Button("Done") {
+                            titlePersistTask?.cancel()
+                            persist()
+                            onDone()
+                        }
+                        if collections.collections.contains(where: { $0.id == collectionID }) {
                             Button("Delete Collection", role: .destructive) {
-                                if let collection { collections.remove(id: collection.id) }
+                                collections.remove(id: collectionID)
                                 onDone()
                             }
                         }
-                        Button("Cancel", role: .cancel, action: onDone)
                     }
                     .font(.system(size: 24, weight: .semibold))
                     .padding(.top, NuvioSpacing.lg)
@@ -706,18 +722,42 @@ struct CollectionEditorView: View {
         }
         .onAppear {
             if let collection {
+                collectionID = collection.id
                 title = collection.title
                 folders = collection.folders
                 pinToTop = collection.pinToTop
                 focusGlowEnabled = collection.focusGlowEnabled ?? true
                 showAllTab = collection.showAllTab
+                viewMode = collection.viewMode
+            } else if collectionID.isEmpty {
+                collectionID = collections.generateID()
+            }
+            didLoad = true
+        }
+        // Every field autosaves; scalar changes persist here, folder changes
+        // persist at their mutation sites. Title is debounced (see
+        // titlePersistTask); Done/dismiss flushes it via the pending task.
+        .onChange(of: title) { _, _ in
+            titlePersistTask?.cancel()
+            titlePersistTask = Task {
+                try? await Task.sleep(nanoseconds: 800_000_000)
+                guard !Task.isCancelled else { return }
+                persist()
             }
         }
-        // Same as Cancel — dismiss without saving.
-        .onExitCommand { onDone() }
+        .onChange(of: pinToTop) { _, _ in persist() }
+        .onChange(of: focusGlowEnabled) { _, _ in persist() }
+        .onChange(of: showAllTab) { _, _ in persist() }
+        .onChange(of: viewMode) { _, _ in persist() }
+        // Changes are already saved — flush any debounced title edit and dismiss.
+        .onExitCommand {
+            titlePersistTask?.cancel()
+            persist()
+            onDone()
+        }
         .fullScreenCover(isPresented: $addingFolder) {
             FolderEditorView(folder: nil) { newFolder in
-                if let newFolder { folders.append(newFolder) }
+                if let newFolder { folders.append(newFolder); persist() }
                 addingFolder = false
             }
             .environmentObject(theme)
@@ -727,11 +767,41 @@ struct CollectionEditorView: View {
             FolderEditorView(folder: folder) { updated in
                 if let updated, let index = folders.firstIndex(where: { $0.id == updated.id }) {
                     folders[index] = updated
+                    persist()
                 }
                 editingFolder = nil
             }
             .environmentObject(theme)
             .environmentObject(addonManager)
+        }
+    }
+
+    /// Upsert the current editor state into the store. A brand-new collection
+    /// isn't materialized until it has a name, so opening "New Collection" and
+    /// backing straight out doesn't leave an empty row behind.
+    private func persist() {
+        guard didLoad else { return }
+        // Never autosave an empty name — mid-retype the field passes through
+        // "" and the old Save button refused it too. The last good title holds
+        // until a non-empty one is typed.
+        let trimmed = title.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        let existing = collections.collections.first(where: { $0.id == collectionID })
+        var c = existing ?? NuvioCollection(id: collectionID, title: trimmed)
+        c.title = trimmed
+        c.folders = folders
+        c.pinToTop = pinToTop
+        c.focusGlowEnabled = focusGlowEnabled
+        c.showAllTab = showAllTab
+        c.viewMode = viewMode
+        // No-op writes (e.g. the onAppear seed round-trip) would still fire the
+        // store's change hooks — a spurious account push + full Home reload on
+        // every editor open.
+        if let existing {
+            guard c != existing else { return }
+            collections.update(c)
+        } else {
+            collections.add(c)
         }
     }
 
@@ -743,25 +813,6 @@ struct CollectionEditorView: View {
         return parts.joined(separator: " · ")
     }
 
-    private func save() {
-        let trimmed = title.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return }
-        if var existing = collection {
-            existing.title = trimmed
-            existing.folders = folders
-            existing.pinToTop = pinToTop
-            existing.focusGlowEnabled = focusGlowEnabled
-            existing.showAllTab = showAllTab
-            collections.update(existing)
-        } else {
-            var created = NuvioCollection(id: collections.generateID(), title: trimmed, folders: folders)
-            created.pinToTop = pinToTop
-            created.focusGlowEnabled = focusGlowEnabled
-            created.showAllTab = showAllTab
-            collections.add(created)
-        }
-        onDone()
-    }
 }
 
 // MARK: - Folder editor

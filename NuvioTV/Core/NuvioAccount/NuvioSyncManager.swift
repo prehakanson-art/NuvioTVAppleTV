@@ -273,6 +273,10 @@ final class NuvioSyncManager: ObservableObject {
             // profile whose debounced push hasn't landed would otherwise be
             // wiped by the pull's replaceRemote below.
             if profilesDirty { try await pushProfiles() }
+            // Flush a pending app-preferences push (collections, player/TMDB/
+            // theme edits) BEFORE the pulls below, or a re-sync would clobber
+            // the not-yet-pushed local edit with the stale server copy.
+            if appPreferencesDirty { await pushAppPreferences() }
             // Learn the profile list first, then scope the personal-data stores
             // to the active profile before pulling its data.
             try await pullProfiles()
@@ -1208,7 +1212,17 @@ final class NuvioSyncManager: ObservableObject {
         var collections: [NuvioCollection]?
     }
 
+    /// Set when a local app-pref-backed change (collections included) is waiting
+    /// to be pushed; a re-sync must flush it BEFORE pulling, or the pull's
+    /// applyRemote would clobber the not-yet-pushed local edit. The generation
+    /// counter guards a race: a push that was already in flight when a NEWER
+    /// edit arrived must not clear the flag that newer edit just set.
+    private var appPreferencesDirty = false
+    private var appPrefsGeneration = 0
+
     private func scheduleAppPreferencesPush() {
+        appPreferencesDirty = true
+        appPrefsGeneration += 1
         pushAppPreferencesTask?.cancel()
         pushAppPreferencesTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 1_500_000_000)
@@ -1253,6 +1267,7 @@ final class NuvioSyncManager: ObservableObject {
     private func pushAppPreferences() async {
         guard account.accessToken != nil,
               let playerSettings, let tmdbSettings, let themeManager else { return }
+        let generationAtStart = appPrefsGeneration
         let snapshot = AppPreferencesSnapshot(
             player: playerSettings.settings,
             tmdb: tmdbSettings.settings,
@@ -1286,7 +1301,12 @@ final class NuvioSyncManager: ObservableObject {
             "p_platform": Self.settingsBlobPlatform,
             "p_origin_client_id": clientID,
         ]
-        _ = try? await authedPost(RPC.url(RPC.pushProfileSettingsBlob), body: body)
+        if (try? await authedPost(RPC.url(RPC.pushProfileSettingsBlob), body: body)) != nil,
+           appPrefsGeneration == generationAtStart {
+            // Clear only if no NEWER edit arrived while this push was in
+            // flight — that edit's own flag/push must survive.
+            appPreferencesDirty = false
+        }
     }
 
     // MARK: - Provider credentials (debrid keys + Trakt) — Android table

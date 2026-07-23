@@ -23,6 +23,12 @@ final class PerformanceSettingsStore: ObservableObject {
         var cardShadows = true
         /// Cards spring slightly larger when focused.
         var focusZoom = true
+        /// Apple TV theme only: the native tvOS card platter — the focused
+        /// poster lifts and tilts/parallaxes with the trackpad. It's the
+        /// heaviest per-frame focus effect (the system re-composites the whole
+        /// focused card as the finger moves). OFF swaps in a lightweight
+        /// scale-only focus so cards still respond, without the tilt.
+        var cardParallax = true
         /// Background download of below-the-fold row artwork.
         var artworkPrefetch = true
         /// Fade posters in as they finish loading.
@@ -38,7 +44,7 @@ final class PerformanceSettingsStore: ObservableObject {
         init() {}
 
         private enum CodingKeys: String, CodingKey {
-            case heroBackdrop, heroCrossfade, cardShadows, focusZoom
+            case heroBackdrop, heroCrossfade, cardShadows, focusZoom, cardParallax
             case artworkPrefetch, artworkFadeIn
             case sidebarAnimation, buttonAnimations, showFPSOverlay
         }
@@ -52,6 +58,7 @@ final class PerformanceSettingsStore: ObservableObject {
             heroCrossfade = (try? c.decode(Bool.self, forKey: .heroCrossfade)) ?? true
             cardShadows = (try? c.decode(Bool.self, forKey: .cardShadows)) ?? true
             focusZoom = (try? c.decode(Bool.self, forKey: .focusZoom)) ?? true
+            cardParallax = (try? c.decode(Bool.self, forKey: .cardParallax)) ?? true
             artworkPrefetch = (try? c.decode(Bool.self, forKey: .artworkPrefetch)) ?? true
             artworkFadeIn = (try? c.decode(Bool.self, forKey: .artworkFadeIn)) ?? true
             sidebarAnimation = (try? c.decode(Bool.self, forKey: .sidebarAnimation)) ?? true
@@ -84,8 +91,8 @@ final class PerformanceSettingsStore: ObservableObject {
     var isMaxPerformance: Bool {
         let s = settings
         return !s.heroBackdrop && !s.heroCrossfade && !s.cardShadows
-            && !s.focusZoom && !s.artworkFadeIn && !s.sidebarAnimation
-            && !s.buttonAnimations
+            && !s.focusZoom && !s.cardParallax && !s.artworkFadeIn
+            && !s.sidebarAnimation && !s.buttonAnimations
     }
 
     /// One switch for all the eye-candy: ON strips every effect for max speed,
@@ -94,8 +101,8 @@ final class PerformanceSettingsStore: ObservableObject {
         let v = !on
         var s = settings
         s.heroBackdrop = v; s.heroCrossfade = v; s.cardShadows = v
-        s.focusZoom = v; s.artworkFadeIn = v; s.sidebarAnimation = v
-        s.buttonAnimations = v
+        s.focusZoom = v; s.cardParallax = v; s.artworkFadeIn = v
+        s.sidebarAnimation = v; s.buttonAnimations = v
         settings = s
     }
 
@@ -123,6 +130,10 @@ final class PerformanceSettingsStore: ObservableObject {
             s.artworkFadeIn = false
             s.sidebarAnimation = false
             s.buttonAnimations = false
+            // The native card platter re-composites the focused poster on every
+            // trackpad micro-movement — the heaviest per-frame focus cost on the
+            // A8. Default to the lightweight scale-only focus instead.
+            s.cardParallax = false
         } else if PerformanceProfile.isMidPower {
             // 4K gen 1 (A10X / 3 GB): shadows, per-cell fades and the hero
             // crossfade (now also the info-panel rebuild) are what visibly
@@ -135,7 +146,13 @@ final class PerformanceSettingsStore: ObservableObject {
     }
 
     private init() {
-        if let data = UserDefaults.standard.data(forKey: Self.key),
+        if ProcessInfo.processInfo.arguments.contains("-lowPower") {
+            // Dev tier force (see PerformanceProfile.isLowPower): show the A8's
+            // real first-run defaults, not whatever this sim previously saved —
+            // otherwise the forced tier runs with high-tier eye candy on and
+            // measures nothing.
+            settings = Self.tierDefaults()
+        } else if let data = UserDefaults.standard.data(forKey: Self.key),
            let decoded = try? JSONDecoder().decode(Settings.self, from: data) {
             settings = decoded
         } else {

@@ -127,7 +127,8 @@ struct SearchView: View {
             LazyVGrid(columns: columns, alignment: .leading, spacing: NuvioSpacing.xl) {
                 ForEach(items) { item in
                     Button { onSelect(item) } label: { PosterCard(item: item) }
-                        .buttonStyle(PlainCardButtonStyle())
+                        .mediaCardButtonStyle()
+                        .posterHoldMenu(item) { onSelect(item) }
                 }
             }
         }
@@ -178,8 +179,8 @@ private struct SearchField: View {
             .frame(height: 74)
             .frame(maxWidth: .infinity)
             .background(Capsule().fill(theme.palette.backgroundCard.opacity(0.7)))
-            .onAppear {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { focused = true }
-            }
+            // No auto-focus: on the top-bar layout, merely moving focus over the
+            // Search tab would otherwise pop the keyboard. Focus the field only
+            // when the user actually selects it.
     }
 }

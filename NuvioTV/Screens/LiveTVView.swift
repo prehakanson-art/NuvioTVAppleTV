@@ -349,6 +349,9 @@ private struct ChannelCard: View {
             )
             .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused ? 0.65 : 0),
                     radius: perf.settings.cardShadows && isFocused ? 22 : 0, y: 10)
+            // Fusion accent focus glow.
+            .shadow(color: isFocused ? theme.effectiveFocusGlow : .clear,
+                    radius: theme.isAppleTVTheme && isFocused ? 26 : 0)
 
             MarqueeText(
                 text: channel.name,
@@ -359,6 +362,6 @@ private struct ChannelCard: View {
             .frame(width: width, alignment: .leading)
         }
         .scaleEffect(perf.focusZoomEffective && isFocused ? 1.06 : 1.0)
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
+        .animation(theme.isAppleTVTheme ? FusionMotion.focusMove : .spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
     }
 }

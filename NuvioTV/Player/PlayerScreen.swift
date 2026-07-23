@@ -136,8 +136,14 @@ struct PlayerScreen: View {
             scrubHUD
 
             if viewModel.overlay == .controls {
-                PlayerControlsOverlay(viewModel: viewModel)
-                    .transition(.opacity)
+                // Player overlay is an independent LOOK axis (Settings → Themes →
+                // Player Layout), selectable regardless of the app theme.
+                switch theme.playerStyle {
+                case .hbo:
+                    NativePlayerControlsOverlay(viewModel: viewModel).transition(.opacity)
+                case .classic:
+                    PlayerControlsOverlay(viewModel: viewModel).transition(.opacity)
+                }
                 if viewModel.settings.osdClockEnabled {
                     OSDClock()
                         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
@@ -198,7 +204,7 @@ struct PlayerScreen: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, NuvioSpacing.xl)
                         .padding(.vertical, NuvioSpacing.sm)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .playerChrome(in: Capsule())
                         .padding(.top, NuvioSpacing.xxl)
                     Spacer()
                 }
@@ -232,7 +238,7 @@ struct PlayerScreen: View {
                         .foregroundStyle(.white)
                         .padding(.horizontal, NuvioSpacing.lg)
                         .padding(.vertical, NuvioSpacing.sm)
-                        .background(.ultraThinMaterial, in: Capsule())
+                        .playerChrome(in: Capsule())
                         .overlay(Capsule().strokeBorder(.white.opacity(0.25), lineWidth: 1))
                     }
                     .padding(.trailing, NuvioSpacing.huge)
@@ -323,6 +329,16 @@ struct PlayerScreen: View {
     /// states (controls → pause info → Infuse scrub → commit) so each can be
     /// screenshotted headlessly in the simulator.
     private func runDemoTourIfRequested() async {
+        // Dev-only: `-playerControlsDemo` keeps the transport controls pinned up
+        // (re-showing them past the idle auto-hide) so the overlay skin can be
+        // screenshot-verified in the sim, where the remote can't be driven.
+        if ProcessInfo.processInfo.arguments.contains("-playerControlsDemo") {
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                if viewModel.hasStartedPlayback { viewModel.showControls() }
+            }
+            return
+        }
         guard ProcessInfo.processInfo.arguments.contains("-playerDemoTour") else { return }
         try? await Task.sleep(nanoseconds: 8_000_000_000)
         viewModel.togglePlayPause()             // → pause overlay
@@ -632,7 +648,13 @@ struct PlayerLoadingOverlay: View {
         }
         .onAppear {
             withAnimation(.easeOut(duration: 0.6).delay(0.15)) { revealed = true }
-            withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) { pulse = true }
+            // The logo pulse re-composites the (large) title image every frame
+            // for the entire load — exactly while the A8 is busiest opening and
+            // demuxing the stream, which visibly slows the open itself. Static
+            // logo there; the spinner still shows life.
+            if !PerformanceProfile.isLowPower {
+                withAnimation(.easeInOut(duration: 2).repeatForever(autoreverses: true)) { pulse = true }
+            }
         }
     }
 
@@ -881,12 +903,21 @@ struct InfoPullDownPanel: View {
         .background(
             // System-player look: dark material sheet, hairline edge, soft
             // drop shadow onto the video. The whole sheet — background and
-            // content — is one unit that moves together.
-            sheetShape
-                .fill(.ultraThinMaterial)
-                .overlay(sheetShape.fill(Color.black.opacity(0.55)))
-                .overlay(sheetShape.strokeBorder(.white.opacity(0.08), lineWidth: 1))
-                .shadow(color: .black.opacity(0.55), radius: 28, y: 12)
+            // content — is one unit that moves together. On the A8 the material
+            // is a live blur of the moving video under the sheet, re-run every
+            // frame the controls are up; since it already sits under a 55% black
+            // wash the blur is barely visible, so drop it for a solid dark fill.
+            Group {
+                if PerformanceProfile.isLowPower {
+                    sheetShape.fill(Color(hex: 0x0C0E12).opacity(0.9))
+                } else {
+                    sheetShape
+                        .fill(.ultraThinMaterial)
+                        .overlay(sheetShape.fill(Color.black.opacity(0.55)))
+                }
+            }
+            .overlay(sheetShape.strokeBorder(.white.opacity(0.08), lineWidth: 1))
+            .shadow(color: .black.opacity(0.55), radius: PerformanceProfile.isLowPower ? 0 : 28, y: 12)
         )
         // Bleed past the top/side safe area as part of the sheet itself, so
         // the slide-in offsets the entire sheet uniformly.

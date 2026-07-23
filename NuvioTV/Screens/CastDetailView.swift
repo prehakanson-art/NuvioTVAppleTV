@@ -61,7 +61,7 @@ struct CastDetailView: View {
                                 } label: {
                                     PosterCard(item: item)
                                 }
-                                .buttonStyle(PlainCardButtonStyle())
+                                .mediaCardButtonStyle()
                             }
                         }
                         .padding(.horizontal, NuvioSpacing.huge)

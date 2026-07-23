@@ -380,7 +380,6 @@ struct StreamsView: View {
     @EnvironmentObject private var streamBadges: StreamBadgeStore
     @EnvironmentObject private var plugins: PluginStore
     @EnvironmentObject private var torrent: TorrentSettingsStore
-    @EnvironmentObject private var downloads: DownloadManager
     @EnvironmentObject private var profiles: ProfileStore
     @StateObject private var viewModel: StreamsViewModel
 
@@ -412,6 +411,14 @@ struct StreamsView: View {
     /// Guards the one-shot auto-play / reuse-last-link so backing out of the
     /// player lands on the manual list instead of re-triggering.
     @State private var didAutoAct = false
+    /// Set once this view is popped (Back). Every async completion that would
+    /// present the player or dismiss the page checks it first — firing
+    /// `onSelect`/`startPlayback` from a torn-down navigation entry presents the
+    /// player over a ghost stack and crashes/quits the app (the same desync the
+    /// player cover's onDismiss comment warns about). `Task.isCancelled` alone
+    /// isn't enough: the debrid/P2P resolve runs in its OWN unstructured Task
+    /// that Back never cancels, so it needs an explicit view-level flag.
+    @State private var isGone = false
 
     let onSelect: (StreamEntry, [StreamEntry]) -> Void
 
@@ -499,6 +506,11 @@ struct StreamsView: View {
                let last = await viewModel.freshLastLink(hours: s.reuseLastLinkCacheHours) {
                 didAutoAct = true
                 await loadTask.value
+                // Back was pressed while loading: this view is popped and the
+                // task cancelled. Do NOT auto-act — presenting the player or
+                // popping the (already-gone) source page from a torn-down view
+                // crashes. Just stop.
+                guard !Task.isCancelled, !isGone else { return }
                 onSelect(last, viewModel.allEntries)
                 // Signals a deferred pop (handled when the player closes); does
                 // NOT tear down this view now, so the in-flight resolve is safe.
@@ -506,6 +518,8 @@ struct StreamsView: View {
                 return
             }
             await loadTask.value
+            // Back-during-load guard (see above): bail before any auto-act.
+            guard !Task.isCancelled, !isGone else { return }
 
             // Resume from Continue Watching: re-scrape done, now auto-play the
             // link that best matches the format last watched (fresh connection,
@@ -554,6 +568,9 @@ struct StreamsView: View {
             // drop the loading screen so the user isn't stuck on it.
             if autoLinkResolving && !didAutoAct { autoLinkResolving = false }
         }
+        // Back popped this page: block every pending async completion from
+        // presenting the player / touching navigation on a torn-down view.
+        .onDisappear { isGone = true }
         .alert("Couldn't resolve stream", isPresented: Binding(
             get: { resolveError != nil },
             set: { if !$0 { resolveError = nil; autoLinkResolving = false } }
@@ -651,6 +668,9 @@ struct StreamsView: View {
     /// Torrent entries resolve through the preferred debrid provider before
     /// playback; direct streams pass straight through.
     private func handleSelection(_ entry: StreamEntry, _ all: [StreamEntry]) {
+        // Back already popped this page — never present the player from a
+        // torn-down navigation entry (crashes / quits the app).
+        guard !isGone else { return }
         // Cast / open-externally stream (DMM Cast): hand the link to the system
         // rather than the in-app player. On tvOS this only succeeds for a URL
         // scheme the platform can open — plain https has no browser to open, so
@@ -691,6 +711,9 @@ struct StreamsView: View {
             )
             let provider = resolvedBy ?? provider
             resolving = false
+            // Back popped the page during the resolve (this Task isn't cancelled
+            // by the pop) — don't present the player over a ghost stack.
+            guard !isGone else { return }
             switch result {
             case .success(let url, let filename):
                 let resolved = Stream(
@@ -730,6 +753,9 @@ struct StreamsView: View {
                 season: viewModel.video?.season, episode: viewModel.video?.episode
             )
             resolving = false
+            // Back popped the page during the P2P resolve — don't present the
+            // player over a torn-down navigation entry.
+            guard !isGone else { return }
             switch result {
             case .success(let url, let filename):
                 let resolved = Stream(
@@ -794,7 +820,7 @@ struct StreamsView: View {
                     VStack(alignment: .leading, spacing: NuvioSpacing.md) {
                         // Level 1: addon.
                         Text(group.addonName.uppercased())
-                            .font(.system(size: 24, weight: .heavy))
+                            .font(theme.isStremioTheme ? StremioFont.bold(24) : .system(size: 24, weight: .heavy))
                             .foregroundStyle(theme.palette.textPrimary)
                             .padding(.leading, 4)
                         ForEach(group.sections) { section in
@@ -802,7 +828,7 @@ struct StreamsView: View {
                                 // Level 2: resolution (hidden when untiered).
                                 if !section.title.isEmpty {
                                     Text(section.title.uppercased())
-                                        .font(.system(size: 20, weight: .heavy))
+                                        .font(theme.isStremioTheme ? StremioFont.bold(20) : .system(size: 20, weight: .heavy))
                                         .foregroundStyle(theme.palette.secondary)
                                         .padding(.leading, 8)
                                         .padding(.top, 2)
@@ -866,13 +892,6 @@ struct StreamsView: View {
         .focused($focusedEntry, equals: entry.id)
         // Hold Select → context actions.
         .contextMenu {
-            // Download for offline. Direct links download straight away;
-            // torrents resolve via debrid/P2P first, then download the result.
-            Button {
-                downloadSelection(entry)
-            } label: {
-                Label("Download", systemImage: "arrow.down.circle")
-            }
             if entry.stream.isPlayable, let streamURL = entry.stream.url,
                ExternalPlayers.isInfuseInstalled {
                 Button {
@@ -881,56 +900,6 @@ struct StreamsView: View {
                     Label("Play in Infuse", systemImage: "arrow.up.forward.app.fill")
                 }
             }
-        }
-    }
-
-    /// Save a source to disk for offline viewing. Direct links start now;
-    /// torrents are resolved (debrid preferred, then P2P) into a direct URL
-    /// first — the same resolution used for playback.
-    private func downloadSelection(_ entry: StreamEntry) {
-        if entry.stream.isPlayable {
-            downloads.start(meta: viewModel.meta, video: viewModel.video, stream: entry.stream, addonName: entry.addonName)
-            return
-        }
-        // Torrent → resolve (any configured debrid, preferred first), then
-        // download the resolved direct stream.
-        if debrid.resolverProvider != nil {
-            resolving = true
-            Task {
-                let (result, _) = await DebridService.resolveAcross(
-                    stream: entry.stream, providers: debrid.orderedResolvers,
-                    season: viewModel.video?.season, episode: viewModel.video?.episode
-                )
-                resolving = false
-                if case .success(let url, let filename) = result {
-                    let resolved = Stream(name: entry.stream.name, title: filename ?? entry.stream.title,
-                                          description: entry.stream.description, url: url, infoHash: nil,
-                                          behaviorHints: entry.stream.behaviorHints)
-                    downloads.start(meta: viewModel.meta, video: viewModel.video, stream: resolved, addonName: entry.addonName)
-                } else {
-                    resolveError = "Couldn't resolve this source to download it."
-                }
-            }
-        } else if torrent.settings.isConfigured,
-                  let magnet = entry.stream.magnetURI ?? entry.stream.infoHash.map({ "magnet:?xt=urn:btih:\($0)" }) {
-            resolving = true
-            Task {
-                let result = await TorrServerService.resolve(
-                    magnet: magnet, settings: torrent.settings,
-                    season: viewModel.video?.season, episode: viewModel.video?.episode
-                )
-                resolving = false
-                if case .success(let url, let filename) = result {
-                    let resolved = Stream(name: entry.stream.name, title: filename ?? entry.stream.title,
-                                          description: entry.stream.description, url: url, infoHash: nil,
-                                          behaviorHints: entry.stream.behaviorHints)
-                    downloads.start(meta: viewModel.meta, video: viewModel.video, stream: resolved, addonName: entry.addonName)
-                } else {
-                    resolveError = "Couldn't resolve this source to download it."
-                }
-            }
-        } else {
-            resolveError = "Add a debrid key or enable P2P to download torrent sources."
         }
     }
 }
@@ -952,12 +921,12 @@ struct StreamRowView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(entry.displayName)
-                    .font(.system(size: 25, weight: .semibold))
+                    .font(theme.isStremioTheme ? StremioFont.medium(25) : .system(size: 25, weight: .semibold))
                     .foregroundStyle(theme.palette.textPrimary)
                     .lineLimit(1)
                 if !entry.displayDetail.isEmpty {
                     Text(entry.displayDetail)
-                        .font(.system(size: 20))
+                        .font(theme.isStremioTheme ? StremioFont.regular(20) : .system(size: 20))
                         .foregroundStyle(theme.palette.textSecondary)
                         .lineLimit(2)
                 }
@@ -1022,10 +991,13 @@ struct StreamRowView: View {
             RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
                 .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 2.5)
         )
+        // Fusion accent focus glow (a soft halo around the focused row).
+        .shadow(color: isFocused ? theme.effectiveFocusGlow : .clear,
+                radius: theme.isAppleTVTheme && isFocused ? 20 : 0)
         // No focus scale: scaling a row forces offscreen re-composition of
         // the whole card every focus move mid-scroll (stutter on the A10X);
         // the fill + ring change is plenty of focus affordance.
-        .animation(.easeOut(duration: 0.15), value: isFocused)
+        .animation(theme.isAppleTVTheme ? FusionMotion.focusEntry : .easeOut(duration: 0.15), value: isFocused)
     }
 }
 

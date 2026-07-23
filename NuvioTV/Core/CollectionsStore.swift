@@ -117,27 +117,29 @@ struct CollectionSourceDTO: Codable, Hashable {
 }
 
 struct TmdbFiltersDTO: Codable, Hashable {
-    var withGenres: String?
-    var releaseDateGte: String?
-    var releaseDateLte: String?
-    var voteAverageGte: Double?
-    var voteAverageLte: Double?
-    var voteCountGte: Int?
-    var withOriginalLanguage: String?
-    var withOriginCountry: String?
-    var withKeywords: String?
-    var withCompanies: String?
-    var withNetworks: String?
-    var year: Int?
-    var watchRegion: String?
-    var withWatchProviders: String?
+    // Defaults so callers can build a filter with just the field(s) they need
+    // (e.g. `TmdbFiltersDTO(withGenres: "28")`).
+    var withGenres: String? = nil
+    var releaseDateGte: String? = nil
+    var releaseDateLte: String? = nil
+    var voteAverageGte: Double? = nil
+    var voteAverageLte: Double? = nil
+    var voteCountGte: Int? = nil
+    var withOriginalLanguage: String? = nil
+    var withOriginCountry: String? = nil
+    var withKeywords: String? = nil
+    var withCompanies: String? = nil
+    var withNetworks: String? = nil
+    var year: Int? = nil
+    var watchRegion: String? = nil
+    var withWatchProviders: String? = nil
     /// Rolling "released in the last N days" window, computed fresh at query
     /// time (not a fixed date, which would go stale) — pairs with sorting by
     /// popularity instead of release date. Verified live that plain
     /// `sort_by=primary_release_date.desc` surfaces unreleased 2029-2099
     /// placeholder entries with zero votes, not watchable "newest releases".
     /// tvOS-only; nil unless a preset explicitly opts in.
-    var recentDays: Int?
+    var recentDays: Int? = nil
 }
 
 struct NuvioCollectionFolder: Codable, Identifiable, Hashable {

@@ -2,36 +2,50 @@ import SwiftUI
 
 // MARK: - Home row (folder tiles)
 
-/// A collection rendered as a home row of folder tiles, mirroring the Android
-/// CollectionRowSection: each folder is a card showing its cover image (or
-/// emoji fallback); selecting one opens the collection browser.
+/// A single collection rendered as its OWN Home row (Rows view mode): the row
+/// is titled by the collection, and each FOLDER is a button/tile. Selecting a
+/// folder opens that folder's discover page (its content, on its own).
 struct CollectionRowSection: View {
     @EnvironmentObject private var theme: ThemeManager
 
     let collection: NuvioCollection
     let title: String
-    let onOpen: () -> Void
-    /// Reports card focus gain/loss so Home can track which row holds focus
-    /// (row auto-hide).
-    var onCardFocus: (Bool) -> Void = { _ in }
+    /// Open ONE folder's discover page.
+    let onOpenFolder: (NuvioCollectionFolder) -> Void
+    /// Open the whole collection (the empty-state tile's action — with no
+    /// folders there's no folder to open).
+    var onOpenCollection: () -> Void = {}
+    /// Reports WHICH folder just gained focus, so Home can drive the hero panel
+    /// per-folder (each category shows its own logo/backdrop).
+    var onFolderFocus: (NuvioCollectionFolder) -> Void = { _ in }
+    /// Back on the first tile bubbles up (sidebar / tab bar).
+    var onBackAtStart: () -> Void = {}
+
+    @FocusState private var focusedID: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: NuvioSpacing.md) {
             RowHeader(title: title)
+            ScrollViewReader { proxy in
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
                     ForEach(collection.folders) { folder in
-                        Button(action: onOpen) {
-                            CollectionFolderCard(folder: folder, glowEnabled: collection.focusGlowEnabled ?? true)
-                                .onFocusChange { onCardFocus($0) }
+                        Button { onOpenFolder(folder) } label: {
+                            CollectionFolderCard(folder: folder, glowEnabled: collection.focusGlowEnabled ?? true,
+                                                 showTitle: false, forceLandscape: true)
+                                .onFocusChange { if $0 { onFolderFocus(folder) } }
                         }
                         .buttonStyle(PlainCardButtonStyle())
+                        .focused($focusedID, equals: folder.id)
+                        .id(folder.id)
                     }
                     if collection.folders.isEmpty {
-                        Button(action: onOpen) {
+                        // Must stay a Button: a bare card is unfocusable on
+                        // tvOS, leaving this row a focus dead-zone with no way
+                        // to open the empty collection.
+                        Button(action: onOpenCollection) {
                             CollectionFolderCard(folder: nil, fallbackTitle: collection.title,
                                                  glowEnabled: collection.focusGlowEnabled ?? true)
-                                .onFocusChange { onCardFocus($0) }
                         }
                         .buttonStyle(PlainCardButtonStyle())
                     }
@@ -40,6 +54,17 @@ struct CollectionRowSection: View {
                 .padding(.vertical, NuvioSpacing.lg)
             }
             .scrollClipDisabled()
+            // Back: scroll to + focus the first tile if scrolled in; on the
+            // first tile, bubble up (sidebar / tab bar).
+            .onExitCommand {
+                if let first = collection.folders.first?.id, focusedID != first {
+                    withAnimation(FusionMotion.focusMove) { proxy.scrollTo(first, anchor: .leading) }
+                    DispatchQueue.main.async { focusedID = first }
+                } else {
+                    onBackAtStart()
+                }
+            }
+            }   // ScrollViewReader
         }
     }
 }
@@ -53,6 +78,10 @@ struct CollectionsRowSection: View {
     /// Reports which collection is focused so Home can drive its hero
     /// backdrop/logo panel the same way a regular poster card does.
     var onFocus: (NuvioCollection) -> Void = { _ in }
+    /// Back on the first tile bubbles up (sidebar / tab bar).
+    var onBackAtStart: () -> Void = {}
+
+    @FocusState private var focusedID: String?
 
     /// Collections flagged "pin to top" sort first, in their given order;
     /// everything else keeps the Home-layout order after them. Home already
@@ -67,6 +96,7 @@ struct CollectionsRowSection: View {
     }
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: NuvioSpacing.lg) {
                 ForEach(ordered) { collection in
@@ -77,17 +107,68 @@ struct CollectionsRowSection: View {
                             }
                     }
                     .buttonStyle(PlainCardButtonStyle())
+                    .focused($focusedID, equals: collection.id)
+                    .id(collection.id)
                 }
             }
             .padding(.horizontal, NuvioSpacing.huge)
             .padding(.vertical, NuvioSpacing.lg)
         }
         .scrollClipDisabled()
+        // Back: scroll to + focus the first tile if scrolled in; on the first
+        // tile, bubble up (sidebar / tab bar).
+        .onExitCommand {
+            if let first = ordered.first?.id, focusedID != first {
+                withAnimation(FusionMotion.focusMove) { proxy.scrollTo(first, anchor: .leading) }
+                DispatchQueue.main.async { focusedID = first }
+            } else {
+                onBackAtStart()
+            }
+        }
+        }   // ScrollViewReader
     }
 }
 
 /// A tile representing a whole collection (its first folder's cover/emoji plus
 /// the collection title), used in the combined Home collections row.
+/// Fusion (§27.1): a layered "stack" backing drawn behind a collection folder
+/// tile — two offset, darker, slightly-rotated cards peeking out so the tile
+/// reads as a folder holding things. On focus the layers separate a little more
+/// (§27.2). Purely decorative (the tiles carry a single brand cover, not member
+/// posters), so it uses tinted cards rather than real artwork.
+struct FusionFolderStack: View {
+    let size: CGSize
+    let radius: CGFloat
+    let tint: Color
+    let focused: Bool
+
+    var body: some View {
+        ZStack {
+            layer(scale: 0.95, offset: focused ? 30 : 22, angle: 3.5, dim: -0.16, opacity: 0.6)
+            layer(scale: 0.975, offset: focused ? 17 : 12, angle: 1.8, dim: -0.08, opacity: 0.82)
+        }
+        .animation(FusionMotion.focusEntry, value: focused)
+    }
+
+    private func layer(scale: CGFloat, offset: CGFloat, angle: Double, dim: Double, opacity: Double) -> some View {
+        RoundedRectangle(cornerRadius: radius, style: .continuous)
+            .fill(tint)
+            // Darken via a black overlay, not `.brightness()`: the filter put
+            // an offscreen color-matrix pass on BOTH stack layers of every
+            // collection tile, re-composited through the focus animation. The
+            // overlay is a plain alpha blend for the same darkened read.
+            .overlay(
+                RoundedRectangle(cornerRadius: radius, style: .continuous)
+                    .fill(Color.black.opacity(-dim))
+            )
+            .frame(width: size.width, height: size.height)
+            .scaleEffect(scale)
+            .rotationEffect(.degrees(angle))
+            .offset(x: offset, y: offset)
+            .opacity(opacity)
+    }
+}
+
 struct CollectionTileCard: View {
     @EnvironmentObject private var theme: ThemeManager
     @ObservedObject private var perf = PerformanceSettingsStore.shared
@@ -135,6 +216,13 @@ struct CollectionTileCard: View {
                 }
             }
             .frame(width: cardSize.width, height: cardSize.height)
+            // Fusion (§27): layered-stack backing behind the tile.
+            .background {
+                if theme.isAppleTVTheme {
+                    FusionFolderStack(size: cardSize, radius: NuvioRadius.md,
+                                      tint: theme.palette.backgroundCard, focused: isFocused)
+                }
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
                     .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
@@ -144,17 +232,17 @@ struct CollectionTileCard: View {
             // Collection-authored "focus glow" — a colored halo behind the tile,
             // distinct from the neutral drop shadow above. Off by default per
             // folder if the collection disabled it in the editor.
-            .shadow(color: glowEnabled && isFocused ? theme.palette.focusRing.opacity(0.85) : .clear,
-                    radius: glowEnabled && isFocused ? 28 : 0)
+            .shadow(color: glowEnabled && perf.settings.cardShadows && isFocused ? theme.palette.focusRing.opacity(0.85) : .clear,
+                    radius: glowEnabled && perf.settings.cardShadows && isFocused ? 28 : 0)
 
             Text(collection.title)
-                .font(.system(size: 24, weight: .semibold))
+                .font(theme.isAppleTVTheme ? FusionType.cardTitle(theme.font) : .system(size: 24, weight: .semibold))
                 .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
                 .lineLimit(1)
                 .frame(width: cardSize.width, alignment: .leading)
         }
         .scaleEffect(perf.focusZoomEffective && isFocused ? 1.06 : 1.0)
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
+        .animation(theme.isAppleTVTheme ? FusionMotion.focusMove : .spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
     }
 
     private var glowEnabled: Bool { collection.focusGlowEnabled ?? true }
@@ -173,6 +261,16 @@ struct CollectionFolderCard: View {
     let folder: NuvioCollectionFolder?
     var fallbackTitle: String = ""
     var glowEnabled: Bool = true
+    /// Home rows hide the caption: the tile IS a brand logo (it already reads
+    /// "Netflix"/"Marvel Studios"…), so the redundant caption underneath just
+    /// pokes up through the billboard scrim as the row scrolls away.
+    var showTitle: Bool = true
+    /// Home rows render every non-poster tile at the SAME landscape size, so a
+    /// brand whose only logo is squarish (Paramount's mountain, DC's circle —
+    /// TMDB hosts no wide variant for either) doesn't leave a ragged row of
+    /// mixed tile sizes. The logo draws .fit, centered with side margins — the
+    /// declared tileShape stays accurate for Android, which stretches to it.
+    var forceLandscape: Bool = false
 
     private var isBright: Bool {
         guard let id = folder?.id else { return false }
@@ -185,7 +283,7 @@ struct CollectionFolderCard: View {
 
     private var cardSize: CGSize {
         if isPoster { return CGSize(width: 220, height: 330) }
-        if isLandscape { return CGSize(width: 360, height: 200) }
+        if isLandscape || forceLandscape { return CGSize(width: 360, height: 200) }
         return CGSize(width: 260, height: 260)   // SQUARE default
     }
 
@@ -195,7 +293,11 @@ struct CollectionFolderCard: View {
                 RoundedRectangle(cornerRadius: NuvioRadius.md)
                     .fill(isBright ? AnyShapeStyle(NuvioPrimitives.neutral100) : AnyShapeStyle(theme.palette.surface))
                 if let cover = folder?.coverImageUrl, !cover.isEmpty {
-                    RemoteImage(url: cover, contentMode: .fill)
+                    // .fit (not .fill) so the whole logo shows, with a margin of
+                    // blank edge around it instead of a cropped, zoomed-in crop.
+                    // Full-res `original` so the logo is crisp on a TV.
+                    RemoteImage(url: TMDBService.originalSize(cover) ?? cover, contentMode: .fit)
+                        .padding(NuvioSpacing.xl)
                         .clipShape(RoundedRectangle(cornerRadius: NuvioRadius.md))
                 } else if let emoji = folder?.coverEmoji, !emoji.isEmpty {
                     Text(emoji).font(.system(size: 84))
@@ -206,25 +308,32 @@ struct CollectionFolderCard: View {
                 }
             }
             .frame(width: cardSize.width, height: cardSize.height)
+            // Fusion (§27): layered-stack backing behind the tile.
+            .background {
+                if theme.isAppleTVTheme {
+                    FusionFolderStack(size: cardSize, radius: NuvioRadius.md,
+                                      tint: theme.palette.backgroundCard, focused: isFocused)
+                }
+            }
             .overlay(
                 RoundedRectangle(cornerRadius: NuvioRadius.md, style: .continuous)
                     .strokeBorder(isFocused ? theme.palette.focusRing : .clear, lineWidth: 3)
             )
             .shadow(color: .black.opacity(perf.settings.cardShadows && isFocused ? 0.65 : 0),
                     radius: perf.settings.cardShadows && isFocused ? 22 : 0, y: 10)
-            .shadow(color: glowEnabled && isFocused ? theme.palette.focusRing.opacity(0.85) : .clear,
-                    radius: glowEnabled && isFocused ? 28 : 0)
+            .shadow(color: glowEnabled && perf.settings.cardShadows && isFocused ? theme.palette.focusRing.opacity(0.85) : .clear,
+                    radius: glowEnabled && perf.settings.cardShadows && isFocused ? 28 : 0)
 
-            if folder?.hideTitle != true && !title.isEmpty {
+            if showTitle && folder?.hideTitle != true && !title.isEmpty {
                 Text(title)
-                    .font(.system(size: 24, weight: .semibold))
+                    .font(theme.isAppleTVTheme ? FusionType.cardTitle(theme.font) : .system(size: 24, weight: .semibold))
                     .foregroundStyle(isFocused ? theme.palette.textPrimary : theme.palette.textSecondary)
                     .lineLimit(1)
                     .frame(width: cardSize.width, alignment: .leading)
             }
         }
         .scaleEffect(perf.focusZoomEffective && isFocused ? 1.06 : 1.0)
-        .animation(.spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
+        .animation(theme.isAppleTVTheme ? FusionMotion.focusMove : .spring(response: 0.32, dampingFraction: 0.82), value: isFocused)
     }
 }
 
@@ -371,8 +480,12 @@ struct CollectionView: View {
                     .font(.system(size: 48, weight: .heavy))
                     .foregroundStyle(theme.palette.textPrimary)
                     .padding(.horizontal, NuvioSpacing.huge)
-                folderTabs
-                filterBar
+                // Tabs/sort only appear once content has loaded — no half-built
+                // filter bar over a spinner.
+                if !isLoading {
+                    folderTabs
+                    filterBar
+                }
             }
             .padding(.top, NuvioSpacing.xl)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -408,7 +521,7 @@ struct CollectionView: View {
                         } label: {
                             PosterCard(item: item)
                         }
-                        .buttonStyle(PlainCardButtonStyle())
+                        .mediaCardButtonStyle()
                     }
                 }
                 .padding(.horizontal, NuvioSpacing.huge)
@@ -471,7 +584,7 @@ struct CollectionView: View {
 
     @ViewBuilder
     private var folderTabs: some View {
-        if collection.folders.count > 1 || !collection.showAllTab {
+        if hasTabs {
             ScrollView(.horizontal) {
                 HStack(spacing: NuvioSpacing.md) {
                     if collection.showAllTab {
@@ -500,101 +613,107 @@ struct CollectionView: View {
     private func loadAll() async {
         isLoading = true
         var unsupported = false
-        var results: [String: [MetaItem]] = [:]
         let tmdbEnabled = tmdbSettings.isEnabled
         let tmdbLanguage = tmdbSettings.settings.language
-        await withTaskGroup(of: (String, [MetaItem]).self) { group in
-            for folder in collection.folders {
-                // TMDB sources resolve only when the integration is enabled;
-                // Trakt sources always resolve (public API, no toggle needed).
-                let tmdbSources = folder.effectiveSources.filter { $0.provider.lowercased() == "tmdb" }
-                let traktSources = folder.effectiveSources.filter { $0.isTraktSource }
-                let otherUnsupported = folder.effectiveSources.filter {
-                    !$0.isAddonSource && $0.provider.lowercased() != "tmdb" && !$0.isTraktSource
-                }
-                if !otherUnsupported.isEmpty || (!tmdbSources.isEmpty && !tmdbEnabled) {
-                    unsupported = true
-                }
-                let addonSources = folder.addonSources
-                let resolvableTmdb = tmdbEnabled ? tmdbSources : []
-                guard !addonSources.isEmpty || !resolvableTmdb.isEmpty || !traktSources.isEmpty else { continue }
-                let addons = addonManager.addons
-                let manager = addonManager
-                group.addTask {
-                    var items: [MetaItem] = []
-                    var seen = Set<String>()
-                    for source in addonSources {
-                        guard let addonID = source.addonId,
-                              let type = source.type,
-                              let catalogID = source.catalogId,
-                              let addon = await Self.match(addons: addons, id: addonID),
-                              let catalog = (addon.manifest.catalogs ?? [])
-                                .first(where: { $0.type == type && $0.id == catalogID })
-                        else { continue }
-                        let fetched = (try? await StremioAPI.catalog(addon: addon, catalog: catalog)) ?? []
-                        for item in fetched where seen.insert(item.id).inserted {
-                            items.append(item)
-                        }
-                    }
-                    for source in resolvableTmdb {
-                        let fetched = await TMDBService.resolve(source: source, language: tmdbLanguage)
-                        for item in fetched where seen.insert(item.id).inserted {
-                            items.append(item)
-                        }
-                    }
-                    for source in traktSources {
-                        let fetched = await Self.resolveTrakt(source: source, addonManager: manager)
-                        for item in fetched where seen.insert(item.id).inserted {
-                            items.append(item)
-                        }
-                    }
-                    return (folder.id, items)
-                }
-            }
-            for await (folderID, items) in group {
-                results[folderID] = items
-            }
+        let addons = addonManager.addons
+        let manager = addonManager
+        for folder in collection.folders where CollectionResolver.hasUnsupportedSources(folder, tmdbEnabled: tmdbEnabled) {
+            unsupported = true
         }
-        itemsByFolder = results
+
+        func resolveAll(folders: [NuvioCollectionFolder], maxTmdbPages: Int) async -> [String: [MetaItem]] {
+            var results: [String: [MetaItem]] = [:]
+            await withTaskGroup(of: (String, [MetaItem]).self) { group in
+                for folder in folders {
+                    group.addTask {
+                        let items = await CollectionResolver.resolveFolder(
+                            folder, addons: addons, addonManager: manager,
+                            tmdbEnabled: tmdbEnabled, tmdbLanguage: tmdbLanguage,
+                            maxTmdbPages: maxTmdbPages
+                        )
+                        return (folder.id, items)
+                    }
+                }
+                for await (folderID, items) in group {
+                    results[folderID] = items
+                }
+            }
+            return results
+        }
+
+        // Phase 1 — fast first paint: a few pages per folder so the grid shows
+        // in a couple of seconds instead of waiting on a big network's entire
+        // catalog (up to 500 TMDB pages) before anything appears.
+        let firstPassPages = 4
+        itemsByFolder = await resolveAll(folders: collection.folders, maxTmdbPages: firstPassPages)
         hasUnsupportedSources = unsupported
         isLoading = false
-    }
 
-    /// Trakt list items arrive with no artwork — enrich the first N via the
-    /// installed meta add-on (Cinemeta) so the grid still has posters; the
-    /// rest still display (title only) rather than being dropped.
-    private static func resolveTrakt(source: CollectionSourceDTO, addonManager: AddonManager) async -> [MetaItem] {
-        guard let traktListId = source.traktListId else { return [] }
-        let type = (source.mediaType ?? "movie").lowercased() == "tv" ? "show" : "movie"
-        let sortBy = source.sortBy ?? "rank"
-        let sortHow = source.sortHow ?? "asc"
-        let raw = await TraktService.publicListItems(
-            traktListId: traktListId, type: type, sortBy: sortBy, sortHow: sortHow
-        )
-        var enriched = 0
-        var out: [MetaItem] = []
-        for item in raw {
-            let metaType = item.isMovie ? "movie" : "series"
-            let id = item.imdb ?? item.tmdb.map { "tmdb:\($0)" }
-            guard let id else { continue }
-            if enriched < 30, let addon = await addonManager.metaAddon(for: metaType, id: id),
-               let meta = try? await StremioAPI.meta(addon: addon, type: metaType, id: id) {
-                enriched += 1
-                out.append(meta)
-            } else {
-                out.append(MetaItem(
-                    id: id, type: metaType, name: item.title,
-                    releaseInfo: item.year.map(String.init)
-                ))
-            }
+        // Phase 2 — the FULL catalog streams in behind the visible grid, but
+        // ONLY for folders phase 1 could actually have truncated: a folder
+        // needs TMDB sources AND a phase-1 haul near the page cap (4 pages ×
+        // 20/page, minus dedup slack). Addon/Trakt-only and small-catalog
+        // folders are already complete — re-fetching them just doubled every
+        // network call on every visit. Leaving the screen cancels this task.
+        let possiblyTruncated = collection.folders.filter { folder in
+            let hasTmdb = folder.effectiveSources.contains { $0.provider.lowercased() == "tmdb" }
+            return hasTmdb && (itemsByFolder[folder.id]?.count ?? 0) >= firstPassPages * 20 - 5
         }
-        return out
+        guard !possiblyTruncated.isEmpty else { return }
+        let full = await resolveAll(folders: possiblyTruncated, maxTmdbPages: Int.max)
+        guard !Task.isCancelled else { return }
+        for (folderID, items) in full where !items.isEmpty {
+            itemsByFolder[folderID] = items
+        }
+    }
+}
+
+// MARK: - Collection settings
+
+/// Inline three-option layout picker (Folders / Rows / Combined), used only by
+/// the collection editor in Settings (SettingsLayoutView). Layout is a
+/// per-collection setting that shapes the HOME rendering; the browse screen
+/// itself has no layout control. `onChange` fires on each selection.
+struct CollectionLayoutPicker: View {
+    @EnvironmentObject private var theme: ThemeManager
+    @Binding var viewMode: String
+    var onChange: (String) -> Void = { _ in }
+
+    private static let options: [(id: String, label: String)] = [
+        ("TABBED_GRID", "Folders"),
+        ("ROWS", "Rows"),
+        ("COMBINED", "Combined"),
+    ]
+
+    private var subtitle: String {
+        switch viewMode {
+        case "ROWS": return "Each folder becomes its own row, stacked top to bottom."
+        case "COMBINED": return "Every folder's titles spread out together in one row."
+        default: return "Browse one folder at a time, with tabs across the top."
+        }
     }
 
-    /// Collections reference addons by manifest id (cross-platform stable),
-    /// not by manifest URL.
-    private static func match(addons: [InstalledAddon], id: String) async -> InstalledAddon? {
-        addons.first { $0.manifest.id == id }
+    var body: some View {
+        VStack(alignment: .leading, spacing: NuvioSpacing.md) {
+            Text("Layout")
+                .font(.system(size: 26, weight: .semibold))
+                .foregroundStyle(theme.palette.textPrimary)
+            HStack(spacing: NuvioSpacing.md) {
+                ForEach(Self.options, id: \.id) { opt in
+                    Button {
+                        viewMode = opt.id
+                        onChange(opt.id)
+                    } label: {
+                        FolderTabPill(label: opt.label, selected: viewMode == opt.id)
+                    }
+                    .buttonStyle(PlainCardButtonStyle())
+                }
+            }
+            Text(subtitle)
+                .font(.system(size: 20))
+                .foregroundStyle(theme.palette.textSecondary)
+                .frame(maxWidth: 900, alignment: .leading)
+        }
     }
 }
 

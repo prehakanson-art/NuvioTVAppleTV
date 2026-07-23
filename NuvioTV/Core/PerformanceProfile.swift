@@ -27,7 +27,13 @@ enum PerformanceProfile {
 
     /// True on the Apple TV HD (A8 / 2 GB / 1080p) — and any unknown device
     /// reporting <2.5 GB RAM, as a safe fallback.
+    ///
+    /// Dev override: `-lowPower` forces this tier. The SIMULATOR reports the
+    /// host Mac's machine id and RAM, so it always resolves to the high-power
+    /// tier and none of the A8 gates ever run there — this argument is the only
+    /// way to exercise the Apple TV HD code path without the physical box.
     static let isLowPower: Bool = {
+        if ProcessInfo.processInfo.arguments.contains("-lowPower") { return true }
         if machine.hasPrefix("AppleTV5") { return true }
         return ProcessInfo.processInfo.physicalMemory < 2_500_000_000
     }()

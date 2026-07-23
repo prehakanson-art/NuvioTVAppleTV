@@ -251,8 +251,21 @@ final class HomeCatalogSettingsStore: ObservableObject {
         profileID == 1 ? Self.baseKey : "\(Self.baseKey).p\(profileID)"
     }
 
+    /// Dev-only: force the home layout via launch arg for sim verification
+    /// (driving Settings needs a real remote). Applied after both local load
+    /// AND remote sync — sync would otherwise stomp a local-only override
+    /// seconds after launch, same issue the theme override had.
+    private static var launchLayoutOverride: HomeLayout? {
+        let args = ProcessInfo.processInfo.arguments
+        if args.contains("-layoutClassic") { return .classic }
+        if args.contains("-layoutGrid") { return .grid }
+        if args.contains("-layoutModern") { return .modern }
+        return nil
+    }
+
     init() {
         load()
+        if let override = Self.launchLayoutOverride { homeLayout = override }
     }
 
     func setProfile(_ id: Int) {
@@ -462,7 +475,7 @@ final class HomeCatalogSettingsStore: ObservableObject {
     func applyRemotePresentation(_ s: HomePresentationSnapshot) {
         guard s != presentationSnapshot else { return }
         suppressChange = true
-        homeLayout = s.homeLayout
+        homeLayout = Self.launchLayoutOverride ?? s.homeLayout
         landscapePosters = s.landscapePosters
         fullscreenHero = s.fullscreenHero
         posterSize = s.posterSize

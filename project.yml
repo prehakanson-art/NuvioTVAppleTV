@@ -56,6 +56,11 @@ targets:
         # Tracks the Android APK release this port mirrors (v0.7.15-beta).
         CFBundleShortVersionString: "0.7.15"
         UIUserInterfaceStyle: Dark
+        # Plus Jakarta Sans — bundled for the Stremio theme's chrome typography.
+        UIAppFonts:
+          - PlusJakartaSans-Regular.ttf
+          - PlusJakartaSans-Medium.ttf
+          - PlusJakartaSans-Bold.ttf
         # Lets canOpenURL detect external players for handoff (Infuse etc.).
         LSApplicationQueriesSchemes:
           - infuse
@@ -148,10 +153,43 @@ targets:
   #       MARKETING_VERSION: "0.7.15"
   #       CURRENT_PROJECT_VERSION: "1"
   #       CODE_SIGN_ENTITLEMENTS: NuvioTopShelf/NuvioTopShelf.entitlements
+  # UI-test target: drives the tvOS remote (XCUIRemote) to verify focus/menu
+  # behavior, which osascript keystroke automation can't do. Simulator only.
+  NuvioTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources:
+      - NuvioTVUITests
+    dependencies:
+      - target: NuvioTV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.orivio.tv.appletv.uitests
+        SWIFT_VERSION: "5.9"
+        TARGETED_DEVICE_FAMILY: "3"
+        TEST_TARGET_NAME: NuvioTV
+        CODE_SIGNING_ALLOWED: "NO"
 schemes:
   NuvioTV:
     build:
       targets:
         NuvioTV: all
+        NuvioTVUITests: [test]
+    test:
+      targets:
+        - NuvioTVUITests
     run:
       config: Debug
+      # KSPlayer's Metal renderer (MetalRender.textures) calls makeTexture and
+      # tolerates a nil result via compactMap — fine on device. But the SIMULATOR
+      # Debug run enables Metal API Validation, which ASSERTS (SIGABRT) on the
+      # same texture instead of returning nil, crashing the app whenever a video
+      # plays in the sim. Turn the validation layers off so the sim behaves like
+      # the device (drop the frame, don't abort). No effect on real hardware.
+      environmentVariables:
+        - variable: MTL_DEBUG_LAYER
+          value: "0"
+          isEnabled: true
+        - variable: MTL_SHADER_VALIDATION
+          value: "0"
+          isEnabled: true

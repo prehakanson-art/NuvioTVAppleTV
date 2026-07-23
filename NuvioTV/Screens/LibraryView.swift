@@ -1,22 +1,23 @@
 import SwiftUI
 
-private enum LibraryTab: String, CaseIterable { case saved = "Saved", downloads = "Downloads", cloud = "Cloud" }
+private enum LibraryTab: String, CaseIterable { case saved = "Saved", cloud = "Cloud" }
 
 struct LibraryView: View {
     @EnvironmentObject private var theme: ThemeManager
     @EnvironmentObject private var posterLayout: HomeCatalogSettingsStore
     @EnvironmentObject private var library: LibraryStore
     @EnvironmentObject private var progressStore: ProgressStore
-    @EnvironmentObject private var downloads: DownloadManager
 
     let onSelect: (MetaItem) -> Void
     /// Opens the full Cloud Library screen (debrid cloud files).
     var onOpenCloud: () -> Void = {}
-    /// Plays a completed offline download from its local file.
-    var onPlayDownload: (MetaItem, StreamEntry) -> Void = { _, _ in }
+    /// Back pressed while already at the top of the grid: leave the screen
+    /// (Classic opens the sidebar; Fusion is a no-op so focus rises to the tab bar).
+    var onBackAtRoot: () -> Void = {}
 
     @State private var tab: LibraryTab = .saved
     @State private var sort = "Added"              // Added / Name / Recently Watched
+    @FocusState private var focusedID: String?
 
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: posterLayout.posterSize.posterWidth, maximum: posterLayout.posterSize.posterWidth), spacing: NuvioSpacing.lg, alignment: .top)] }
 
@@ -46,9 +47,13 @@ struct LibraryView: View {
     private var savedMovies: [SavedLibraryItem] { sorted.filter { !$0.metaItem.isSeries } }
     private var savedShows: [SavedLibraryItem] { sorted.filter { $0.metaItem.isSeries } }
 
+    /// First focusable poster in the grid (Movies section leads, then Shows).
+    private var firstItemID: String? { savedMovies.first?.id ?? savedShows.first?.id }
+
     var body: some View {
         ZStack {
             theme.palette.background.ignoresSafeArea()
+            ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: NuvioSpacing.lg) {
                     header
@@ -69,9 +74,6 @@ struct LibraryView: View {
                         }
                         .frame(maxWidth: .infinity, minHeight: 460, alignment: .leading)
                         .padding(.horizontal, NuvioSpacing.huge)
-                    } else if tab == .downloads {
-                        DownloadsContent(onPlay: onPlayDownload)
-                            .padding(.bottom, NuvioSpacing.huge)
                     } else if sorted.isEmpty {
                         NuvioEmptyState(icon: "bookmark",
                                         title: "Nothing saved yet",
@@ -93,7 +95,19 @@ struct LibraryView: View {
                 .padding(.top, NuvioSpacing.xl)
             }
             .scrollClipDisabled()
+            .onExitCommand { backToTop(proxy) }
+            }
         }
+    }
+
+    /// Back deep in the grid scrolls to (and focuses) the first poster; a second
+    /// Back — already at the top — leaves the screen via `onBackAtRoot`.
+    private func backToTop(_ proxy: ScrollViewProxy) {
+        guard let first = firstItemID, focusedID != first else {
+            onBackAtRoot(); return
+        }
+        withAnimation(FusionMotion.focusMove) { proxy.scrollTo(first, anchor: .top) }
+        DispatchQueue.main.async { focusedID = first }
     }
 
     private var header: some View {
@@ -145,7 +159,10 @@ struct LibraryView: View {
                 Button { onSelect(item.metaItem) } label: {
                     PosterCard(item: item.metaItem)
                 }
-                .buttonStyle(PlainCardButtonStyle())
+                .mediaCardButtonStyle()
+                .posterHoldMenu(item.metaItem) { onSelect(item.metaItem) }
+                .focused($focusedID, equals: item.id)
+                .id(item.id)
             }
         }
     }

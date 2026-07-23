@@ -45,6 +45,8 @@ struct DiscoverView: View {
     @State private var type = "Movie"          // Movie / Series
     @State private var catalogIndex = 0
     @State private var genre = ""              // "" = Default (no filter)
+    @FocusState private var focusedID: String?
+    @Environment(\.dismiss) private var dismiss
 
     private var columns: [GridItem] { [GridItem(.adaptive(minimum: posterLayout.posterSize.posterWidth, maximum: posterLayout.posterSize.posterWidth), spacing: NuvioSpacing.lg, alignment: .top)] }
 
@@ -68,6 +70,7 @@ struct DiscoverView: View {
     var body: some View {
         ZStack {
             theme.palette.background.ignoresSafeArea()
+            ScrollViewReader { proxy in
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: NuvioSpacing.lg) {
                     Text("Discover")
@@ -112,7 +115,9 @@ struct DiscoverView: View {
                         LazyVGrid(columns: columns, alignment: .leading, spacing: NuvioSpacing.xl) {
                             ForEach(viewModel.items) { item in
                                 Button { onSelect(item) } label: { PosterCard(item: item) }
-                                    .buttonStyle(PlainCardButtonStyle())
+                                    .mediaCardButtonStyle()
+                                    .focused($focusedID, equals: item.id)
+                                    .id(item.id)
                                     .onAppear {
                                         if item.id == viewModel.items.last?.id {
                                             Task { await viewModel.loadMore() }
@@ -127,6 +132,8 @@ struct DiscoverView: View {
                 .padding(.top, NuvioSpacing.xl)
             }
             .scrollClipDisabled()
+            .onExitCommand { backToTop(proxy) }
+            }
         }
         .task(id: reloadKey) {
             if let sel = selected {
@@ -134,6 +141,16 @@ struct DiscoverView: View {
                                       genre: genre.isEmpty ? nil : genre)
             }
         }
+    }
+
+    /// Back deep in the grid scrolls to (and focuses) the first poster; a second
+    /// Back — already at the top — pops back to the previous screen.
+    private func backToTop(_ proxy: ScrollViewProxy) {
+        guard let first = viewModel.items.first?.id, focusedID != first else {
+            dismiss(); return
+        }
+        withAnimation(FusionMotion.focusMove) { proxy.scrollTo(first, anchor: .top) }
+        DispatchQueue.main.async { focusedID = first }
     }
 
     private var reloadKey: String { "\(type)#\(catalogIndex)#\(selected?.catalog.id ?? "")#\(genre)" }

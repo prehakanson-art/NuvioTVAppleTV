@@ -64,8 +64,8 @@ struct PerformanceSettingsDetail: View {
             ) {
                 PerfToggleRow(
                     icon: "rectangle.fill.on.rectangle.fill",
-                    title: "Card shadows",
-                    subtitle: "Soft drop shadows under posters. The shadow re-renders while a card grows/shrinks, costing GPU time on every focus move. Off: flat cards, same layout.",
+                    title: "Card shadows & glow",
+                    subtitle: "Soft drop shadows under posters, and the accent glow behind a focused card. Each is an offscreen blur that re-renders on every focus move — the biggest scroll cost on older boxes. Off: flat cards with just the focus border, same layout.",
                     isOn: s.cardShadows
                 )
                 PerfToggleRow(
@@ -74,6 +74,14 @@ struct PerformanceSettingsDetail: View {
                     subtitle: "The focused card springs slightly larger. Off: only the highlight ring marks focus — the cheapest possible focus effect.",
                     isOn: s.focusZoom
                 )
+                if theme.isAppleTVTheme {
+                    PerfToggleRow(
+                        icon: "move.3d",
+                        title: "Card wiggle & lift",
+                        subtitle: "The native Apple TV card effect: the focused poster raises and tilts/parallaxes as you move on the trackpad, like a Home-screen icon. The system re-composites the whole focused card as your finger moves — the heaviest per-frame focus cost, and rough on older Apple TVs. Off: cards do a light scale on focus instead, no tilt.",
+                        isOn: s.cardParallax
+                    )
+                }
             }
 
             SettingsGroupCard(

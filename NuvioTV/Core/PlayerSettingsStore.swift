@@ -126,7 +126,7 @@ enum PlayerEngine: String, Codable, CaseIterable {
         case .vlc:
             return "VLC buffers internally (no cache bar) and renders its own subtitles. Try it when a file is choppy on the other engines."
         case .external:
-            return "Send every stream to another player app installed on this Apple TV (Infuse, VLC, …) instead of playing in Nuvio. Pick the app below."
+            return "Send every stream to another player app installed on this Apple TV (Infuse, VLC, …) instead of playing in Orivio. Pick the app below."
         default:
             return "Auto picks the hardware AVPlayer for MP4/HLS and FFmpeg for MKV & friends; the other engine stays as automatic fallback."
         }

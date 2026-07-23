@@ -80,7 +80,6 @@ struct ProfileGateView: View {
     // Open with focus on the profile you last used, so the trackpad starts on a
     // sensible tile rather than an arbitrary one.
     @FocusState private var focusedProfile: Int?
-
     var body: some View {
         ZStack {
             theme.palette.background.ignoresSafeArea()

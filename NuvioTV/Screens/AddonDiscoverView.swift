@@ -99,7 +99,7 @@ struct AddonDiscoverView: View {
                 title: catalogsOnly ? "Community Catalogs" : "Discover Add-ons",
                 subtitle: catalogsOnly
                     ? "Add catalog add-ons — their rows appear on Home"
-                    : "Recommended picks and the full Stremio community catalog"
+                    : "Recommended picks and the full community catalog"
             ) {
                 LazyVStack(alignment: .leading, spacing: NuvioSpacing.xl) {
                     section("Recommended", items: featuredItems)

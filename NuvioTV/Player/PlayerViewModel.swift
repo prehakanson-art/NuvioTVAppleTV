@@ -204,6 +204,15 @@ final class NuvioPlayerOptions: KSOptions {
             rate = refreshRate
             if (23.5...24.2).contains(rate) { rate = 23.976 }
         }
+        // Now that we know whether a rate switch is happening, set the pulldown
+        // softening correctly. When Match Frame Rate drives the panel TO the
+        // content's native cadence there is no 3:2 pulldown to soften — leaving
+        // it on (the old unconditional `true`) made videoClockSync fight a
+        // cadence that isn't there, softening drops on an already-matched panel.
+        // Match-dynamic-range-only leaves the panel at 60Hz, so it stays on.
+        // Set it BEFORE the de-dup guard so it's right even when the criteria
+        // are unchanged and we return early below.
+        pulldown60Hz = !matchFrameRate
         guard lastAppliedDynamicRange != target.rawValue
             || lastAppliedRefreshRate != rate else { return }
         lastAppliedDynamicRange = target.rawValue
@@ -270,7 +279,48 @@ final class PlayerViewModel: ObservableObject {
         }
     }
     @Published private(set) var isBuffering = true {
-        didSet { updateBufferSpinner() }
+        // Watchdog only on TRANSITIONS: engines re-fire same-value buffering
+        // callbacks repeatedly during a stall, and re-arming on every identical
+        // write would perpetually reset the 20s timer so it never fired.
+        didSet {
+            updateBufferSpinner()
+            if oldValue != isBuffering { updateStallWatchdog() }
+        }
+    }
+    /// A source that OPENED and then froze mid-stream (a debrid CDN cutting off
+    /// an IP-locked link after the first request succeeds) keeps buffering
+    /// forever with nothing to re-trigger failover — the load watchdog was
+    /// already disarmed when the stream opened. This catches a sustained stall
+    /// during active playback and fails over.
+    private var stallWatchdogTask: Task<Void, Never>?
+    private let stallTimeoutSeconds: UInt64 = 20
+
+    private func updateStallWatchdog() {
+        stallWatchdogTask?.cancel()
+        // Only while a stream that already started keeps buffering, mid-playback.
+        // (A brief seek/skip blip cancels-and-re-arms, so only a SUSTAINED
+        // stall ever fires.)
+        guard isBuffering, currentLoadStarted, hasStartedPlayback,
+              !isExiting, !isFailingOver else { return }
+        let timeout = stallTimeoutSeconds
+        stallWatchdogTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: timeout * 1_000_000_000)
+            // Re-check currentLoadStarted at FIRE time too: if a source switch
+            // began after arming, the stream is opening (not stalled) and the
+            // 30s load watchdog owns that phase — a slow debrid open must not
+            // be killed at 20s by a stall check armed for the previous stream.
+            guard !Task.isCancelled, let self,
+                  self.isBuffering, self.currentLoadStarted,
+                  !self.isExiting, !self.isFailingOver else { return }
+            self.showToast("Playback stalled — trying another source")
+            self.attemptFailover(
+                afterError: NSError(
+                    domain: "Nuvio", code: -3,
+                    userInfo: [NSLocalizedDescriptionKey: "Playback stalled for \(timeout)s."]
+                ),
+                preferResolution: self.currentEntry.resolutionLabel
+            )
+        }
     }
     /// Debounced buffering UI. Skips/seeks cause sub-half-second `.buffering`
     /// blips, and flashing the spinner card for those reads as a white glitch
@@ -324,6 +374,15 @@ final class PlayerViewModel: ObservableObject {
     /// `subtitleModel.subtitleDelay` for the UI; nudged during playback.
     @Published var subtitleDelay: Double = 0
     @Published var playbackSpeed: Float = 1.0
+    /// Native-transport fast-forward / rewind. It is a PREVIEW scrub through the
+    /// progress bar: `scanPreview` is the previewed position (nil = not scanning),
+    /// and the underlying player is paused and NOT sought while it runs — so no
+    /// new content loads until the user commits with Play (`scanCommit`).
+    /// `scanRate` is the continuous-sweep speed/direction (0 = paused-preview,
+    /// +2/+3 = sweeping forward Nx, −2/−3 = sweeping back Nx).
+    @Published var scanPreview: Double?
+    @Published private(set) var scanRate: Int = 0
+    private var wasPlayingBeforeScan = false
 
     // Content
     let meta: MetaItem
@@ -567,6 +626,7 @@ final class PlayerViewModel: ObservableObject {
     private var hideControlsTask: Task<Void, Never>?
     private var scrubTimeoutTask: Task<Void, Never>?
     private var seekDebounceTask: Task<Void, Never>?
+    private var scanTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private var lastProgressSave = Date.distantPast
     private var lastSubtitleSearchAt: Double = -1
@@ -641,8 +701,15 @@ final class PlayerViewModel: ObservableObject {
         // Keep the gate SMALL for instant recovery; smoothness comes from the
         // deep background buffer (maxBufferDuration), which keeps filling
         // ahead regardless of this value.
+        //
+        // CRITICAL: the gate MUST stay strictly below maxBufferDuration (below).
+        // At 6 it EQUALLED the low-power maxBufferDuration (6), so a mid-play
+        // stall could only resume once the buffer was 100% full — which it
+        // rarely reaches exactly, so playback deadlocked ("plays a split second
+        // then keeps loading"). 3 leaves headroom under every tier (6/12/45) and
+        // under the per-title byte-budget floor (applyBufferSizeTarget).
         KSOptions.isSecondOpen = true
-        KSOptions.preferredForwardBufferDuration = 6
+        KSOptions.preferredForwardBufferDuration = 3
         // The continuous ahead-cache: the reader keeps filling toward this cap
         // the whole time — playing or paused. A high-bitrate remux holds ~this
         // many seconds of compressed packets in RAM (tvOS has no working disk
@@ -751,6 +818,12 @@ final class PlayerViewModel: ObservableObject {
     /// foreground handler knows to resync (and ignores stray foreground
     /// notifications that weren't preceded by a real background).
     private var didBackground = false
+    /// Set on willResignActive (app switcher / system overlay) so the
+    /// didBecomeActive handler knows a real interruption happened and the
+    /// pipeline needs a resync on return — the app-switcher path never fires
+    /// background/foreground, so without this the torn-off video layer comes
+    /// back frozen while audio keeps playing. Cleared once the resync runs.
+    private var didResignActive = false
     /// True while the just-foregrounded pipeline is being flushed/resynced —
     /// PlayerScreen holds a black cover over the video for this so the
     /// undecoded garbage frames (the black/green/red flash) never show.
@@ -781,6 +854,16 @@ final class PlayerViewModel: ObservableObject {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.handleResignActive() }
         })
+        // Returning from the app switcher (or any system overlay that only made
+        // us INACTIVE, never background) fires didBecomeActive with NO
+        // willEnterForeground — so the pipeline resync that path relies on never
+        // runs, and the video layer, torn off while inactive, comes back frozen
+        // with audio still going. Resync here for exactly that case.
+        notificationTokens.append(nc.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.handleBecomeActive() }
+        })
     }
 
     /// App switcher / system overlay took the screen without backgrounding
@@ -790,7 +873,12 @@ final class PlayerViewModel: ObservableObject {
     /// harmlessly (pausing an already-paused engine is a no-op; it just adds
     /// its own didBackground bookkeeping for the pipeline resync).
     private func handleResignActive() {
-        guard hasStartedPlayback, !isExiting, isPlaying else { return }
+        guard hasStartedPlayback, !isExiting else { return }
+        // Remember the interruption even if we were already paused: on return
+        // the video layer may have been torn off (frozen frame) and still needs
+        // a resync nudge. Actual pausing only matters while playing.
+        didResignActive = true
+        guard isPlaying else { return }
         enginePause()
         pausedAt = Date()
         // Land on the pause overlay so returning shows a clean "paused here"
@@ -810,15 +898,32 @@ final class PlayerViewModel: ObservableObject {
         saveProgress()
     }
 
-    /// Returning from background: the suspended decode pipeline is stale
-    /// (garbage frames, A/V desync, stale audio buffers). Flush and
-    /// re-establish sync with an in-place seek and STAY paused where they
-    /// left off — pressing Play then resumes cleanly, instead of resuming
-    /// into the broken pipeline (the fast-forward / stale-audio bug). Never
-    /// auto-resumes: the user asked to just press play to continue.
+    /// Returning from a full background: resync the stale decode pipeline.
     private func handleEnterForeground() {
         guard didBackground, hasStartedPlayback, !isExiting else { return }
         didBackground = false
+        // This path owns the resync; keep didBecomeActive (which fires right
+        // after) from running a second, redundant one.
+        didResignActive = false
+        resyncPipeline()
+    }
+
+    /// Returning from the app switcher / a system overlay that only made us
+    /// INACTIVE (no background/foreground pair). Without this the resync never
+    /// runs and the torn-off video layer comes back frozen while audio plays —
+    /// the double-press-Home-then-return freeze. Guarded so it never doubles up
+    /// with the full-background path (which clears didResignActive first).
+    private func handleBecomeActive() {
+        guard didResignActive, !didBackground, hasStartedPlayback, !isExiting else { return }
+        didResignActive = false
+        resyncPipeline()
+    }
+
+    /// Flush the (possibly stale or torn-off) decode pipeline and re-render the
+    /// current frame in place, staying paused where the viewer left off —
+    /// pressing Play then resumes cleanly instead of into a broken pipeline
+    /// (the fast-forward / stale-audio / frozen-frame bugs). Never auto-resumes.
+    private func resyncPipeline() {
         isResyncing = true
         let target = max(position - 1, 0)
         if let vlcEngine {
@@ -827,11 +932,22 @@ final class PlayerViewModel: ObservableObject {
             scheduleResyncClear(after: 0.7)
         } else {
             playerLayer?.pause()
-            playerLayer?.seek(time: target, autoPlay: false) { [weak self] _ in
-                MainActor.assumeIsolated { self?.scheduleResyncClear(after: 0.2) }
+            // DV-aware: native Dolby Vision runs off an offset local playlist,
+            // so a raw layer seek to the absolute `position` lands outside the
+            // playlist window and WEDGES the picture (frozen video / blue screen
+            // on exit). engineSeek maps the offset (and restarts the remux if the
+            // target fell out of the written window).
+            if usingNativeDV {
+                engineSeek(to: target, autoPlay: false)
+                // engineSeek has no completion hook; rely on the safety-net clear.
+                scheduleResyncClear(after: 1.5)
+            } else {
+                playerLayer?.seek(time: target, autoPlay: false) { [weak self] _ in
+                    MainActor.assumeIsolated { self?.scheduleResyncClear(after: 0.2) }
+                }
+                // Safety net in case the seek callback never fires.
+                scheduleResyncClear(after: 1.5)
             }
-            // Safety net in case the seek callback never fires.
-            scheduleResyncClear(after: 1.5)
         }
         position = target
         clock.position = target
@@ -1150,9 +1266,17 @@ final class PlayerViewModel: ObservableObject {
 
         let budgetBytes = Double(min(target, PerformanceProfile.maxBufferBytes))
         let seconds = budgetBytes * 8 / bitsPerSecond
-        // Sane bounds: never below the tier default we started with, never a
+        // `seconds` is how much video actually FITS in the RAM byte budget, so it
+        // must be an upper bound — this whole method exists to stop high-bitrate
+        // remuxes from over-allocating and getting jetsam-killed. The old
+        // `max(seconds, options.maxBufferDuration)` floored the result UP to the
+        // tier default (up to 45s), which for a 4K/high-bitrate stream blew right
+        // past the byte budget it was supposed to enforce. Cap by the byte budget
+        // instead; keep only a small floor so the buffer always stays comfortably
+        // above the stall-resume gate (preferredForwardBufferDuration), never a
         // runaway (30 min is plenty even for a very low-bitrate stream).
-        let clamped = min(max(seconds, options.maxBufferDuration), 1800)
+        let floor = Double(KSOptions.preferredForwardBufferDuration) + 2
+        let clamped = min(max(seconds, floor), 1800)
         options.maxBufferDuration = clamped
         NSLog("[OrivioBuffer] size target %d MB @ %.1f Mbps → %.0fs cache (cap %d MB)",
               target / (1 << 20), bitsPerSecond / 1_000_000, clamped,
@@ -1508,6 +1632,8 @@ final class PlayerViewModel: ObservableObject {
         // Ignore input while exiting, or during the sub-second post-background
         // resync (a play press then would race the in-flight flush-seek).
         guard !isExiting, !isResyncing else { return }
+        // If a fast-forward/rewind preview is up, Play commits it (seek + resume).
+        if scanPreview != nil { scanCommit(); return }
         if isPlaying {
             enginePause()
             if overlay == .none {
@@ -1533,10 +1659,17 @@ final class PlayerViewModel: ObservableObject {
         showToast(TimeFormat.signedDelta(seconds))
     }
 
+    /// When the user last issued a seek (skip/scrub/scan commit). Used to treat a
+    /// finish-error that lands right after a big seek as a RECOVERABLE seek fault
+    /// rather than a dead source (see `player(layer:finish:)`).
+    private var lastUserSeekAt: Date?
+    private var seekRecoveryInFlight = false
+
     func seek(to seconds: Double) {
         let target = max(0, min(seconds, duration > 0 ? duration - 1 : seconds))
         position = target
         clock.position = target   // instant UI feedback, no waiting for a tick
+        lastUserSeekAt = Date()
         engineSeek(to: target, autoPlay: true)
     }
 
@@ -1909,7 +2042,10 @@ final class PlayerViewModel: ObservableObject {
             // restarts this, so the controls never vanish mid-navigation.
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             guard !Task.isCancelled, let self else { return }
-            if overlay == .controls, isPlaying {
+            // Keep the transport up while a fast-forward/rewind preview is
+            // active (so the moving playhead stays visible); otherwise hide once
+            // idle + playing.
+            if overlay == .controls, isPlaying, scanPreview == nil {
                 overlay = .none
             }
         }
@@ -1932,6 +2068,12 @@ final class PlayerViewModel: ObservableObject {
         let now = Date()
         guard now.timeIntervalSince(lastExitPressAt) > 0.3 else { return true }
         lastExitPressAt = now
+        // A fast-forward/rewind preview is cancelled by Back first (resumes where
+        // playback was, without seeking).
+        if scanPreview != nil {
+            scanCancel()
+            return true
+        }
         if isScrubbing {
             cancelScrub()
             return true
@@ -2027,6 +2169,86 @@ final class PlayerViewModel: ObservableObject {
         if let vlcEngine { vlcEngine.rate = speed }
         else { playerLayer?.player.playbackRate = speed }
         showToast("Speed \(speed == 1 ? "Normal" : String(format: "%gx", speed))")
+    }
+
+    // MARK: - Fast-forward / rewind scan (native transport, preview-based)
+
+    /// Enter preview mode if we aren't already: pause playback and anchor the
+    /// preview at the current position. Nothing is sought here, so nothing loads.
+    private func beginScanPreviewIfNeeded() {
+        guard scanPreview == nil else { return }
+        wasPlayingBeforeScan = isPlaying
+        enginePause()
+        scanPreview = position
+    }
+
+    /// A short PRESS of the FF/RW button. While a continuous sweep runs in that
+    /// direction it bumps the speed (2x → 3x); otherwise it steps the preview
+    /// playhead ±skip along the bar. Never seeks — the video only moves on Play.
+    func scanTap(forward: Bool) {
+        guard hasStartedPlayback else { return }
+        beginScanPreviewIfNeeded()
+        showControls()
+        if scanRate != 0, (scanRate > 0) == forward {
+            let mag = abs(scanRate) >= 3 ? 2 : abs(scanRate) + 1
+            scanRate = forward ? mag : -mag
+        } else {
+            scanRate = 0
+            scanTask?.cancel(); scanTask = nil
+            stepScanPreview(forward ? Double(settings.skipSeconds) : -Double(settings.skipSeconds))
+        }
+    }
+
+    /// A long PRESS (hold): toggle a continuous preview sweep THROUGH the bar in
+    /// that direction (2x). Hold again stops the sweep (leaving the preview where
+    /// it froze, ready to commit with Play).
+    func scanHold(forward: Bool) {
+        guard hasStartedPlayback else { return }
+        if scanRate != 0 {
+            scanRate = 0
+            scanTask?.cancel(); scanTask = nil
+            showControls()
+            return
+        }
+        beginScanPreviewIfNeeded()
+        showControls()
+        scanRate = forward ? 2 : -2
+        scanTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, scanRate != 0, scanPreview != nil else { return }
+                stepScanPreview(Double(scanRate) * 6)   // ~6s × rate per tick
+                if let p = scanPreview, p <= 0 || p >= max(duration - 1, 0) {
+                    scanRate = 0; return
+                }
+                try? await Task.sleep(nanoseconds: 250_000_000)
+            }
+        }
+    }
+
+    private func stepScanPreview(_ delta: Double) {
+        guard let p = scanPreview else { return }
+        scanPreview = max(0, min(p + delta, duration > 0 ? duration - 1 : p + delta))
+    }
+
+    /// Commit the preview — the ONLY point the video seeks and thus loads.
+    func scanCommit() {
+        guard let target = scanPreview else { return }
+        scanRate = 0
+        scanTask?.cancel(); scanTask = nil
+        scanPreview = nil
+        seek(to: target)        // loads the new position here
+        enginePlay()
+        showControls()
+    }
+
+    /// Abandon the preview and resume exactly where playback was.
+    func scanCancel() {
+        guard scanPreview != nil else { return }
+        scanRate = 0
+        scanTask?.cancel(); scanTask = nil
+        scanPreview = nil
+        if wasPlayingBeforeScan { enginePlay() }
+        showControls()
     }
 
     func cycleAspect() {
@@ -2230,14 +2452,18 @@ final class PlayerViewModel: ObservableObject {
 
     /// Fetch every stream for the current title from the installed stream
     /// addons. Torrent entries are kept only when a debrid resolver exists.
-    private func fetchAvailableSources() async -> [StreamEntry] {
+    private func fetchAvailableSources(forceRefresh: Bool = false) async -> [StreamEntry] {
         let id = currentVideo?.id ?? meta.id
         let type = meta.type
         let hasResolver = torrentResolver != nil
         var entries: [StreamEntry] = []
         // Instant path: the Sources page caches the raw source list per title,
         // so an in-player Sources open / failover re-uses it with no sweep.
-        if let cached = await StreamsViewModel.sourceCache.value(for: id, ttl: StreamsViewModel.sourceCacheTTL),
+        // `forceRefresh` skips the cache so a failover can re-resolve FRESH
+        // debrid links — the cached ones may be IP-locked/expired (the exact
+        // "wrong IP, Comet won't play it" case).
+        if !forceRefresh,
+           let cached = await StreamsViewModel.sourceCache.value(for: id, ttl: StreamsViewModel.sourceCacheTTL),
            !cached.isEmpty {
             entries = cached
                 .map { StreamEntry(addonName: $0.addonName, stream: $0.stream) }
@@ -2345,13 +2571,32 @@ final class PlayerViewModel: ObservableObject {
         currentLoadStarted = true
         loadWatchdogTask?.cancel()
         loadWatchdogTask = nil
+        // A source is alive again — allow the next stall to re-scrape fresh
+        // links once more (so a link that goes bad mid-session can still
+        // recover via a re-resolve), and let a later stall re-capture the
+        // "prefer this addon/quality" target from whatever is now playing.
+        didFailoverRefetch = false
+        chainPreferredAddon = nil
+        chainPreferredResolution = nil
     }
 
     // MARK: - Automatic source failover
 
     /// Sources already tried (and failed) this session, so the failover never
-    /// loops back onto a dead link.
+    /// loops back onto a dead link. URLs are tracked too because a fresh
+    /// re-scrape hands back new StreamEntry UUIDs for the same (still-dead) link.
     private var failedSourceIDs: Set<UUID> = []
+    private var failedSourceURLs: Set<String> = []
+    /// Set once a fresh (cache-bypassing) re-scrape has been tried this failover
+    /// chain, so exhausting the list re-resolves links exactly once — reset when
+    /// a source successfully starts so the next stall can re-scrape again.
+    private var didFailoverRefetch = false
+    /// The addon/quality of the link that started this failover chain (the
+    /// original one the user was on) — failover prefers the SAME addon first,
+    /// then the closest quality. Captured at chain start, cleared on a
+    /// successful load so a later stall re-captures.
+    private var chainPreferredAddon: String?
+    private var chainPreferredResolution: String?
     private var isFailingOver = false
 
     /// A stream died. Remember the survivors' position, pick the next viable
@@ -2368,7 +2613,16 @@ final class PlayerViewModel: ObservableObject {
         }
         guard !isFailingOver else { return }
         isFailingOver = true
+        stallWatchdogTask?.cancel()
+        // Capture what to aim for ONCE per chain (the link that just died is,
+        // on the first failure, the original the user was on): prefer the same
+        // addon, then the closest quality.
+        if chainPreferredAddon == nil {
+            chainPreferredAddon = currentEntry.addonName
+            chainPreferredResolution = preferResolution ?? currentEntry.resolutionLabel
+        }
         failedSourceIDs.insert(currentEntry.id)
+        if let deadURL = currentEntry.stream.url { failedSourceURLs.insert(deadURL) }
         let resumeAt = max(position, pendingResume ?? 0)
         isSwitchingSource = true
         Task { [weak self] in
@@ -2382,15 +2636,15 @@ final class PlayerViewModel: ObservableObject {
             if self.allEntries.count <= 1 {
                 self.allEntries = await self.fetchAvailableSources()
             }
-            var candidates = self.allEntries.filter { entry in
-                !self.failedSourceIDs.contains(entry.id)
-                    && entry.stream.url != self.currentEntry.stream.url
-            }
-            // Same-quality first (stable, so cached-first order survives within
-            // each half) when a preferred resolution was given.
-            if let preferResolution {
-                candidates = candidates.filter { $0.resolutionLabel == preferResolution }
-                    + candidates.filter { $0.resolutionLabel != preferResolution }
+            var candidates = self.viableFailoverCandidates()
+            // Everything we know about is dead. Before giving up, re-scrape
+            // FRESH (bypassing the cache) once — a wrong-IP/expired debrid link
+            // often re-resolves to a working one — then re-evaluate.
+            if candidates.isEmpty, !self.didFailoverRefetch {
+                self.didFailoverRefetch = true
+                self.showToast("Re-checking sources…")
+                self.allEntries = await self.fetchAvailableSources(forceRefresh: true)
+                candidates = self.viableFailoverCandidates()
             }
             guard var next = candidates.first else {
                 self.overlay = .error(
@@ -2404,6 +2658,18 @@ final class PlayerViewModel: ObservableObject {
                 guard let resolver = self.torrentResolver,
                       let resolved = await resolver(next.stream) else {
                     self.failedSourceIDs.insert(next.id)
+                    if let u = next.stream.url { self.failedSourceURLs.insert(u) }
+                    self.attemptFailoverRetry(afterError: error)
+                    return
+                }
+                // The debrid cache can hand back the SAME dead direct link the
+                // failover just abandoned (the torrent entry itself stays in
+                // allEntries under its magnet URL). Without this check the
+                // chain loops forever: pick torrent → resolve to dead link →
+                // stall → fail → pick the same torrent again.
+                if let u = resolved.url, self.failedSourceURLs.contains(u) {
+                    self.failedSourceIDs.insert(next.id)
+                    if let tu = next.stream.url { self.failedSourceURLs.insert(tu) }
                     self.attemptFailoverRetry(afterError: error)
                     return
                 }
@@ -2414,6 +2680,33 @@ final class PlayerViewModel: ObservableObject {
             self.pendingResume = resumeAt > 10 ? resumeAt : nil
             self.load(entry: next)
         }
+    }
+
+    /// Sources not yet marked dead (by UUID or URL), ordered to match the
+    /// original link as closely as possible: SAME ADDON + same quality first,
+    /// then same addon (any quality), then same quality (other addons), then the
+    /// rest — stable within each tier so cached-first order survives.
+    private func viableFailoverCandidates() -> [StreamEntry] {
+        let viable = allEntries.filter { entry in
+            !failedSourceIDs.contains(entry.id)
+                && !failedSourceURLs.contains(entry.stream.url ?? "")
+        }
+        func rank(_ e: StreamEntry) -> Int {
+            let sameAddon = chainPreferredAddon != nil && e.addonName == chainPreferredAddon
+            let sameRes = chainPreferredResolution != nil && e.resolutionLabel == chainPreferredResolution
+            switch (sameAddon, sameRes) {
+            case (true, true):   return 0
+            case (true, false):  return 1
+            case (false, true):  return 2
+            case (false, false): return 3
+            }
+        }
+        return viable.enumerated()
+            .sorted { a, b in
+                let ra = rank(a.element), rb = rank(b.element)
+                return ra != rb ? ra < rb : a.offset < b.offset
+            }
+            .map(\.element)
     }
 
     /// Re-enter the failover after a candidate was consumed without a load.
@@ -2640,12 +2933,30 @@ final class PlayerViewModel: ObservableObject {
         let hasResolver = torrentResolver != nil
         Task {
             defer { isSwitchingSource = false }
-            let addons = addonManager.streamAddons.filter { $0.handles(id: episode.id) }
+            // Normalize the episode id the SAME way the initial-play path
+            // (StreamsView.effectiveStreamID) does: stream addons speak IMDb
+            // `tt` ids and need the canonical `showId:season:episode` form. The
+            // raw `episode.id` from enriched metadata can be a `tmdb:` id or —
+            // after a Continue-Watching round-trip — a bare show id, neither of
+            // which any addon can resolve, which is why switching episodes from
+            // the in-player list produced no working source.
+            var showID = meta.id
+            if showID.hasPrefix("tmdb:"), let n = Int(showID.dropFirst("tmdb:".count)),
+               let tt = await TMDBService.imdbID(tmdbID: n, isMovie: meta.type != "series") {
+                showID = tt
+            }
+            let streamID: String
+            if showID.hasPrefix("tt"), let season = episode.season, let ep = episode.episode {
+                streamID = "\(showID):\(season):\(ep)"
+            } else {
+                streamID = episode.id
+            }
+            let addons = addonManager.streamAddons.filter { $0.handles(id: streamID) }
             var entries: [StreamEntry] = []
             await withTaskGroup(of: [StreamEntry].self) { group in
                 for addon in addons {
                     group.addTask { [meta] in
-                        let streams = (try? await StremioAPI.streams(addon: addon, type: meta.type, id: episode.id)) ?? []
+                        let streams = (try? await StremioAPI.streams(addon: addon, type: meta.type, id: streamID)) ?? []
                         // Keep cached torrents too when a debrid resolver
                         // exists, so the Choose-Source list isn't just direct
                         // links.
@@ -2786,15 +3097,30 @@ final class PlayerViewModel: ObservableObject {
     }
 
     func teardown() {
+        // The player is gone: any in-flight failover / watchdog / seek callback
+        // must NOT restart playback from here (they all gate on isExiting).
+        // Also swallows engine state callbacks arriving mid-teardown.
+        isExiting = true
         saveProgress()
         cacheTask?.cancel()
         thumbnailTask?.cancel()
         countdownTask?.cancel()
+        scanTask?.cancel()
         resyncClearTask?.cancel()
         loadWatchdogTask?.cancel()
+        stallWatchdogTask?.cancel()
         UIApplication.shared.isIdleTimerDisabled = false
         playerLayer?.pause()
         playerLayer?.stop()
+        // KSMEPlayer.shutdown() (called by stop()) does NOT stop its
+        // AVSampleBufferAudioRenderer — the Atmos/spatial audio path (see
+        // AudioRendererPlayer). Audio already enqueued in that renderer can keep
+        // playing for a beat in the background after the layer is gone, which is
+        // the "recently watched movie audio keeps playing sometimes" bug (only
+        // hits the renderer path, hence 'sometimes'). stop() resets playbackVolume
+        // to 1, so do this AFTER it: force the volume to 0 so any lingering
+        // renderer output drains silently before the layer deallocates.
+        playerLayer?.player.playbackVolume = 0
         playerLayer = nil
         vlcEngine?.stop()
         vlcEngine = nil
@@ -2894,6 +3220,12 @@ final class PlayerViewModel: ObservableObject {
     /// competes with the initial pre-cache for bandwidth. Skipped for HLS
     /// (packetized playlists don't suit the frame grabber).
     private func startThumbnailsIfNeeded() {
+        // Apple TV HD (A8, 2 cores): the preview pass decodes 36 keyframes on a
+        // second FFmpeg session while the main decode is already near the CPU
+        // ceiling for 1080p — it visibly nicks playback there no matter how
+        // "idle" the network is. Skip; the scrub HUD falls back to the time
+        // chip, exactly as it already does for HLS and oversized files.
+        guard !PerformanceProfile.isLowPower else { return }
         guard !thumbnailsStarted,
               let url = currentURL,
               url.pathExtension.lowercased() != "m3u8" else { return }
@@ -3241,10 +3573,16 @@ extension PlayerViewModel: KSPlayerLayerDelegate {
                     beginPrecache()
                 }
             } else {
-                // Engine failover / source switch mid-session: re-apply the
-                // resume seek and play straight away.
+                // Engine failover / source switch / episode switch mid-session.
+                // With a meaningful resume position, seek there and autoplay.
+                // Otherwise (a fresh, unwatched episode starts at 0) start
+                // playing outright — play(episode:) paused the layer before the
+                // switch, so without this an unwatched episode set up its stream
+                // but never left pause, spinning on the loading state forever.
                 if resume > 5, duration == 0 || resume < duration - 30 {
                     layer.seek(time: resume, autoPlay: true) { _ in }
+                } else {
+                    layer.play()
                 }
                 pendingResume = nil
                 if overlay == .none { showControls() }
@@ -3327,6 +3665,28 @@ extension PlayerViewModel: KSPlayerLayerDelegate {
         // would load() a fresh source into a NEW layer behind the dismissed
         // player — orphaned playback with no UI to stop it.
         guard !isExiting else { return }
+        // A far USER seek can make an otherwise-working source emit a finish
+        // error (the engine rejected the jumped-to byte range) — that's a
+        // recoverable seek fault, NOT a dead source, so don't abandon the source
+        // the user is happily watching. Snap back to a spot we've already
+        // buffered and resume on the SAME source. Only if it errors AGAIN (the
+        // recovery seek is in flight / the fault wasn't seek-related) do we fall
+        // through to real failover.
+        if let last = lastUserSeekAt, Date().timeIntervalSince(last) < 6,
+           hasStartedPlayback, !seekRecoveryInFlight {
+            seekRecoveryInFlight = true
+            lastUserSeekAt = nil
+            let safe = max(0, min(position, buffered > 2 ? buffered - 2 : position))
+            showToast("Couldn't skip that far — resuming")
+            position = safe
+            clock.position = safe
+            engineSeek(to: safe, autoPlay: true)
+            Task { [weak self] in
+                try? await Task.sleep(nanoseconds: 4_000_000_000)
+                self?.seekRecoveryInFlight = false
+            }
+            return
+        }
         // KSPlayerLayer already retried with the FFmpeg engine before this
         // fires, so a surviving error means both engines rejected the stream.
         // Don't dead-end on it — fail over to the next source automatically
